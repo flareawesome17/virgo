@@ -4,6 +4,8 @@ import {
   Alert,
   Modal,
   PixelRatio,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   RefreshControl,
@@ -22,12 +24,12 @@ import { VideoThumbnail } from '@/components/VideoThumbnail';
 import { BottomSheet, useShade } from '@/components/BottomSheet';
 import { NameSheet } from '@/components/NameSheet';
 import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
-import { SegmentedTabs } from '@/components/SegmentedTabs';
+import { PlayAllBar, RecordingRow } from '@/components/Recordings';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWindowInsets } from '@/src/lib/window-insets';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -35,20 +37,20 @@ import * as MediaLibrary from 'expo-media-library';
 import { canSaveToPhotos } from '@/src/lib/photo-permission';
 import * as WebBrowser from 'expo-web-browser';
 import {
-  ArrowDownUpIcon,
   ArrowLeftIcon,
   CheckIcon,
+  CircleCheckIcon,
   DownloadIcon,
   FileIcon,
   FolderInputIcon,
   HeartIcon,
   ImageIcon,
   LinkIcon,
+  ListFilterIcon,
   MoreHorizontalIcon,
   MusicIcon,
   PlayIcon,
   PlusIcon,
-  ShieldIcon,
   Trash2Icon,
   UploadIcon,
   VideoIcon,
@@ -103,11 +105,13 @@ import { daySpan } from '@/src/lib/media-days';
 import { albumDeleteConsequence } from '@/src/lib/workspaces';
 import { PALETTES } from '@/theme';
 import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
+import { useAlbumAudio } from '@/src/providers/AlbumAudioProvider';
 
 const interop = { className: { target: 'style', nativeStyleToProp: { color: true } } } as const;
-cssInterop(ArrowDownUpIcon, interop);
 cssInterop(ArrowLeftIcon, interop);
 cssInterop(CheckIcon, interop);
+cssInterop(CircleCheckIcon, interop);
+cssInterop(ListFilterIcon, interop);
 cssInterop(DownloadIcon, interop);
 cssInterop(FileIcon, interop);
 cssInterop(FolderInputIcon, interop);
@@ -118,7 +122,6 @@ cssInterop(MoreHorizontalIcon, interop);
 cssInterop(MusicIcon, interop);
 cssInterop(PlayIcon, interop);
 cssInterop(PlusIcon, interop);
-cssInterop(ShieldIcon, interop);
 cssInterop(Trash2Icon, interop);
 cssInterop(UploadIcon, interop);
 cssInterop(VideoIcon, interop);
@@ -135,12 +138,22 @@ const KINDS: { key: KindFilter; label: string }[] = [
   { key: 'audio', label: 'Audio' },
 ];
 
-/** Tokens rather than hex, so both themes and every contrast check hold. */
-const STATUS: Record<string, { label: string; className: string; text: string }> = {
-  draft: { label: 'Draft', className: 'bg-muted', text: 'text-muted-foreground' },
-  review: { label: 'In review', className: 'bg-warning/15', text: 'text-warning' },
-  delivered: { label: 'Delivered', className: 'bg-success/15', text: 'text-success' },
+/**
+ * A dot and a word. Tokens rather than hex, so both themes and every contrast
+ * check hold.
+ */
+const STATUS: Record<string, { label: string; dot: string }> = {
+  draft: { label: 'Draft', dot: 'bg-muted-foreground' },
+  review: { label: 'In review', dot: 'bg-warning' },
+  delivered: { label: 'Delivered', dot: 'bg-success' },
 };
+
+/** Between two films side by side. */
+const FILM_GAP = 12;
+
+/** A photograph in its tile, and the same one stepped in when it is chosen. */
+const FULL = { flex: 1 } as const;
+const INSET = { position: 'absolute', top: 8, left: 8, right: 8, bottom: 8, borderRadius: 8, overflow: 'hidden' } as const;
 
 const LINK_SCOPE_ROWS: {
   kind: ShareMediaKind;
@@ -203,6 +216,46 @@ export default function AlbumScreen() {
   const [order, setOrder] = useState<'newest' | 'oldest'>('newest');
   const [density, setDensity] = useState(DEFAULT_DENSITY);
   const [refreshing, setRefreshing] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  // The title folds away once the photographs are being scrolled, and comes
+  // back at the top. A step, not a slide tied to the finger: the list is the
+  // thing under the finger, and a header resizing with every pixel of it made
+  // the photographs travel at twice the speed of the hand.
+  const [folded, setFolded] = useState(false);
+  const [headHeight, setHeadHeight] = useState(0);
+  const fold = useSharedValue(0);
+  useEffect(() => {
+    fold.value = withTiming(folded ? 1 : 0, { duration: 220 });
+  }, [folded, fold]);
+  const foldStyle = useAnimatedStyle(
+    () =>
+      headHeight > 0
+        ? { height: headHeight * (1 - fold.value), opacity: 1 - fold.value }
+        : { opacity: 1 - fold.value },
+    [headHeight],
+  );
+  const onGridScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const y = contentOffset.y;
+      // Folded only when there is enough below to stay scrolled once it has:
+      // on a short album the list stopped being scrollable, sprang to the top,
+      // and the title came straight back.
+      const room = contentSize.height - layoutMeasurement.height > headHeight + 80;
+      setFolded((was) => (was ? y > 0 : y > 24 && room));
+    },
+    [headHeight],
+  );
+
+  const audio = useAlbumAudio();
+  // Read by the tap handler, which must not be rebuilt four times a second
+  // while something plays: the provider is a new object on every tick.
+  const audioRef = useRef(audio);
+  useEffect(() => {
+    audioRef.current = audio;
+  }, [audio]);
+  const playingKey = audio.current?.albumId === albumId ? audio.current.key : null;
 
   const filter = {
     kind: kind === 'all' ? undefined : kind,
@@ -281,7 +334,11 @@ export default function AlbumScreen() {
   const densities = densitiesFor(width);
   const columns = densities[density];
   const tile = (width - HAIRLINE * (columns - 1)) / columns;
-  const sections = useMemo(() => toSections(files, columns), [files, columns]);
+  // Films go two across in their own shape and recordings one to a row; only
+  // the mixed grid and the photographs answer to the pinch.
+  const layoutColumns = kind === 'video' ? 2 : kind === 'audio' ? 1 : columns;
+  const filmWidth = Math.floor((width - 40 - FILM_GAP) / 2);
+  const sections = useMemo(() => toSections(files, layoutColumns), [files, layoutColumns]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -290,12 +347,13 @@ export default function AlbumScreen() {
   }, [refetchAlbum, filesQuery, sectionsQuery]);
 
   const changeDensity = useCallback((step: number) => {
+    if (kind === 'video' || kind === 'audio') return;
     setDensity((current) => {
       const next = Math.min(Math.max(current + step, 0), densities.length - 1);
       if (next !== current) void Haptics.selectionAsync();
       return next;
     });
-  }, [densities.length]);
+  }, [densities.length, kind]);
 
   /**
    * Pinch between 2, 3 and 5 across, or 3, 4 and 6 on a tablet — one step per
@@ -347,14 +405,29 @@ export default function AlbumScreen() {
             files.filter((f) => kindOf(f.contentType) === 'video'),
           );
           return;
-        case 'audio':
-          router.push(`/albums/${albumId}/audio?key=${key}${rest}`);
+        case 'audio': {
+          // Played where it is, into the bar every screen has. It opened a
+          // room of its own to play one recording, and Back was how you got
+          // to the next.
+          const player = audioRef.current;
+          if (player.current?.key === file.key) {
+            player.toggle();
+            return;
+          }
+          const recordings = files.filter((f) => kindOf(f.contentType) === 'audio');
+          player.playQueue(
+            recordings,
+            Math.max(recordings.findIndex((f) => f.key === file.key), 0),
+            album?.name ?? 'Virgo album',
+            album?.cover_url ?? null,
+          );
           return;
+        }
         default:
           if (file.url) await WebBrowser.openBrowserAsync(file.url);
       }
     },
-    [albumId, roomQuery, filter.kind, files, openFilm],
+    [albumId, roomQuery, filter.kind, files, openFilm, album?.name, album?.cover_url],
   );
 
   const onTile = useCallback(
@@ -603,8 +676,23 @@ export default function AlbumScreen() {
   const [parts, setParts] = useState<PartShareLink[]>([]);
   const [partLinking, setPartLinking] = useState(false);
 
+  // Whether a link is on, for the dot on the button. It was only known once
+  // the sheet had been opened.
+  useEffect(() => {
+    if (!canShare) return;
+    let live = true;
+    albumShareApi.get(albumId).then(
+      (link) => {
+        if (live) setExistingLink(link ?? null);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [albumId, canShare]);
+
   const openLinkSheet = async () => {
-    setExistingLink(null);
     // On its own: a failure here must not keep the album's own link from showing.
     void albumShareApi.parts(albumId).then(setParts, () => setParts([]));
     try {
@@ -784,27 +872,72 @@ export default function AlbumScreen() {
   // ── Rendering ────────────────────────────────────────────────────────────
 
   const renderRow = useCallback(
-    ({ item: row }: { item: MediaRow }) => (
-      <View className="flex-row" style={{ gap: HAIRLINE, marginBottom: HAIRLINE }}>
-        {row.items.map((file, column) => (
-          <MediaTile
-            key={file.key}
-            file={file}
-            size={tile}
-            index={row.firstIndex + column}
-            selecting={selecting}
-            selected={selection.has(file.key)}
-            onPress={onTile}
-            onLongPress={onLongTile}
-          />
-        ))}
-        {row.items.length < columns &&
-          Array.from({ length: columns - row.items.length }).map((_, index) => (
-            <View key={`gap-${index}`} style={{ width: tile, height: tile }} />
+    ({ item: row, index, section: day }: { item: MediaRow; index: number; section: MediaSection }) => {
+      // Recordings: rows of one card, a day to a card.
+      if (kind === 'audio') {
+        const file = row.items[0];
+        return (
+          <View className="px-5">
+            <RecordingRow
+              file={file}
+              number={row.firstIndex + 1}
+              first={index === 0}
+              last={index === day.data.length - 1}
+              active={playingKey === file.key}
+              playing={audio.playing}
+              loading={audio.loading}
+              selecting={selecting}
+              selected={selection.has(file.key)}
+              onPress={() => onTile(file)}
+              onLongPress={() => onLongTile(file)}
+            />
+          </View>
+        );
+      }
+      // Films: two across, in their own shape, each with its name and length.
+      if (kind === 'video') {
+        return (
+          <View className="flex-row px-5" style={{ gap: FILM_GAP, marginBottom: 16 }}>
+            {row.items.map((file, column) => (
+              <FilmCard
+                key={file.key}
+                file={file}
+                width={filmWidth}
+                index={row.firstIndex + column}
+                selecting={selecting}
+                selected={selection.has(file.key)}
+                onPress={onTile}
+                onLongPress={onLongTile}
+              />
+            ))}
+          </View>
+        );
+      }
+      return (
+        <View className="flex-row" style={{ gap: HAIRLINE, marginBottom: HAIRLINE }}>
+          {row.items.map((file, column) => (
+            <MediaTile
+              key={file.key}
+              file={file}
+              size={tile}
+              index={row.firstIndex + column}
+              selecting={selecting}
+              selected={selection.has(file.key)}
+              onPress={onTile}
+              onLongPress={onLongTile}
+            />
           ))}
-      </View>
-    ),
-    [tile, columns, selecting, selection, onTile, onLongTile],
+          {row.items.length < columns &&
+            Array.from({ length: columns - row.items.length }).map((_, gap) => (
+              <View key={`gap-${gap}`} style={{ width: tile, height: tile }} />
+            ))}
+        </View>
+      );
+    },
+    [
+      kind, tile, columns, filmWidth, selecting, selection, onTile, onLongTile,
+      playingKey, audio.playing, audio.loading,
+    ],
   );
 
   const renderDay = useCallback(
@@ -812,24 +945,32 @@ export default function AlbumScreen() {
       const dayFiles = day.data.flatMap((row) => row.items);
       const span = daySpan(dayFiles);
       const allChosen = dayFiles.every((file) => selection.has(file.key));
+      const count =
+        kind === 'video'
+          ? plural(dayFiles.length, 'film', 'films')
+          : kind === 'audio'
+            ? plural(dayFiles.length, 'recording', 'recordings')
+            : kind === 'image'
+              ? plural(dayFiles.length, 'photo', 'photos')
+              : plural(dayFiles.length, 'item', 'items');
       return (
-        <View className="bg-background px-4 pt-4 pb-2 flex-row items-center gap-2">
-          <Text className="text-foreground text-[15px] font-semibold" accessibilityRole="header">
+        <View className="bg-background px-5 pt-4 pb-2.5 flex-row items-baseline gap-2">
+          <Text className="text-foreground text-[15px] leading-5 font-bold" accessibilityRole="header">
             {day.title}
           </Text>
-          <Text className="text-muted-foreground text-xs flex-1" numberOfLines={1}>
-            {plural(dayFiles.length, 'item', 'items')}
-            {span ? ` · ${span}` : ''}
+          <Text className="text-muted-foreground text-[13px] leading-[18px] flex-1" numberOfLines={1}>
+            {count}
+            {span && !selecting ? ` · ${span}` : ''}
           </Text>
           {selecting && (
             <Pressable
               onPress={() => selection.setMany(dayFiles.map((file) => file.key), !allChosen)}
-              hitSlop={8}
+              hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel={`${allChosen ? 'Deselect' : 'Select'} everything from ${day.title}`}
-              className="px-2.5 py-1 rounded-lg bg-muted active:opacity-70"
+              className="active:opacity-60"
             >
-              <Text className="text-foreground text-xs font-semibold">
+              <Text className="text-primary text-[14px] font-semibold">
                 {allChosen ? 'Clear day' : 'Select day'}
               </Text>
             </Pressable>
@@ -837,7 +978,7 @@ export default function AlbumScreen() {
         </View>
       );
     },
-    [selecting, selection],
+    [selecting, selection, kind],
   );
 
   // A spinner was all this ever showed without the album — forever, for one
@@ -857,6 +998,19 @@ export default function AlbumScreen() {
 
   const status = STATUS[album.status] ?? STATUS.draft;
   const albumCounts = sectionsQuery.counts;
+  const retention = retentionBadge(retentionOf(album));
+  const countsLine =
+    [
+      albumCounts.image ? plural(albumCounts.image, 'photo', 'photos') : null,
+      albumCounts.video ? plural(albumCounts.video, 'film', 'films') : null,
+      albumCounts.audio ? plural(albumCounts.audio, 'recording', 'recordings') : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'Empty';
+  // What the filter button says when it is narrowing anything.
+  const narrowed =
+    kind !== 'all' ? (KINDS.find((k) => k.key === kind)?.label ?? null) : order === 'oldest' ? 'Oldest' : null;
+  const recordings = kind === 'audio' ? files : [];
   const counts = filesQuery.counts;
   const onlyOnePhoto =
     selectedFiles.length === 1 && kindOf(selectedFiles[0].contentType) === 'image';
@@ -884,132 +1038,186 @@ export default function AlbumScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      {/* ── Header: the album, or the selection when there is one ── */}
+      {/* ── The bar: the selection when there is one, else the album ── */}
       {selecting ? (
-        <View className="px-4 pt-2 pb-3 flex-row items-center gap-3 border-b border-border bg-card">
+        <View className="px-2 pt-1 pb-1 flex-row items-center gap-1">
           <Pressable
             onPress={leaveSelection}
-            hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Stop selecting"
-            className="w-10 h-10 rounded-full bg-muted items-center justify-center active:opacity-70"
+            className="w-10 h-10 items-center justify-center active:opacity-60"
           >
-            <XIcon size={18} className="text-foreground" />
+            <XIcon size={22} className="text-foreground" />
           </Pressable>
-          <View className="flex-1 min-w-0">
-            <Text className="text-foreground text-base font-semibold" accessibilityLiveRegion="polite">
-              {selection.count === 0 ? 'Select files' : `${selection.count.toLocaleString()} selected`}
-            </Text>
-            <Text className="text-muted-foreground text-xs" numberOfLines={1}>
-              Tap to choose · Select day under each date
-            </Text>
-          </View>
+          <Text className="flex-1 text-foreground text-[17px] leading-6 font-bold" accessibilityLiveRegion="polite">
+            {selection.count === 0 ? 'Select files' : `${selection.count.toLocaleString()} selected`}
+          </Text>
           <Pressable
             onPress={() => selection.setMany(files.map((file) => file.key), true)}
             accessibilityRole="button"
             accessibilityLabel="Select everything loaded"
-            className="px-3 py-2 rounded-full border border-border active:opacity-70"
+            className="h-10 px-3 justify-center active:opacity-60"
           >
-            <Text className="text-foreground text-sm font-semibold">All</Text>
+            <Text className="text-primary text-[15px] font-semibold">Select all</Text>
           </Pressable>
         </View>
       ) : (
-        <View className="px-4 pt-2 pb-3 gap-3 border-b border-border bg-card">
-          <View className="flex-row items-center gap-3">
+        <>
+          <View className="px-2 pt-1 pb-1 flex-row items-center gap-1">
             <Pressable
               onPress={() => router.back()}
-              hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Back"
-              className="w-10 h-10 rounded-full bg-muted items-center justify-center active:opacity-70"
+              className="w-10 h-10 items-center justify-center active:opacity-60"
             >
-              <ArrowLeftIcon size={18} className="text-foreground" />
+              <ArrowLeftIcon size={22} className="text-foreground" />
             </Pressable>
+            {/* Once the title below has folded away, the album is named here,
+                and what was under it moves up beside it. */}
             <View className="flex-1 min-w-0">
-              {workspace ? (
-                <Text className="text-muted-foreground text-[11px] font-semibold uppercase tracking-widest" numberOfLines={1}>
-                  {workspace.name}
-                </Text>
+              {folded ? (
+                <>
+                  <Text className="text-foreground text-[16px] leading-5 font-bold" numberOfLines={1}>
+                    {album.name}
+                  </Text>
+                  <Text className="text-muted-foreground text-[12px] leading-4" numberOfLines={1}>
+                    {countsLine}
+                  </Text>
+                </>
               ) : null}
-              <Text className="text-foreground text-lg font-bold" numberOfLines={1} accessibilityRole="header">
-                {album.name}
-              </Text>
             </View>
-            {isOwner && (
-              <Pressable
-                onPress={albumMenu}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Album options"
-                className="w-10 h-10 rounded-full bg-muted items-center justify-center active:opacity-70"
-              >
-                <MoreHorizontalIcon size={18} className="text-foreground" />
-              </Pressable>
-            )}
-          </View>
-
-          <View className="flex-row items-center gap-2 flex-wrap">
-            <View className={`px-2 py-1 rounded-md ${status.className}`}>
-              <Text className={`text-[11px] font-bold uppercase tracking-wide ${status.text}`}>{status.label}</Text>
-            </View>
-            {/* Days or a date, and the owner's way in to change it. */}
-            {retentionBadge(retentionOf(album)) ? (
-              <Pressable
-                onPress={isOwner ? () => router.push(`/albums/${albumId}/retention`) : undefined}
-                disabled={!isOwner}
-                accessibilityRole={isOwner ? 'button' : 'text'}
-                accessibilityHint={isOwner ? 'Change how long the files are kept' : undefined}
-                hitSlop={8}
-                className="px-2 py-1 rounded-md bg-muted flex-row items-center gap-1 active:opacity-70"
-              >
-                <ShieldIcon size={11} className="text-muted-foreground" />
-                <Text className="text-muted-foreground text-[11px] font-semibold">
-                  {retentionBadge(retentionOf(album))}
-                </Text>
-              </Pressable>
-            ) : null}
-            <Text className="text-muted-foreground text-xs">
-              {[
-                albumCounts.image ? plural(albumCounts.image, 'photo', 'photos') : null,
-                albumCounts.video ? plural(albumCounts.video, 'film', 'films') : null,
-                albumCounts.audio ? plural(albumCounts.audio, 'recording', 'recordings') : null,
-              ]
-                .filter(Boolean)
-                .join(' · ') || 'Empty'}
-            </Text>
-          </View>
-
-          <View className="flex-row gap-2">
-            {canShare && (
-              <Pressable
-                onPress={openLinkSheet}
-                accessibilityRole="button"
-                className="flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-border py-2.5 active:opacity-70"
-              >
-                <LinkIcon size={15} className="text-foreground" />
-                <Text className="text-foreground text-sm font-semibold">Client link</Text>
-              </Pressable>
-            )}
-            {canUpload && (
+            {folded && canUpload && (
               <Pressable
                 onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
                 accessibilityRole="button"
-                className="flex-1 flex-row items-center justify-center gap-2 rounded-xl bg-action min-h-[44px] active:opacity-85"
+                accessibilityLabel="Upload"
+                className="w-10 h-10 items-center justify-center active:opacity-60"
               >
-                <UploadIcon size={15} className="text-action-foreground" />
-                <Text className="text-action-foreground text-sm font-bold">Upload</Text>
+                <UploadIcon size={21} className="text-foreground" />
+              </Pressable>
+            )}
+            {folded && files.length > 0 && canSelect && (
+              <Pressable
+                onPress={() => setSelecting(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Select files"
+                className="w-10 h-10 items-center justify-center active:opacity-60"
+              >
+                <CircleCheckIcon size={21} className="text-foreground" />
+              </Pressable>
+            )}
+            {isOwner && (
+              <Pressable
+                onPress={albumMenu}
+                accessibilityRole="button"
+                accessibilityLabel="Album options"
+                className="w-10 h-10 items-center justify-center active:opacity-60"
+              >
+                <MoreHorizontalIcon size={22} className="text-foreground" />
               </Pressable>
             )}
           </View>
-        </View>
+
+          {/* The album, said once and large. It folds away as the photographs
+              are scrolled: it was a card of four rows that never moved, and a
+              third of the screen stood between you and the first frame. */}
+          <Animated.View style={[{ overflow: 'hidden' }, foldStyle]} pointerEvents={folded ? 'none' : 'auto'}>
+            <View
+              className="px-5 pb-1.5"
+              onLayout={(event) => setHeadHeight(Math.round(event.nativeEvent.layout.height))}
+            >
+              {workspace ? (
+                <Pressable
+                  onPress={() => router.push(`/workspaces/${workspace.id}`)}
+                  accessibilityRole="link"
+                  accessibilityLabel={`${workspace.name}, workspace`}
+                  hitSlop={6}
+                  className="self-start active:opacity-60"
+                >
+                  <Text className="text-muted-foreground text-[13px] leading-[18px] font-medium" numberOfLines={1}>
+                    {workspace.name}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Text
+                className="text-foreground text-[26px] leading-8 font-bold tracking-[-0.6px]"
+                numberOfLines={2}
+                accessibilityRole="header"
+              >
+                {album.name}
+              </Text>
+              {/* A dot and a word. It was an uppercase pill, the loudest thing
+                  on the screen, for the thing least often changed. */}
+              <View className="flex-row items-center gap-1.5 mt-1">
+                <View className={`w-2 h-2 rounded-full ${status.dot}`} />
+                <Text className="text-secondary-foreground text-[14px] leading-5 flex-1" numberOfLines={1}>
+                  <Text className="text-foreground font-semibold">{status.label}</Text>
+                  {` · ${countsLine}`}
+                </Text>
+              </View>
+              {/* How long the files are kept, and the owner's way in to change it. */}
+              {retention ? (
+                <Pressable
+                  onPress={isOwner ? () => router.push(`/albums/${albumId}/retention`) : undefined}
+                  disabled={!isOwner}
+                  accessibilityRole={isOwner ? 'button' : 'text'}
+                  accessibilityHint={isOwner ? 'Change how long the files are kept' : undefined}
+                  hitSlop={6}
+                  className="self-start active:opacity-60"
+                >
+                  <Text className="text-muted-foreground text-[13px] leading-[18px]">{retention}</Text>
+                </Pressable>
+              ) : null}
+
+              {/* One filled button, and the rest quiet beside it. */}
+              {(canUpload || canShare || canSelect) && (
+                <View className="flex-row gap-2 mt-4">
+                  {canUpload && (
+                    <Pressable
+                      onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
+                      accessibilityRole="button"
+                      className="flex-1 h-11 rounded-[14px] bg-action flex-row items-center justify-center gap-2 active:opacity-85"
+                    >
+                      <UploadIcon size={17} className="text-action-foreground" />
+                      <Text className="text-action-foreground text-[15px] font-semibold">Upload</Text>
+                    </Pressable>
+                  )}
+                  {canShare && (
+                    <Pressable
+                      onPress={openLinkSheet}
+                      accessibilityRole="button"
+                      accessibilityLabel={existingLink ? 'Client link, on' : 'Client link'}
+                      className="flex-1 h-11 rounded-[14px] bg-muted flex-row items-center justify-center gap-2 active:opacity-70"
+                    >
+                      <LinkIcon size={17} className="text-foreground" />
+                      <Text className="text-foreground text-[15px] font-semibold">Client link</Text>
+                      {existingLink ? <View className="w-[7px] h-[7px] rounded-full bg-success" /> : null}
+                    </Pressable>
+                  )}
+                  {files.length > 0 && canSelect && (
+                    <Pressable
+                      onPress={() => setSelecting(true)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Select files"
+                      className="w-11 h-11 rounded-[14px] bg-muted items-center justify-center active:opacity-70"
+                    >
+                      <CircleCheckIcon size={19} className="text-foreground" />
+                    </Pressable>
+                  )}
+                </View>
+              )}
+            </View>
+          </Animated.View>
+        </>
       )}
 
-      {/* ── Sections ── */}
-      <View className="border-b border-border bg-background">
+      {/* ── Sections, and one button for everything else that narrows ── */}
+      <View className="flex-row items-center border-b border-border/50">
         <ScrollView
           horizontal
+          className="flex-1"
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}
+          contentContainerStyle={{ gap: 8, paddingLeft: 20, paddingRight: 12, paddingVertical: 10 }}
         >
           {chips.map((chip) => {
             const active = section === chip.key;
@@ -1023,17 +1231,17 @@ export default function AlbumScreen() {
                 accessibilityState={{ selected: active }}
                 accessibilityLabel={`${chip.label}, ${plural(chip.count, 'file', 'files')}`}
                 accessibilityHint={named && canManage ? 'Hold to rename, reorder or delete' : undefined}
-                className={`flex-row items-center gap-1.5 rounded-full px-3.5 py-2 active:opacity-80 ${
-                  active ? 'bg-foreground' : 'bg-card border border-border'
+                className={`h-9 flex-row items-center gap-1.5 rounded-full px-3.5 active:opacity-80 ${
+                  active ? 'bg-foreground' : 'bg-muted'
                 }`}
               >
                 {chip.icon === 'heart' && (
                   <HeartIcon size={12} className={active ? 'text-background' : 'text-primary'} fill={active ? palette.background : palette.primary} />
                 )}
-                <Text className={`text-[13px] font-semibold ${active ? 'text-background' : 'text-foreground'}`}>
+                <Text className={`text-[14px] font-semibold ${active ? 'text-background' : 'text-foreground'}`}>
                   {chip.label}
                 </Text>
-                <Text className={`text-[11px] ${active ? 'text-background/70' : 'text-muted-foreground'}`}>
+                <Text className={`text-[14px] ${active ? 'text-background/70' : 'text-muted-foreground'}`}>
                   {chip.count.toLocaleString()}
                 </Text>
               </Pressable>
@@ -1044,52 +1252,29 @@ export default function AlbumScreen() {
               onPress={() => setNaming({ initial: '' })}
               accessibilityRole="button"
               accessibilityLabel="Add a section"
-              className="flex-row items-center gap-1 rounded-full px-3.5 py-2 border border-dashed border-border active:opacity-70"
+              className="h-9 flex-row items-center gap-1 rounded-full px-3.5 border border-dashed border-border active:opacity-70"
             >
-              <PlusIcon size={13} className="text-muted-foreground" />
-              <Text className="text-muted-foreground text-[13px] font-semibold">Section</Text>
+              <PlusIcon size={14} className="text-muted-foreground" />
+              <Text className="text-muted-foreground text-[14px] font-semibold">Section</Text>
             </Pressable>
           )}
         </ScrollView>
-
-        <View className="flex-row items-center gap-2 px-4 pb-2.5">
-          <View className="flex-1">
-            <SegmentedTabs<typeof kind>
-              size="sm"
-              segments={KINDS.map((option) => ({
-                ...option,
-                accessibilityLabel: `${option.label}, ${
-                  option.key === 'all'
-                    ? counts.image + counts.video + counts.audio + counts.other
-                    : counts[option.key]
-                }`,
-              }))}
-              value={kind}
-              onChange={setKind}
-            />
-          </View>
+        {/* Kind and order, behind one button that says when it is narrowing.
+            They were a second row of their own: four tabs, a Newest box and a
+            tick, all the width of the screen, above every album. */}
+        {!selecting && (
           <Pressable
-            onPress={() => setOrder((current) => (current === 'newest' ? 'oldest' : 'newest'))}
+            onPress={() => setFilterOpen(true)}
             accessibilityRole="button"
-            accessibilityLabel={order === 'newest' ? 'Newest first. Switch to oldest first' : 'Oldest first. Switch to newest first'}
-            className="flex-row items-center gap-1 px-3 min-h-[44px] rounded-xl border border-border active:opacity-70"
+            accessibilityLabel={narrowed ? `Show and sort. Showing ${narrowed.toLowerCase()}` : 'Show and sort'}
+            className={`h-9 ml-1 mr-4 rounded-full flex-row items-center justify-center gap-1.5 active:opacity-70 ${
+              narrowed ? 'px-3 bg-primary/15' : 'w-9 bg-muted'
+            }`}
           >
-            <ArrowDownUpIcon size={13} className="text-foreground" />
-            <Text className="text-foreground text-xs font-semibold">
-              {order === 'newest' ? 'Newest' : 'Oldest'}
-            </Text>
+            <ListFilterIcon size={17} className={narrowed ? 'text-primary' : 'text-foreground'} />
+            {narrowed ? <Text className="text-primary text-[14px] font-semibold">{narrowed}</Text> : null}
           </Pressable>
-          {!selecting && files.length > 0 && canSelect && (
-            <Pressable
-              onPress={() => setSelecting(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Select files"
-              className="min-w-[44px] min-h-[44px] items-center justify-center rounded-xl border border-border active:opacity-70"
-            >
-              <CheckIcon size={14} className="text-foreground" />
-            </Pressable>
-          )}
-        </View>
+        )}
       </View>
 
       {/* ── The grid, by the day things were taken ── */}
@@ -1097,11 +1282,32 @@ export default function AlbumScreen() {
         <View className="flex-1">
           <SectionList
             sections={sections}
-            keyExtractor={(row) => `${columns}-${row.firstIndex}`}
+            keyExtractor={(row) => `${kind}-${layoutColumns}-${row.firstIndex}`}
             renderItem={renderRow}
             renderSectionHeader={renderDay}
             stickySectionHeadersEnabled
+            onScroll={onGridScroll}
+            scrollEventThrottle={32}
             contentContainerStyle={{ paddingBottom: selecting ? 150 : 40 }}
+            ListHeaderComponent={
+              recordings.length > 0 && !selecting ? (
+                <View className="px-5 pt-4">
+                  <PlayAllBar
+                    playing={!!playingKey && audio.playing}
+                    loading={!!playingKey && audio.loading}
+                    shuffle={audio.shuffle}
+                    onPlay={() => {
+                      if (playingKey) audio.toggle();
+                      else audio.playQueue(recordings, 0, album.name, album.cover_url ?? null);
+                    }}
+                    onShuffle={() => {
+                      audio.setShuffle(!audio.shuffle);
+                      void Haptics.selectionAsync();
+                    }}
+                  />
+                </View>
+              ) : null
+            }
             onEndReachedThreshold={0.6}
             onEndReached={() => {
               if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) {
@@ -1146,10 +1352,10 @@ export default function AlbumScreen() {
                     <Pressable
                       onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
                       accessibilityRole="button"
-                      className="mt-6 bg-action rounded-2xl px-6 py-3.5 flex-row items-center gap-2 active:opacity-85"
+                      className="mt-6 h-11 bg-action rounded-[14px] px-6 flex-row items-center gap-2 active:opacity-85"
                     >
                       <UploadIcon size={17} className="text-action-foreground" />
-                      <Text className="text-action-foreground font-semibold">Upload</Text>
+                      <Text className="text-action-foreground text-[15px] font-semibold">Upload</Text>
                     </Pressable>
                   )}
                 </View>
@@ -1161,8 +1367,8 @@ export default function AlbumScreen() {
 
       {/* ── What to do with the selection ── */}
       {selecting && selection.count > 0 && (
-        <SafeAreaView edges={['bottom']} className="absolute left-0 right-0 bottom-0 bg-card border-t border-border">
-          <View className="flex-row gap-2 px-3 pt-3 pb-2">
+        <SafeAreaView edges={['bottom']} className="absolute left-0 right-0 bottom-0 bg-card border-t border-border/50">
+          <View className="flex-row px-2 pt-1 pb-1">
             {canManage && (
               <BulkButton icon={FolderInputIcon} label="Move" disabled={busy} onPress={() => setMoving(true)} />
             )}
@@ -1196,7 +1402,7 @@ export default function AlbumScreen() {
           style={{ bottom: insets.bottom + 92 }}
         >
           <View
-            className="bg-card rounded-2xl px-4 py-3 flex-row items-center gap-3 border border-border"
+            className="bg-card rounded-[20px] px-4 py-3 flex-row items-center gap-3 border border-border/40"
             accessibilityLiveRegion="polite"
           >
             <ActivityIndicator color={palette.primary} />
@@ -1224,6 +1430,61 @@ export default function AlbumScreen() {
           </View>
         </View>
       )}
+
+      {/* ── Show and sort ── */}
+      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Show and sort">
+        <Text className="text-foreground text-[15px] font-semibold mb-2">Show</Text>
+        <View className="rounded-[20px] border border-border/40 bg-card overflow-hidden mb-5" accessibilityRole="radiogroup">
+          {KINDS.map((option, at) => {
+            const on = kind === option.key;
+            const n =
+              option.key === 'all'
+                ? counts.image + counts.video + counts.audio + counts.other
+                : counts[option.key];
+            return (
+              <Pressable
+                key={option.key}
+                // One choice, and you are back at the photographs to see it.
+                onPress={() => {
+                  setKind(option.key);
+                  setFilterOpen(false);
+                }}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: on }}
+                className={`min-h-[52px] flex-row items-center gap-3 px-4 active:opacity-70 ${at > 0 ? 'border-t border-border/40' : ''}`}
+              >
+                <Text className="flex-1 text-foreground text-[15px] font-medium">
+                  {option.key === 'all' ? 'Everything' : option.label}
+                </Text>
+                <Text className="text-muted-foreground text-[14px]">{n.toLocaleString()}</Text>
+                <View className="w-5 items-end">{on ? <CheckIcon size={18} className="text-primary" /> : null}</View>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text className="text-foreground text-[15px] font-semibold mb-2">Order</Text>
+        <View className="rounded-[20px] border border-border/40 bg-card overflow-hidden" accessibilityRole="radiogroup">
+          {(['newest', 'oldest'] as const).map((value, at) => (
+            <Pressable
+              key={value}
+              onPress={() => {
+                setOrder(value);
+                setFilterOpen(false);
+              }}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: order === value }}
+              className={`min-h-[52px] flex-row items-center gap-3 px-4 active:opacity-70 ${at > 0 ? 'border-t border-border/40' : ''}`}
+            >
+              <Text className="flex-1 text-foreground text-[15px] font-medium">
+                {value === 'newest' ? 'Newest first' : 'Oldest first'}
+              </Text>
+              <View className="w-5 items-end">
+                {order === value ? <CheckIcon size={18} className="text-primary" /> : null}
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </Sheet>
 
       {/* ── Move to section ── */}
       <Sheet
@@ -1311,7 +1572,9 @@ export default function AlbumScreen() {
         onClose={() => setStatusOpen(false)}
       />
       <AlbumDetailsSheet
-        key={editingDetails ? 'open' : 'closed'}
+        // Its own word for closed: NameSheet below is 'closed' too, and two
+        // siblings with one key is a warning on every render.
+        key={editingDetails ? 'details-open' : 'details-closed'}
         visible={editingDetails}
         initialName={album?.name ?? ''}
         initialDescription={album?.description ?? ''}
@@ -1515,18 +1778,22 @@ function MediaTile({
       accessibilityLabel={`${what} ${index + 1}, ${file.mediaTitle || file.originalName}${file.picked ? ', picked by your client' : ''}`}
       accessibilityHint={selecting ? undefined : 'Hold to select'}
       style={{ width: size, height: size }}
-      className="bg-muted active:opacity-80 overflow-hidden"
+      className={`${selected ? 'bg-primary/20' : 'bg-muted'} active:opacity-80 overflow-hidden`}
     >
       {still ? (
+        // Chosen, it steps in from its frame: seen at a glance down a column,
+        // where a border three points wide was not.
+        <View style={selected ? INSET : FULL}>
         <RemoteImage
           source={{ uri: still }}
           placeholder={placeholder}
           placeholderContentFit="cover"
-          style={{ width: '100%', height: '100%', opacity: selected ? 0.72 : 1 }}
+          style={{ width: '100%', height: '100%' }}
           contentFit="cover"
           transition={140}
           recyclingKey={file.key}
         />
+        </View>
       ) : (
         <View className="flex-1 items-center justify-center px-2 bg-secondary">
           {kind === 'audio' ? (
@@ -1566,23 +1833,131 @@ function MediaTile({
         </View>
       )}
 
-      {selecting && (
-        <>
-          {selected && <View className="absolute inset-0 border-[3px] border-primary" pointerEvents="none" />}
-          <View
-            className={`absolute right-1.5 top-1.5 w-[22px] h-[22px] rounded-full items-center justify-center ${
-              selected ? 'bg-action' : 'bg-foreground/30 border-2 border-background'
-            }`}
-            pointerEvents="none"
-          >
-            {selected && <CheckIcon size={13} className="text-action-foreground" />}
-          </View>
-        </>
-      )}
+      {selecting && <SelectMark selected={selected} />}
     </Pressable>
   );
 }
 
+/**
+ * One film, in its own shape: sixteen by nine, with its name and its length.
+ *
+ * Shown when the album is narrowed to films. In the mixed grid a film is a
+ * square like everything else; on their own they were the same squares, a
+ * wide picture cropped to its middle with nothing to say which was which.
+ */
+function FilmCard({
+  file,
+  width,
+  index,
+  selecting,
+  selected,
+  onPress,
+  onLongPress,
+}: {
+  file: StoredFile;
+  width: number;
+  index: number;
+  selecting: boolean;
+  selected: boolean;
+  onPress: (file: StoredFile) => void;
+  onLongPress: (file: StoredFile) => void;
+}) {
+  const name = file.mediaTitle || file.originalName;
+  const length = file.durationMs ? clock(file.durationMs / 1000) : null;
+  const height = Math.round((width * 9) / 16);
+  return (
+    <Pressable
+      onPress={() => onPress(file)}
+      onLongPress={() => onLongPress(file)}
+      delayLongPress={280}
+      accessibilityRole={selecting ? 'checkbox' : 'button'}
+      accessibilityState={selecting ? { checked: selected } : undefined}
+      accessibilityLabel={`Film ${index + 1}, ${name}${length ? `, ${length}` : ''}${file.picked ? ', picked by your client' : ''}`}
+      accessibilityHint={selecting ? undefined : 'Hold to select'}
+      style={{ width }}
+      className="active:opacity-80"
+    >
+      <View
+        style={{ width, height }}
+        className={`rounded-[14px] overflow-hidden items-center justify-center ${selected ? 'bg-primary/20' : 'bg-muted'}`}
+      >
+        <View style={selected ? { position: 'absolute', top: 6, left: 6, right: 6, bottom: 6, borderRadius: 9, overflow: 'hidden' } : { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+          {file.posterUrl ? (
+            <RemoteImage
+              source={{ uri: file.posterUrl }}
+              style={{ width: '100%', height: '100%' }}
+              contentFit="cover"
+              transition={140}
+              recyclingKey={file.key}
+            />
+          ) : (
+            <View className="flex-1 items-center justify-center bg-secondary">
+              <VideoThumbnail size={Math.min(56, Math.round(height * 0.5))} />
+            </View>
+          )}
+        </View>
+        {file.posterUrl && !selecting ? (
+          <View className="w-9 h-9 rounded-full bg-foreground/55 items-center justify-center">
+            <PlayIcon size={14} color={PALETTES.light.actionForeground} fill={PALETTES.light.actionForeground} />
+          </View>
+        ) : null}
+        {length ? (
+          <View className="absolute right-1.5 bottom-1.5 rounded-md bg-foreground/70 px-1.5 py-0.5">
+            <Text className="text-background text-[11px] font-semibold">{length}</Text>
+          </View>
+        ) : null}
+        {file.picked && !selecting ? (
+          <View className="absolute left-1.5 top-1.5 w-5 h-5 rounded-full bg-action items-center justify-center">
+            <HeartIcon size={11} color={PALETTES.light.actionForeground} fill={PALETTES.light.actionForeground} />
+          </View>
+        ) : null}
+        {file.processingStatus === 'pending' ? (
+          <View className="absolute inset-0 items-center justify-center bg-foreground/30">
+            <ActivityIndicator size="small" color={PALETTES.light.actionForeground} />
+          </View>
+        ) : null}
+        {selecting ? <SelectMark selected={selected} /> : null}
+      </View>
+      <Text className="text-foreground text-[14px] leading-5 font-semibold mt-2" numberOfLines={1}>
+        {name}
+      </Text>
+      {/* The time it was shot. Its length is on the picture already, and was
+          here a second time. */}
+      <Text className="text-muted-foreground text-[12px] leading-4">
+        {file.processingStatus === 'pending' ? 'Getting ready' : shotAt(file)}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** "3:10 PM" off the camera's own clock; nothing when it wrote none. */
+function shotAt(file: StoredFile): string {
+  const time = file.takenAt?.split('T')[1];
+  if (!time) return '';
+  const [hh, mm] = time.split(':').map(Number);
+  return new Date(2000, 0, 1, hh, mm).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+/** The tick on a tile while selecting: filled when chosen, an empty ring when not. */
+function SelectMark({ selected }: { selected: boolean }) {
+  return (
+    <View
+      className={`absolute right-1.5 top-1.5 w-6 h-6 rounded-full items-center justify-center border-2 border-background ${
+        selected ? 'bg-action' : 'bg-foreground/25'
+      }`}
+      pointerEvents="none"
+    >
+      {selected && <CheckIcon size={14} className="text-action-foreground" strokeWidth={3} />}
+    </View>
+  );
+}
+
+/**
+ * One thing to do with the selection: a glyph and its word, on the bar.
+ *
+ * They were five bordered boxes side by side, Delete among them in a red one,
+ * and the bar read as a row of equal buttons.
+ */
 function BulkButton({
   icon: Icon,
   label,
@@ -1603,12 +1978,10 @@ function BulkButton({
       disabled={disabled}
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled }}
-      className={`flex-1 items-center justify-center gap-1 rounded-2xl py-2.5 border ${
-        tone === 'destructive' ? 'border-destructive/40 bg-destructive/10' : 'border-border bg-background'
-      } ${disabled ? 'opacity-50' : 'active:opacity-70'}`}
+      className={`flex-1 h-14 items-center justify-center gap-1 ${disabled ? 'opacity-40' : 'active:opacity-60'}`}
     >
-      <Icon size={18} className={color} />
-      <Text className={`text-[11px] font-semibold ${color}`}>{label}</Text>
+      <Icon size={21} className={color} />
+      <Text className={`text-[12px] leading-4 font-semibold ${color}`}>{label}</Text>
     </Pressable>
   );
 }
