@@ -7,6 +7,7 @@ import { CalendarDaysIcon, ClockIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useTheme } from '@/src/hooks';
 import { BottomSheet } from '@/components/BottomSheet';
+import { FormRow } from '@/components/Form';
 
 cssInterop(CalendarDaysIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(ClockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -27,6 +28,14 @@ interface Props {
   emptyLabel?: string;
   /** Offers an X to go back to unset. Only meaningful when optional. */
   clearable?: boolean;
+  /**
+   * Drawn as a row of a FormCard: the label on the left, the value on the
+   * right. The field of its own, with a label above it, is the default and is
+   * what the screens outside the forms still use.
+   */
+  row?: boolean;
+  /** With `row`: the first row of its card, which has no rule above it. */
+  first?: boolean;
 }
 
 /**
@@ -51,6 +60,8 @@ export function DateTimeField({
   minimumDate,
   emptyLabel = 'Choose…',
   clearable = false,
+  row = false,
+  first = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   // The picker itself always needs a concrete date to sit on, even when the
@@ -87,36 +98,53 @@ export function DateTimeField({
     if (selected) onChange(selected);
   };
 
-  return (
-    <View className="flex-1">
-      <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-        {label}
-      </Text>
-
+  const clear =
+    clearable && value !== null ? (
       <Pressable
-        onPress={() => setOpen(true)}
-        className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-2 active:scale-[0.98]"
-        style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+        onPress={() => onChange(null)}
+        hitSlop={14}
+        accessibilityRole="button"
+        accessibilityLabel={`Clear ${label.toLowerCase()}`}
       >
-        <Icon size={15} className="text-muted-foreground" />
-        {/* A colour either way: with none set, the chosen value fell back to
-            the platform default, black, and vanished on the dark card. */}
-        <Text
-          className={`text-sm flex-1 ${value === null ? 'text-muted-foreground' : 'text-foreground'}`}
-        >
-          {display}
-        </Text>
-        {clearable && value !== null && (
-          <Pressable
-            onPress={() => onChange(null)}
-            hitSlop={14}
-            accessibilityRole="button"
-            accessibilityLabel={`Clear ${label.toLowerCase()}`}
-          >
-            <XIcon size={15} className="text-muted-foreground" />
-          </Pressable>
-        )}
+        <XIcon size={row ? 16 : 15} className="text-muted-foreground" />
       </Pressable>
+    ) : null;
+
+  return (
+    <View className={row ? undefined : 'flex-1'}>
+      {row ? (
+        <FormRow
+          icon={Icon}
+          label={label}
+          value={display}
+          empty={value === null}
+          first={first}
+          onPress={() => setOpen(true)}
+          trailing={clear ?? undefined}
+        />
+      ) : (
+        <>
+          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+            {label}
+          </Text>
+
+          <Pressable
+            onPress={() => setOpen(true)}
+            className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-2 active:scale-[0.98]"
+            style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+          >
+            <Icon size={15} className="text-muted-foreground" />
+            {/* A colour either way: with none set, the chosen value fell back to
+                the platform default, black, and vanished on the dark card. */}
+            <Text
+              className={`text-sm flex-1 ${value === null ? 'text-muted-foreground' : 'text-foreground'}`}
+            >
+              {display}
+            </Text>
+            {clear}
+          </Pressable>
+        </>
+      )}
 
       {/* Android renders its own dialog, so it only needs to exist while open. */}
       {open && Platform.OS === 'android' && (

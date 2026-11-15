@@ -42,8 +42,9 @@ import { InsetFrame } from '@/components/InsetFrame';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { categoryIcon } from '@/components/money/icons';
-import { CARD_SHADOW, Choice, Label, FormSaveBar } from '@/components/money/FormBits';
+import { Choice, Label, FormSaveBar } from '@/components/money/FormBits';
 import { ReceiptField, draftOf, receiptBusy, type ReceiptDraft } from '@/components/money/ReceiptField';
+import { FormCard, FormInput, usePlaceholderColor } from '@/components/Form';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { useKeyboardAwareScroll } from '@/src/lib/keyboard';
 import { queueMoneyEntry } from '@/src/lib/money-outbox';
@@ -73,6 +74,7 @@ export default function MoneyEntryScreen() {
   } = useLocalSearchParams<{ kind?: string; edit?: string; booking?: string; package?: string }>();
   const isEdit = Boolean(editId);
   const keyboard = useKeyboardAwareScroll();
+  const placeholder = usePlaceholderColor();
   const { entry: existing, error: existingError, loadFailed, refetch } = useMoneyEntry(editId);
   // The booking's offer, when opened from one. Once recorded or turned down
   // there is none, and this is an ordinary new entry.
@@ -411,8 +413,7 @@ export default function MoneyEntryScreen() {
           <View className="px-5 mt-5">
             <Label>Amount</Label>
             <View
-              className="bg-card rounded-2xl px-4 py-2 flex-row items-center gap-2"
-              style={CARD_SHADOW}
+              className="bg-card rounded-[20px] px-4 py-2 flex-row items-center gap-2 border border-border/40"
             >
               <Text className={`text-[28px] font-bold ${income ? 'text-success' : 'text-foreground'}`}>₱</Text>
               <TextInput
@@ -420,7 +421,7 @@ export default function MoneyEntryScreen() {
                 value={amount}
                 onChangeText={setAmount}
                 placeholder="0"
-                placeholderTextColor="#A89489"
+                placeholderTextColor={placeholder}
                 keyboardType="decimal-pad"
                 inputAccessoryViewID={KEYBOARD_DONE}
                 autoFocus={!isEdit}
@@ -445,13 +446,17 @@ export default function MoneyEntryScreen() {
             </View>
           </View>
 
-          <View className="px-5 mt-5 flex-row gap-3">
-            <DateTimeField
-              label={paid ? 'Date' : 'Due'}
-              mode="date"
-              value={date}
-              onChange={(next) => next && setDate(next)}
-            />
+          <View className="px-5 mt-6">
+            <FormCard>
+              <DateTimeField
+                row
+                first
+                label={paid ? 'Date' : 'Due'}
+                mode="date"
+                value={date}
+                onChange={(next) => next && setDate(next)}
+              />
+            </FormCard>
           </View>
 
           <View className="px-5 mt-3">
@@ -462,12 +467,11 @@ export default function MoneyEntryScreen() {
               }}
               accessibilityRole="switch"
               accessibilityState={{ checked: paid }}
-              className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:scale-[0.98]"
-              style={CARD_SHADOW}
+              className="bg-card rounded-[20px] px-4 py-3.5 flex-row items-center gap-3 border border-border/40 active:opacity-80"
             >
               <View className="flex-1">
-                <Text className="text-foreground text-sm font-semibold">{paidLabel}</Text>
-                <Text className="text-muted-foreground text-xs mt-0.5">{paidHint}</Text>
+                <Text className="text-foreground text-[15px] font-semibold">{paidLabel}</Text>
+                <Text className="text-muted-foreground text-[13px] leading-[18px] mt-0.5">{paidHint}</Text>
               </View>
               {paid ? (
                 <ToggleRightIcon size={26} className="text-primary" />
@@ -476,8 +480,10 @@ export default function MoneyEntryScreen() {
               )}
             </Pressable>
             {paid && paidOn ? (
-              <View className="mt-3 flex-row gap-3">
+              <View className="mt-3 rounded-[20px] border border-border/40 bg-card overflow-hidden">
                 <DateTimeField
+                  row
+                  first
                   label={income ? 'Received on' : 'Paid on'}
                   mode="date"
                   value={paidOn}
@@ -500,15 +506,13 @@ export default function MoneyEntryScreen() {
 
           <View className="px-5 mt-5">
             <Label optional>{income ? 'Client' : 'Paid to'}</Label>
-            <TextInput
+            <FormInput
               onFocus={keyboard.onFocus}
               value={counterparty}
               onChangeText={setCounterparty}
               placeholder={income ? 'e.g. Reyes–Santos wedding' : 'e.g. Grab, Lazada, your assistant'}
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholder}
               maxLength={120}
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={CARD_SHADOW}
             />
           </View>
 
@@ -528,35 +532,33 @@ export default function MoneyEntryScreen() {
 
           <View className="px-5 mt-5">
             <Label optional>Reference no.</Label>
-            <TextInput
+            <FormInput
               onFocus={keyboard.onFocus}
               value={reference}
               onChangeText={setReference}
               placeholder="GCash, bank or invoice number"
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholder}
               autoCapitalize="characters"
               autoCorrect={false}
               maxLength={80}
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={CARD_SHADOW}
             />
           </View>
 
           {income ? (
             <View className="px-5 mt-5">
               <Label optional>Tax withheld</Label>
-              <View className="bg-card rounded-2xl px-4 flex-row items-center gap-2" style={CARD_SHADOW}>
+              <View className="bg-card rounded-[14px] px-4 min-h-[52px] flex-row items-center gap-2 border border-border">
                 <Text className="text-muted-foreground text-base font-semibold">₱</Text>
                 <TextInput
                   onFocus={keyboard.onFocus}
                   value={withheld}
                   onChangeText={setWithheld}
                   placeholder="0"
-                  placeholderTextColor="#A89489"
+                  placeholderTextColor={placeholder}
                   keyboardType="decimal-pad"
                   inputAccessoryViewID={KEYBOARD_DONE}
                   accessibilityLabel="Tax withheld in pesos"
-                  className="flex-1 min-w-0 text-foreground text-base py-3.5"
+                  className="flex-1 min-w-0 text-foreground text-[16px] py-3"
                 />
               </View>
               <Text className="text-muted-foreground text-xs mt-2 ml-1 leading-[17px]">
@@ -573,18 +575,14 @@ export default function MoneyEntryScreen() {
 
           <View className="px-5 mt-5">
             <Label optional>Note</Label>
-            <TextInput
+            <FormInput
               onFocus={keyboard.onFocus}
               value={note}
               onChangeText={setNote}
               placeholder="Anything worth remembering…"
-              placeholderTextColor="#A89489"
+              placeholderTextColor={placeholder}
               multiline
-              numberOfLines={3}
               maxLength={1000}
-              textAlignVertical="top"
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={{ ...CARD_SHADOW, minHeight: 72 }}
             />
           </View>
 
@@ -594,13 +592,12 @@ export default function MoneyEntryScreen() {
                 onPress={() => setRepeat((v) => !v)}
                 accessibilityRole="switch"
                 accessibilityState={{ checked: repeat }}
-                className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:scale-[0.98]"
-                style={CARD_SHADOW}
+                className="bg-card rounded-[20px] px-4 py-3.5 flex-row items-center gap-3 border border-border/40 active:opacity-80"
               >
                 <RepeatIcon size={18} className={repeat ? 'text-primary' : 'text-muted-foreground'} />
                 <View className="flex-1">
-                  <Text className="text-foreground text-sm font-semibold">Repeat every month</Text>
-                  <Text className="text-muted-foreground text-xs mt-0.5">
+                  <Text className="text-foreground text-[15px] font-semibold">Repeat every month</Text>
+                  <Text className="text-muted-foreground text-[13px] leading-[18px] mt-0.5">
                     {repeat
                       ? `Added for you on ${repeatDay} of each month, ${income ? 'as due' : 'as paid'}`
                       : 'A subscription, your rent, a retainer'}
@@ -618,13 +615,12 @@ export default function MoneyEntryScreen() {
               <Pressable
                 onPress={() => router.push('/money/recurring')}
                 accessibilityRole="button"
-                className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:opacity-70"
-                style={CARD_SHADOW}
+                className="bg-card rounded-[20px] px-4 py-3.5 flex-row items-center gap-3 border border-border/40 active:opacity-70"
               >
                 <RepeatIcon size={18} className="text-primary" />
                 <View className="flex-1">
-                  <Text className="text-foreground text-sm font-semibold">Repeats every month</Text>
-                  <Text className="text-muted-foreground text-xs mt-0.5">Change the amount or stop it</Text>
+                  <Text className="text-foreground text-[15px] font-semibold">Repeats every month</Text>
+                  <Text className="text-muted-foreground text-[13px] leading-[18px] mt-0.5">Change the amount or stop it</Text>
                 </View>
                 <ChevronRightIcon size={16} className="text-muted-foreground" />
               </Pressable>

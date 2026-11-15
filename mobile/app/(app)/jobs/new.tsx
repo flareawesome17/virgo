@@ -1,19 +1,16 @@
 import {
-  View, Text, ScrollView, Pressable, TextInput, Alert, Share,
+  View, Text, ScrollView, Alert, Share,
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { PALETTES } from '@/theme';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InsetFrame } from '@/components/InsetFrame';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { useEffect, useRef, useState } from 'react';
 import { useCreateJob, useJob, useRoles, useTheme, useUpdateJob } from '@/src/hooks';
 import { DetailFallback } from '@/components/DetailFallback';
-import { SendIcon } from 'lucide-react-native';
 import { FormHeader } from '@/components/FormHeader';
-import { cssInterop } from 'nativewind';
 import {
   JOB_TITLE_MIN,
   MAX_ROLE_BUDGET_MINOR,
@@ -23,6 +20,9 @@ import {
 import { DateTimeField } from '@/components/DateTimeField';
 import { LoadFailed } from '@/components/LoadFailed';
 import { LocationField } from '@/components/LocationField';
+import {
+  ChoiceChip, ChoiceChips, FormCard, FormField, FormFooter, FormHint, FormInput, FormLabel, FormSection,
+} from '@/components/Form';
 import { useHoldUpdates } from '@/src/lib/ota-updates';
 
 /** Local parts — toISOString would shift the day west of Greenwich. */
@@ -31,8 +31,6 @@ function toIsoDay(d: Date): string {
     d.getDate(),
   ).padStart(2, '0')}`;
 }
-
-cssInterop(SendIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** Pesos in the form, centavos on the wire. */
 function toCentavos(value: string): number | undefined {
@@ -44,7 +42,6 @@ function toCentavos(value: string): number | undefined {
 export default function NewJobScreen() {
   // A code fetched from email, or a form half filled: see useHoldUpdates.
   useHoldUpdates();
-  const insets = useSafeAreaInsets();
   const create = useCreateJob();
   /*
    * Editing, when opened with ?edit=<slug>.
@@ -142,6 +139,8 @@ export default function NewJobScreen() {
     dateLooksRight,
   });
   const ready = blockers.length === 0;
+  // Said once something has been typed, never at an empty field.
+  const titleShort = title.trim().length > 0 && title.trim().length < JOB_TITLE_MIN;
   const saving = create.isPending || update.isPending;
 
   const submit = () => {
@@ -221,44 +220,42 @@ export default function NewJobScreen() {
   }
 
   return (
-    <InsetFrame>
+    <InsetFrame edges={['top']}>
       <FormHeader title={isEdit ? 'Edit job' : 'Post a job'} />
 
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={8}
       >
-        <ScrollView keyboardDismissMode="on-drag"
-          contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 18 }}
+        <ScrollView
+          keyboardDismissMode="on-drag"
+          contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 24 }}
           keyboardShouldPersistTaps="handled"
         >
-          <Text className="text-muted-foreground text-[12px] leading-5 -mb-2">
-            {/* Said "the public board at virgo.ph/jobs" while the board
-                answers 401 without a session. */}
-            Everyone on Virgo sees this on the job board, so anyone looking for
-            this kind of work can find it. It is not visible outside the app.
-          </Text>
-
-          <Field label="What do you need?">
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Wedding photographer for a December wedding in Cebu"
-              placeholderTextColor="#9ca3af"
-              maxLength={120}
-              className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
-            />
-            <Hint>
-              {title.trim().length > 0 && title.trim().length < JOB_TITLE_MIN
-                ? `A little longer — ${JOB_TITLE_MIN - title.trim().length} more character${
+          <FormField
+            label="What do you need?"
+            wrong={titleShort}
+            hint={
+              titleShort
+                ? `A little longer: ${JOB_TITLE_MIN - title.trim().length} more character${
                     JOB_TITLE_MIN - title.trim().length === 1 ? '' : 's'
                   }. Say the role, the place and roughly when.`
-                : 'This is the line people scan on the board. Say the role, the place and roughly when.'}
-            </Hint>
-          </Field>
+                : 'The line people scan on the board. Say the role, the place and roughly when.'
+            }
+          >
+            <FormInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Wedding photographer, Cebu, December"
+              maxLength={120}
+              wrong={titleShort}
+            />
+          </FormField>
 
-          <Field label="Which roles are you hiring for?">
+          <FormField
+            label="Who are you hiring?"
+            hint="Pick more than one if the event needs a team. It shows up in each of their searches."
+          >
             {/* Without the list there is nothing to pick, and a post needs a
                 role — the form was a dead end with no way to try again. */}
             {rolesFailed && allRoles.length === 0 ? (
@@ -266,49 +263,42 @@ export default function NewJobScreen() {
             ) : rolesLoading && allRoles.length === 0 ? (
               <ActivityIndicator color={palette.primary} style={{ paddingVertical: 12 }} />
             ) : null}
-            <View className="flex-row flex-wrap gap-2">
+            <ChoiceChips>
               {allRoles.map((role) => {
                 const on = rolesWanted.includes(role);
                 return (
-                  <Pressable
+                  <ChoiceChip
                     key={role}
+                    multiple
+                    label={role}
+                    selected={on}
                     onPress={() =>
-                      setRolesWanted((current) =>
-                        on ? current.filter((r) => r !== role) : [...current, role],
-                      )
+                      setRolesWanted((current) => (on ? current.filter((r) => r !== role) : [...current, role]))
                     }
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: on }}
-                    className={`rounded-full px-4 min-h-[44px] justify-center border ${on ? 'bg-primary border-primary' : 'border-primary/40'}`}
-                  >
-                    <Text className={`text-[13px] font-semibold ${on ? 'text-primary-foreground' : 'text-primary'}`}>
-                      {role}
-                    </Text>
-                  </Pressable>
+                  />
                 );
               })}
-            </View>
-            <Hint>
-              Pick more than one if the event needs a team — it shows up in each
-              of their searches.
-            </Hint>
-          </Field>
+            </ChoiceChips>
+          </FormField>
 
           {/* The native picker, not a typed string. The date is optional —
               a post runs 30 days without one — so the field can be cleared. */}
-          <DateTimeField
-            label="Date of the job"
-            mode="date"
-            value={eventDate ? new Date(`${eventDate}T12:00:00`) : null}
-            minimumDate={new Date()}
-            emptyLabel="Pick a date (optional)"
-            clearable
-            onChange={(next) => setEventDate(next ? toIsoDay(next) : '')}
-          />
-
-          <Field label="Where">
-            <LocationField value={location} onChange={setLocation} />
-          </Field>
+          <FormSection title="When and where">
+            <FormCard>
+              <DateTimeField
+                row
+                first
+                label="Date of the job"
+                mode="date"
+                value={eventDate ? new Date(`${eventDate}T12:00:00`) : null}
+                minimumDate={new Date()}
+                emptyLabel="Any day"
+                clearable
+                onChange={(next) => setEventDate(next ? toIsoDay(next) : '')}
+              />
+            </FormCard>
+            <LocationField form value={location} onChange={setLocation} placeholder="Where: Cebu City, or the venue" />
+          </FormSection>
 
           {/*
             A budget per role, not one for the post.
@@ -320,112 +310,83 @@ export default function NewJobScreen() {
             ceiling.
           */}
           {rolesWanted.length > 0 && (
-            <View className="gap-2">
-              <Text className="text-muted-foreground text-[12px] font-semibold">
-                What each role pays (₱)
-              </Text>
+            <FormSection title="What each role pays">
               {rolesWanted.map((role) => (
-                <View key={role} className="gap-1.5">
-                  <Text className="text-foreground text-[13px] font-medium">{role}</Text>
-                  <View className="flex-row gap-3">
-                    <TextInput
-                      value={roleBudgets[role]?.min ?? ''}
-                      onChangeText={(v) => setRoleBudget(role, 'min', v)}
-                      placeholder="from 30,000"
-                      placeholderTextColor="#9ca3af"
-                      keyboardType="numeric"
-                      inputAccessoryViewID={KEYBOARD_DONE}
-                      className="bg-card flex-1 rounded-xl px-3.5 py-3 text-foreground text-sm"
-                    />
-                    <TextInput
-                      value={roleBudgets[role]?.max ?? ''}
-                      onChangeText={(v) => setRoleBudget(role, 'max', v)}
-                      placeholder="up to 45,000"
-                      placeholderTextColor="#9ca3af"
-                      keyboardType="numeric"
-                      inputAccessoryViewID={KEYBOARD_DONE}
-                      className="bg-card flex-1 rounded-xl px-3.5 py-3 text-foreground text-sm"
-                    />
+                <View key={role} className="gap-2">
+                  <FormLabel optional>{role}</FormLabel>
+                  <View className="flex-row items-center gap-2.5">
+                    <View className="flex-1">
+                      <FormInput
+                        value={roleBudgets[role]?.min ?? ''}
+                        onChangeText={(v) => setRoleBudget(role, 'min', v)}
+                        placeholder="30,000"
+                        keyboardType="numeric"
+                        inputAccessoryViewID={KEYBOARD_DONE}
+                        accessibilityLabel={`${role}, from, in pesos`}
+                        wrong={budgetBackwards || budgetTooHigh}
+                        lead={<Text className="text-muted-foreground text-[16px]">₱</Text>}
+                      />
+                    </View>
+                    <Text className="text-muted-foreground text-[14px]">to</Text>
+                    <View className="flex-1">
+                      <FormInput
+                        value={roleBudgets[role]?.max ?? ''}
+                        onChangeText={(v) => setRoleBudget(role, 'max', v)}
+                        placeholder="45,000"
+                        keyboardType="numeric"
+                        inputAccessoryViewID={KEYBOARD_DONE}
+                        accessibilityLabel={`${role}, up to, in pesos`}
+                        wrong={budgetBackwards || budgetTooHigh}
+                        lead={<Text className="text-muted-foreground text-[16px]">₱</Text>}
+                      />
+                    </View>
                   </View>
                 </View>
               ))}
-              <Text
-                className={`text-[12px] ${budgetBackwards || budgetTooHigh ? 'text-destructive' : 'text-muted-foreground'}`}
-              >
+              <FormHint wrong={budgetBackwards || budgetTooHigh}>
                 {budgetBackwards
                   ? 'The lower figure needs to be the smaller one.'
                   : budgetTooHigh
                     ? 'Each role can be up to ₱500,000.'
-                    : 'Optional, but a role with a number gets far better applications.'}
-              </Text>
-            </View>
+                    : 'A role with a number gets far better applications.'}
+              </FormHint>
+            </FormSection>
           )}
 
-          <Field label="The brief">
-            <TextInput
+          <FormField
+            label="The brief"
+            hint={
+              description.trim().length < 30
+                ? 'A few sentences at least. People are deciding whether to spend their day on this.'
+                : `${description.length} / 4000`
+            }
+          >
+            <FormInput
               value={description}
               onChangeText={setDescription}
-              placeholder="What the day looks like, how many hours, what you need delivered and by when. The more specific this is, the fewer wrong applications you get."
-              placeholderTextColor="#9ca3af"
+              placeholder="What the day looks like, how many hours, what you need delivered and by when."
               multiline
+              minHeight={150}
               maxLength={4000}
-              textAlignVertical="top"
-              className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
-              style={{ minHeight: 150 }}
             />
-            <Hint>
-              {description.trim().length < 30
-                ? 'A few sentences at least — people are deciding whether to spend their day on this.'
-                : `${description.length} / 4000`}
-            </Hint>
-          </Field>
+          </FormField>
 
-          <Pressable
-            className="rounded-2xl min-h-[52px] flex-row items-center justify-center gap-2 bg-action"
-            style={{ opacity: !ready || saving ? 0.45 : 1 }}
-            disabled={!ready || saving}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !ready || saving, busy: saving }}
-            onPress={submit}
-          >
-            {saving
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <SendIcon size={16} className="text-action-foreground" />}
-            <Text className="text-action-foreground text-[15px] font-bold">
-              {isEdit ? 'Save changes' : 'Post it'}
-            </Text>
-          </Pressable>
-
-          <Text className="text-muted-foreground text-[11px] text-center">
-            {ready
-              ? 'Posts run for 30 days, or until the job date passes.'
-              : `Still needs ${joinBlockers(blockers)}.`}
-          </Text>
+          {/* Said "the public board at virgo.ph/jobs" while the board
+              answers 401 without a session. */}
+          <FormHint>
+            Everyone on Virgo sees this on the job board. It is not visible outside the app, and it runs for 30 days
+            or until the job date passes.
+          </FormHint>
         </ScrollView>
+
+        <FormFooter
+          label={isEdit ? 'Save changes' : 'Post the job'}
+          onPress={submit}
+          disabled={!ready}
+          busy={saving}
+          note={ready ? undefined : `Still needs ${joinBlockers(blockers)}.`}
+        />
       </KeyboardAvoidingView>
     </InsetFrame>
-  );
-}
-
-function Field({
-  label, children, className,
-}: {
-  label: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <View className={`gap-2 ${className ?? ''}`}>
-      <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
-        {label}
-      </Text>
-      {children}
-    </View>
-  );
-}
-
-function Hint({ children }: { children: React.ReactNode }) {
-  return (
-    <Text className="text-muted-foreground text-[11px] leading-4">{children}</Text>
   );
 }

@@ -1,38 +1,20 @@
-import { View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PALETTES } from '@/theme';
+import { View, Text, ScrollView, Pressable, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { InsetFrame } from '@/components/InsetFrame';
 import { RetentionPicker, retentionReady } from '@/components/RetentionPicker';
-import { useAuth, useCreateAlbum, useWorkspaces, useTheme,
-  usePlanLimits,
-} from '@/src/hooks';
+import { useAuth, useCreateAlbum, useWorkspaces, usePlanLimits } from '@/src/hooks';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { ApiError, retentionInput, type Retention } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { FormHeader } from '@/components/FormHeader';
 import { useState } from 'react';
-import {
-  ImageIcon,
-  MusicIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  LayersIcon,
-} from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
+import { FolderIcon } from 'lucide-react-native';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
-
-cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MusicIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ChevronDownIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(LayersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+import { FormCard, FormField, FormFooter, FormInput, FormNotice, FormRow, FormSection } from '@/components/Form';
+import { ChoiceSheet } from '@/components/WorkspaceBits';
 
 export default function CreateAlbumScreen() {
-  const placeholderColor = (useTheme().isDark ? PALETTES.dark : PALETTES.light).mutedForeground;
   const { isAlbumLimitReached, albumLimit, plan } = usePlanLimits();
-  const { isDark } = useTheme();
-  const insets = useSafeAreaInsets();
   const { workspaceId } = useLocalSearchParams<{ workspaceId?: string }>();
   const { user } = useAuth();
 
@@ -147,7 +129,7 @@ export default function CreateAlbumScreen() {
   }
 
   return (
-    <InsetFrame>
+    <InsetFrame edges={['top']}>
       <FormHeader title="New album" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
@@ -155,220 +137,81 @@ export default function CreateAlbumScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
+        <ScrollView
+          keyboardDismissMode="on-drag"
+          className="flex-1"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Explains the disabled Create button. */}
+          {atAlbumLimit && (
+            <FormNotice
+              title={`${selectedWs?.name ?? 'This workspace'} is full.`}
+              body={`The ${plan} plan allows ${albumLimit} album${albumLimit === 1 ? '' : 's'} in each workspace. Choose another workspace, or delete an album you have finished with.`}
+              // Only where a plan can be bought: see SELLS_PLANS_HERE.
+              action={SELLS_PLANS_HERE ? { label: 'Plans', onPress: () => router.push('/settings/storage/plans') } : undefined}
+            />
+          )}
 
-      <ScrollView keyboardDismissMode="on-drag"
-        className="flex-1"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 140 }}
-        keyboardShouldPersistTaps="handled"
-      >
-
-        {/* Explains the disabled Create button. */}
-        {atAlbumLimit && (
-          <View className="mx-5 mt-4 rounded-2xl p-4 bg-warning/10">
-            <Text className="text-warning text-sm font-bold">{selectedWs?.name} is full</Text>
-            <Text className="text-warning text-xs mt-1">
-              The {plan} plan allows {albumLimit} album{albumLimit === 1 ? '' : 's'} in each
-              workspace. Choose another workspace, or delete an album you have finished with.
-            </Text>
-            {/* Only where a plan can be bought: see SELLS_PLANS_HERE. */}
-            {SELLS_PLANS_HERE && (
-              <Pressable
-                onPress={() => router.push('/settings/storage/plans')}
-                accessibilityRole="button"
-                className="mt-3 rounded-xl min-h-[44px] justify-center items-center bg-warning active:scale-[0.97]"
-              >
-                <Text className="text-white text-xs font-bold">See plans</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
-
-        {/* ── Step 2: Album Details ── */}
-        <View className="px-5 mt-6 gap-4">
-          {/* Workspace picker */}
-          <View>
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              Workspace
-            </Text>
-            <Pressable
-              onPress={() => setShowWorkspacePicker(!showWorkspacePicker)}
-              accessibilityRole="button"
-              accessibilityHint="Choose which workspace the album belongs to"
-              accessibilityState={{ expanded: showWorkspacePicker }}
-              className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3 active:scale-[0.98]"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.03,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 2,
-              }}
-            >
-              {selectedWs ? (
-                <View
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 9,
-                    backgroundColor: `${selectedWs.accent_color}22`,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: selectedWs.accent_color }}>
-                    {selectedWs.name.charAt(0)}
-                  </Text>
-                </View>
-              ) : null}
-              <Text className="text-foreground text-sm flex-1">
-                {selectedWs ? selectedWs.name : 'Select a workspace'}
-              </Text>
-              <ChevronDownIcon size={16} className="text-muted-foreground" />
-            </Pressable>
-
-            {showWorkspacePicker && (
-              <View
-                className="mt-2 bg-card rounded-2xl overflow-hidden"
-                style={{
-                  shadowColor: '#000',
-                  shadowOpacity: 0.04,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 2 },
-                  elevation: 2,
-                }}
-              >
-                {workspaces.map((w, i) => (
-                  <Pressable
-                    key={w.id}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: selectedWorkspaceId === w.id }}
-                    onPress={() => {
-                      setSelectedWorkspaceId(w.id);
-                      setShowWorkspacePicker(false);
-                    }}
-                    className="flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
-                    style={
-                      i < workspaces.length - 1
-                        ? { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2522' : '#F0E8E2' }
-                        : undefined
-                    }
-                  >
-                    <View
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 9,
-                        backgroundColor: `${w.accent_color}22`,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: w.accent_color }}>
-                        {w.name.charAt(0)}
-                      </Text>
-                    </View>
-                    <Text className="text-foreground text-sm flex-1">{w.name}</Text>
-                    {w.id === selectedWorkspaceId && (
-                      <CheckIcon size={14} className="text-primary" />
-                    )}
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
-
-          {/* Name */}
-          <View>
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              Album name
-            </Text>
-            <TextInput
+          {/* The name first. The workspace led, and it is already chosen
+              whenever the form is opened from one. */}
+          <FormField label="Name">
+            <FormInput
               value={name}
               onChangeText={setName}
-              placeholder="e.g. Look 1 — Golden Hour"
-              placeholderTextColor={placeholderColor}
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.03,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 2,
-              }}
+              placeholder="Ceremony"
+              returnKeyType="done"
             />
-          </View>
+          </FormField>
 
-          {/* Description */}
-          <View>
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              Description <Text className="text-muted-foreground font-medium normal-case tracking-normal">(optional)</Text>
-            </Text>
-            <TextInput
+          <FormSection title="Where it goes">
+            <FormCard>
+              <FormRow
+                first
+                icon={FolderIcon}
+                label="Workspace"
+                value={selectedWs ? selectedWs.name : 'Choose one'}
+                empty={!selectedWs}
+                onPress={() => setShowWorkspacePicker(true)}
+                accessibilityHint="Choose which workspace the album belongs to"
+              />
+            </FormCard>
+          </FormSection>
+
+          <FormField label="About it" optional>
+            <FormInput
               value={description}
               onChangeText={setDescription}
-              placeholder="Brief description of this album..."
-              placeholderTextColor={placeholderColor}
-              className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base"
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: 0.03,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 2 },
-                elevation: 2,
-                minHeight: 72,
-              }}
+              placeholder="What is in it, for whoever opens it"
               multiline
-              numberOfLines={3}
-              textAlignVertical="top"
             />
-          </View>
-        </View>
+          </FormField>
 
-        {/* ── Step 3: Retention ── */}
-        <View className="px-5 mt-6">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-3 ml-1">
-            Keep the files
-          </Text>
-          <RetentionPicker value={retention} onChange={setRetention} />
-        </View>
-      </ScrollView>
+          <FormSection title="Keep the files">
+            <RetentionPicker value={retention} onChange={setRetention} />
+          </FormSection>
+        </ScrollView>
 
-      {/* ── Bottom Actions ── */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background flex-row gap-3" style={{ paddingBottom: insets.bottom + 16 }}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          className="flex-1 bg-card rounded-2xl py-3.5 items-center active:scale-[0.97]"
-          style={{
-            shadowColor: '#000',
-            shadowOpacity: 0.04,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 2,
-          }}
-        >
-          <Text className="text-foreground text-base font-semibold">Cancel</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => canCreate && handleCreate()}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canCreate || createAlbum.isPending }}
-          className={`flex-[2] rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-            canCreate ? 'bg-action' : 'bg-muted'
-          }`}
-          disabled={!canCreate || createAlbum.isPending}
-        >
-          <Text
-            className={`text-base font-bold ${
-              canCreate ? 'text-white' : 'text-muted-foreground'
-            }`}
-          >
-            {createAlbum.isPending ? 'Creating...' : 'Create album'}
-          </Text>
-        </Pressable>
-      </View>
-          </KeyboardAvoidingView>
+        {/* One button. There was a Cancel beside it, and an X above that
+            already did the same thing. */}
+        <FormFooter
+          label="Create album"
+          onPress={handleCreate}
+          disabled={!canCreate}
+          busy={createAlbum.isPending}
+        />
+      </KeyboardAvoidingView>
+
+      <ChoiceSheet
+        visible={showWorkspacePicker}
+        title="Workspace"
+        hint="The album lives in one of your workspaces."
+        options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+        value={selectedWorkspaceId ?? null}
+        onChoose={setSelectedWorkspaceId}
+        onClose={() => setShowWorkspacePicker(false)}
+      />
     </InsetFrame>
   );
 }

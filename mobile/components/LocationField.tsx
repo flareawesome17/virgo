@@ -4,6 +4,7 @@ import { MapPinIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useTheme } from '@/src/hooks';
 import { suggestLocations } from '@/src/lib/ph-locations';
+import { usePlaceholderColor } from '@/components/Form';
 
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -22,29 +23,39 @@ export function LocationField({
   value,
   onChange,
   placeholder = 'Cebu City',
+  form = false,
 }: {
   value: string;
   onChange: (next: string) => void;
   placeholder?: string;
+  /** Drawn as a form's text field (FormInput): its height, hairline and type. */
+  form?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
+  const quiet = usePlaceholderColor();
 
   return (
     <View>
-      <View className="bg-card rounded-xl px-3.5 flex-row items-center gap-2">
-        <MapPinIcon size={14} className="text-muted-foreground" />
+      <View
+        className={
+          form
+            ? `bg-card rounded-[14px] px-4 min-h-[52px] flex-row items-center gap-2.5 ${focused ? 'border-[1.5px] border-primary' : 'border border-border'}`
+            : 'bg-card rounded-xl px-3.5 flex-row items-center gap-2'
+        }
+      >
+        <MapPinIcon size={form ? 18 : 14} className="text-muted-foreground" />
         <TextInput
           value={value}
           onChangeText={onChange}
           placeholder={placeholder}
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={form ? quiet : '#9ca3af'}
           maxLength={120}
           onFocus={() => setFocused(true)}
           // Closes when the field is left, a beat late: tapping a suggestion
           // blurs the input first, and closing at once meant the tap landed on
           // nothing. Without it the list stayed open over the form below.
           onBlur={() => setTimeout(() => setFocused(false), 200)}
-          className="text-foreground text-sm flex-1 py-3"
+          className={form ? 'text-foreground text-[16px] flex-1 py-3' : 'text-foreground text-sm flex-1 py-3'}
         />
       </View>
 
