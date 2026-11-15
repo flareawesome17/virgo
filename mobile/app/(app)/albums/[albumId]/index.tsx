@@ -106,6 +106,9 @@ import { albumDeleteConsequence } from '@/src/lib/workspaces';
 import { PALETTES } from '@/theme';
 import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
 import { useAlbumAudio } from '@/src/providers/AlbumAudioProvider';
+import { PendingUploads, UploadBar } from '@/components/upload/UploadBar';
+import { UploadSourceSheet } from '@/components/upload/UploadSourceSheet';
+import { useUploadPicker } from '@/components/upload/useUploadPicker';
 
 const interop = { className: { target: 'style', nativeStyleToProp: { color: true } } } as const;
 cssInterop(ArrowLeftIcon, interop);
@@ -307,6 +310,20 @@ export default function AlbumScreen() {
   // file then failed once they had been sent back to the album.
   const canUpload =
     isOwner || album?.my_access === 'upload' || album?.my_access === 'manage';
+
+  /*
+   * Upload opens a short sheet, the sheet opens the phone's picker, and what
+   * is chosen starts uploading here. It went to a screen that listed the
+   * chosen files by name and waited to be told to start.
+   */
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const uploadPicker = useUploadPicker({
+    albumId,
+    albumName: album?.name,
+    // Only against your own storage when the album is yours: the server bills
+    // an upload into somebody else's album to its owner.
+    billedToMe: !album || (album.my_access ? album.my_access === 'owner' : isOwner),
+  });
   // From the album's own access first: read off the loaded files, a manage
   // collaborator lost the Section controls in an empty or filtered view.
   const access = album?.my_access;
@@ -1135,7 +1152,7 @@ export default function AlbumScreen() {
             </View>
             {folded && canUpload && (
               <Pressable
-                onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
+                onPress={() => setUploadOpen(true)}
                 accessibilityRole="button"
                 accessibilityLabel="Upload"
                 className="w-10 h-10 items-center justify-center active:opacity-60"
@@ -1221,7 +1238,7 @@ export default function AlbumScreen() {
                 <View className="flex-row gap-2 mt-4">
                   {canUpload && (
                     <Pressable
-                      onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
+                      onPress={() => setUploadOpen(true)}
                       accessibilityRole="button"
                       className="flex-1 h-11 rounded-[14px] bg-action flex-row items-center justify-center gap-2 active:opacity-85"
                     >
@@ -1335,9 +1352,13 @@ export default function AlbumScreen() {
             stickySectionHeadersEnabled
             onScroll={onGridScroll}
             scrollEventThrottle={32}
-            contentContainerStyle={{ paddingBottom: selecting ? 150 : 40 }}
+            // Room under the last row for the upload bar, when there is one.
+            contentContainerStyle={{ paddingBottom: selecting ? 150 : 110 }}
             ListHeaderComponent={
-              recordings.length > 0 && !selecting ? (
+              <>
+              {/* What is on its way in, above what is already here. */}
+              {!selecting ? <PendingUploads albumId={albumId} tile={(width - HAIRLINE * 2) / 3} /> : null}
+              {recordings.length > 0 && !selecting ? (
                 <View className="px-5 pt-4">
                   <PlayAllBar
                     playing={!!playingKey && audio.playing}
@@ -1353,7 +1374,8 @@ export default function AlbumScreen() {
                     }}
                   />
                 </View>
-              ) : null
+              ) : null}
+              </>
             }
             onEndReachedThreshold={0.6}
             onEndReached={() => {
@@ -1397,7 +1419,7 @@ export default function AlbumScreen() {
                   </Text>
                   {canUpload && (
                     <Pressable
-                      onPress={() => router.push(`/albums/upload?albumId=${albumId}`)}
+                      onPress={() => setUploadOpen(true)}
                       accessibilityRole="button"
                       className="mt-6 h-11 bg-action rounded-[14px] px-6 flex-row items-center gap-2 active:opacity-85"
                     >
@@ -1477,6 +1499,15 @@ export default function AlbumScreen() {
           </View>
         </View>
       )}
+
+      {/* ── Files on their way in ── */}
+      <UploadBar albumId={albumId} albumName={album.name} hidden={selecting} />
+      <UploadSourceSheet
+        visible={uploadOpen}
+        albumName={album.name}
+        onChoose={(source) => void uploadPicker.pick(source)}
+        onClose={() => setUploadOpen(false)}
+      />
 
       {/* ── Show and sort ── */}
       <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Show and sort">
