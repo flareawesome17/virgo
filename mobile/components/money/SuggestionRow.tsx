@@ -32,13 +32,11 @@ export const SuggestionRow = memo(function SuggestionRow({
 
   return (
     <View
-      className={`bg-card px-4 py-3 gap-2.5 ${first ? 'rounded-t-2xl' : ''} ${
-        last ? 'rounded-b-2xl' : 'border-b border-border'
-      }`}
+      className={`bg-card border-x border-b border-border/40 px-4 py-3 gap-2.5 ${first ? 'rounded-t-[20px] border-t' : ''} ${last ? 'rounded-b-[20px]' : ''}`}
     >
       <View className="flex-row items-center gap-3">
-        <View className={`w-9 h-9 rounded-xl items-center justify-center ${income ? 'bg-success/15' : 'bg-primary/10'}`}>
-          <Icon size={16} className={income ? 'text-success' : 'text-primary'} />
+        <View className="w-10 h-10 rounded-xl bg-muted items-center justify-center">
+          <Icon size={18} className="text-foreground" />
         </View>
         <View className="flex-1 min-w-0">
           <Text className="text-foreground text-[15px] font-semibold" numberOfLines={1}>
@@ -50,21 +48,21 @@ export const SuggestionRow = memo(function SuggestionRow({
         </View>
         {suggestion.amountMinor !== null ? (
           <Text
-            className={`text-[15px] font-bold ${income ? 'text-success' : 'text-foreground'}`}
+            className={`text-[15px] font-semibold ${income ? 'text-success' : 'text-foreground'}`}
             style={{ fontVariant: ['tabular-nums'] }}
           >
             {signedAmount(suggestion.kind, suggestion.amountMinor)}
           </Text>
         ) : null}
       </View>
-      <View className="flex-row gap-2 pl-12">
+      <View className="flex-row gap-2 pl-[52px]">
         <Pressable
           onPress={onRecord}
           accessibilityRole="button"
           accessibilityLabel={`Record ${income ? 'income from' : 'expense to'} ${suggestion.counterparty}`}
-          className="min-h-9 px-4 items-center justify-center rounded-full bg-primary/10 active:opacity-70"
+          className="min-h-9 px-4 items-center justify-center rounded-full bg-secondary active:opacity-70"
         >
-          <Text className="text-primary text-[13px] font-bold">Record</Text>
+          <Text className="text-foreground text-[13px] font-semibold">Record</Text>
         </Pressable>
         <Pressable
           onPress={onDismiss}

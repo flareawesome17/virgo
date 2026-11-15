@@ -48,6 +48,7 @@ import { FormCard, FormInput, usePlaceholderColor } from '@/components/Form';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { useKeyboardAwareScroll } from '@/src/lib/keyboard';
 import { queueMoneyEntry } from '@/src/lib/money-outbox';
+import { setAsidePrompt } from '@/src/lib/set-aside-prompt';
 import { newClientId } from '@/src/lib/outbox';
 
 for (const Icon of [ChevronRightIcon, RepeatIcon, ToggleLeftIcon, ToggleRightIcon, Trash2Icon]) {
@@ -311,7 +312,17 @@ export default function MoneyEntryScreen() {
       return;
     }
     create.mutate(input, {
-      onSuccess: saved,
+      onSuccess: () => {
+        // Income that has arrived: Money asks, once this form has closed,
+        // whether some of it should be set aside.
+        if (input.kind === 'income' && input.paidOn) {
+          setAsidePrompt.offer({
+            amountMinor: input.amountMinor - (input.withheldMinor ?? 0),
+            from: input.counterparty ?? null,
+          });
+        }
+        saved();
+      },
       onError: (error) => {
         if (error instanceof ApiError && error.status === 0 && !repeat) {
           queueMoneyEntry(input);

@@ -42,9 +42,7 @@ export const PackageRow = memo(function PackageRow({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${pkg.title}. ${packageStatus(pkg)}`}
-      className={`bg-card px-4 py-3.5 active:opacity-70 ${first ? 'rounded-t-2xl' : ''} ${
-        last ? 'rounded-b-2xl' : 'border-b border-border'
-      }`}
+      className={`bg-card border-x border-b border-border/40 px-4 py-3.5 active:opacity-70 ${first ? 'rounded-t-[20px] border-t' : ''} ${last ? 'rounded-b-[20px]' : ''}`}
     >
       <View className="flex-row items-center gap-2">
         <Text className="text-foreground text-[15px] font-semibold flex-1" numberOfLines={1}>
@@ -60,7 +58,7 @@ export const PackageRow = memo(function PackageRow({
       ) : null}
       <View className="h-1.5 rounded-full bg-muted mt-2.5 overflow-hidden">
         <View
-          className={`h-full rounded-full ${pkg.paidInFull ? 'bg-success' : 'bg-primary'}`}
+          className={`h-full rounded-full ${pkg.paidInFull ? 'bg-success' : 'bg-secondary-foreground'}`}
           style={{ width: `${Math.round(progress * 100)}%` }}
         />
       </View>

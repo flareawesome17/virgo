@@ -48,6 +48,7 @@ const CREATE_FORMS = [
   'schedule/reminders/create',
   'money/new',
   'money/packages/new',
+  'money/savings/new',
   'money/pay-methods/edit',
 ] as const;
 

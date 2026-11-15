@@ -531,6 +531,95 @@ export function receiptFileProblem(file: { type: string; size: number }): string
   return null;
 }
 
+/** The pictures a saving can have: the server keeps the word, each client draws it. */
+export const SAVING_ICONS = ['gear', 'tax', 'safety', 'slow', 'trip', 'home', 'family', 'other'] as const;
+export type SavingIcon = (typeof SAVING_ICONS)[number];
+
+/**
+ * Something being put aside for: a lens, the tax bill, three slow months.
+ *
+ * Notes of the person's own money. Virgo holds none of it, and setting money
+ * aside is not an expense: nothing here touches the ledger.
+ */
+export interface MoneySaving {
+  id: string;
+  name: string;
+  icon: SavingIcon;
+  /** What to reach, in centavos; null is a running total. */
+  goalMinor: number | null;
+  targetDate: string | null;
+  /** Where it is kept, in their words. */
+  keptIn: string | null;
+  /** Every move added up. */
+  balanceMinor: number;
+  /** Put in, less taken out, in the month asked about. */
+  monthMinor: number;
+  createdAt: string;
+}
+
+export interface MoneySavingMove {
+  id: string;
+  /** Positive is put in, negative is taken out. */
+  amountMinor: number;
+  note: string | null;
+  movedOn: string;
+  createdAt: string;
+}
+
+export interface MoneySavingsList {
+  data: MoneySaving[];
+  totalMinor: number;
+  monthMinor: number;
+  month: string;
+}
+
+export interface MoneySavingInput {
+  name: string;
+  icon?: SavingIcon;
+  goalMinor?: number | null;
+  targetDate?: string | null;
+  keptIn?: string | null;
+  /** What is already put aside, as the saving is made. */
+  startingMinor?: number;
+}
+
+export type MoneySavingPatch = Partial<Omit<MoneySavingInput, 'startingMinor'>>;
+
+export interface MoneySavingMoveInput {
+  /** Positive puts money in, negative takes it out. */
+  amountMinor: number;
+  note?: string | null;
+  movedOn?: string;
+}
+
+/**
+ * How far along a saving is, 0 to 1; null when it has no goal to be along.
+ * Past the goal is 1: the bar is full, not overflowing.
+ */
+export function savingProgress(saving: Pick<MoneySaving, 'balanceMinor' | 'goalMinor'>): number | null {
+  if (!saving.goalMinor) return null;
+  return Math.min(Math.max(saving.balanceMinor / saving.goalMinor, 0), 1);
+}
+
+/**
+ * What to put aside each month to reach the goal by its date, in centavos.
+ * Null with no goal or no date, when the goal is met, or once the date has
+ * passed. `today` is YYYY-MM-DD; a month already begun counts as one.
+ */
+export function savingMonthlyPace(
+  saving: Pick<MoneySaving, 'balanceMinor' | 'goalMinor' | 'targetDate'>,
+  today: string,
+): number | null {
+  if (!saving.goalMinor || !saving.targetDate) return null;
+  const left = saving.goalMinor - saving.balanceMinor;
+  if (left <= 0 || saving.targetDate < today) return null;
+  const [y1, m1] = today.split('-').map(Number);
+  const [y2, m2] = saving.targetDate.split('-').map(Number);
+  const months = Math.max((y2 - y1) * 12 + (m2 - m1) + 1, 1);
+  return Math.ceil(left / months);
+}
+
+
 export const moneyApi = {
   list(params: MoneyListParams = {}): Promise<{ data: MoneyEntry[]; total: number }> {
     return api.get('/money/entries', { query: params });
@@ -616,6 +705,39 @@ export const moneyApi = {
 
   deletePayMethod(id: string): Promise<void> {
     return api.delete(`/money/pay-methods/${id}`);
+  },
+
+  /** Every saving, with what it holds; `month` (YYYY-MM) is what "this month" counts. */
+  savings(month?: string): Promise<MoneySavingsList> {
+    return api.get('/money/savings', { query: { month } });
+  },
+
+  /** One saving and what went in and out of it, newest first. */
+  getSaving(id: string): Promise<MoneySaving & { moves: MoneySavingMove[] }> {
+    return api.get(`/money/savings/${id}`);
+  },
+
+  createSaving(input: MoneySavingInput): Promise<MoneySaving> {
+    return api.post('/money/savings', { body: input });
+  },
+
+  updateSaving(id: string, patch: MoneySavingPatch): Promise<MoneySaving> {
+    return api.patch(`/money/savings/${id}`, { body: patch });
+  },
+
+  /** The saving and its history. The money itself was never here. */
+  deleteSaving(id: string): Promise<void> {
+    return api.delete(`/money/savings/${id}`);
+  },
+
+  /** Puts money in (positive) or takes it out (negative). */
+  moveSaving(id: string, input: MoneySavingMoveInput): Promise<MoneySaving> {
+    return api.post(`/money/savings/${id}/moves`, { body: input });
+  },
+
+  /** Takes one line out of a saving's history. */
+  deleteSavingMove(id: string, moveId: string): Promise<MoneySaving> {
+    return api.delete(`/money/savings/${id}/moves/${moveId}`);
   },
 
   /** A year at a glance: months, categories, clients, and what each job earned. */
