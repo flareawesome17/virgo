@@ -108,6 +108,9 @@ const FALLBACK: UploadContextValue = {
 
 const UploadContext = createContext<UploadContextValue>(FALLBACK);
 
+/** How often, at most, an album is read again while files are landing in it. */
+const ALBUM_REFRESH_EVERY_MS = 2500;
+
 /** Only rewrite the drawer when the number visibly moved. */
 const NOTIFY_EVERY_PERCENT = 5;
 
@@ -410,17 +413,68 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     };
   }, [userId]);
 
-  // Written on every change, so a process that ends without warning leaves
-  // behind whatever was true a moment ago. Finished rows are dropped: their
-  // only purpose was to be displayed, and a batch from last week should not
-  // greet somebody on launch.
+  // Written whenever something a relaunch needs has changed, so a process that
+  // ends without warning leaves behind whatever was true a moment ago.
+  // Finished rows are dropped: their only purpose was to be displayed, and a
+  // batch from last week should not greet somebody on launch.
+  //
+  // Progress is not one of those things. A relaunch starts a file again from
+  // its key or its parts, never from a percentage, and writing the whole queue
+  // for every percent of every file was a hundred serialisations and disk
+  // writes a file, all on the thread that answers taps.
+  const lastSaved = useRef<{ owner: string; json: string } | null>(null);
   useEffect(() => {
     if (!hydrated || !owner) return;
-    const worth = tasks.filter((task) => task.status !== 'done');
-    void AsyncStorage.setItem(uploadQueueKey(owner), JSON.stringify(worth)).catch(
-      () => {},
-    );
+    const worth = tasks
+      .filter((task) => task.status !== 'done')
+      .map((task) => (task.progress === 0 ? task : { ...task, progress: 0 }));
+    const json = JSON.stringify(worth);
+    if (lastSaved.current?.owner === owner && lastSaved.current.json === json) return;
+    lastSaved.current = { owner, json };
+    void AsyncStorage.setItem(uploadQueueKey(owner), json).catch(() => {});
   }, [tasks, hydrated, owner]);
+
+  /**
+   * Shows files in their album as they land, without reading the album again
+   * for every one of them.
+   *
+   * A batch of photographs finishes a file every second or two, and each
+   * refresh fetches and redraws the whole album. Twenty files were twenty of
+   * those back to back, which is the album stuttering under the thumb for the
+   * length of the upload. At most one every few seconds now, and always one
+   * after the last file.
+   */
+  const albumRefresh = useRef<{
+    albums: Set<string>;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ albums: new Set(), timer: null });
+  const refreshAlbumSoon = useCallback(
+    (albumId: string) => {
+      const pending = albumRefresh.current;
+      pending.albums.add(albumId);
+      if (pending.timer) return;
+      pending.timer = setTimeout(() => {
+        pending.timer = null;
+        const albums = [...pending.albums];
+        pending.albums.clear();
+        for (const id of albums) {
+          // The prefix, not albumFilesQueryKey(albumId), which resolves to
+          // `[…, albumId, 'all']` and so matches only the combined view. An
+          // audio file landing has to refresh the Audio tab as well, and that
+          // key ends in 'audio'.
+          queryClient.invalidateQueries({ queryKey: ['storage', 'files', id] });
+        }
+      }, ALBUM_REFRESH_EVERY_MS);
+    },
+    [queryClient],
+  );
+  useEffect(
+    () => () => {
+      const pending = albumRefresh.current;
+      if (pending.timer) clearTimeout(pending.timer);
+    },
+    [],
+  );
 
   const patch = useCallback((id: string, next: Partial<UploadTask>) => {
     setTasks((prev) =>
@@ -536,7 +590,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
                 networkFailures: 0,
               });
             }
-            queryClient.invalidateQueries({ queryKey: ['storage', 'files', next.albumId] });
+            refreshAlbumSoon(next.albumId);
             return;
           }
         }
@@ -577,16 +631,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           });
         }
 
-        // Per file, not per batch: twenty photographs should appear in the
-        // album as they land, not all at the end.
-        //
-        // The prefix, not albumFilesQueryKey(albumId), which resolves to
-        // `[…, albumId, 'all']` and so matches only the combined view. An
-        // audio file landing has to refresh the Audio tab as well, and that
-        // key ends in 'audio'.
-        queryClient.invalidateQueries({
-          queryKey: ['storage', 'files', next.albumId],
-        });
+        // As they land, not all at the end; but gathered, so a run of small
+        // files is not a run of whole-album refreshes (see refreshAlbumSoon).
+        refreshAlbumSoon(next.albumId);
       } catch (error) {
         const cancelled = controller.signal.aborted;
         // Removed while running: the row is already gone.
@@ -639,7 +686,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // there until something else changed `tasks`. `online` likewise: coming
     // back online is what starts a queue that was held. `owner` and `userId`
     // because the runner only works the signed-in account's own queue.
-  }, [tasks, patch, queryClient, hydrated, online, owner, userId]);
+  }, [tasks, patch, queryClient, hydrated, online, owner, userId, refreshAlbumSoon]);
 
   const pending = tasks.filter((task) => task.status !== 'done');
   const active = pending.some(
@@ -707,6 +754,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     const done = tasks.filter((task) => task.status === 'done').length;
     if (done === 0 && failed === 0) return;
 
+    // The album itself, once more now that the batch is over: the gathered
+    // refresh may still be waiting on its timer.
+    queryClient.invalidateQueries({ queryKey: ['storage', 'files'] });
     // Storage and album counts are derived server-side, so both need a refetch
     // once rather than per file.
     queryClient.invalidateQueries({ queryKey: ['albums'] });

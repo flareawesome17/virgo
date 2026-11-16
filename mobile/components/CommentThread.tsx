@@ -416,15 +416,18 @@ export function CommentComposer({
   const send = () => {
     const body = draft.trim();
     if (!body) return;
+    // The comment is in the thread on the tap (see useCommentActions), so the
+    // box empties on the tap too. If the server refuses, the words come back
+    // to the box, unless something new has been typed there since: a failed
+    // send that also lost what somebody wrote is the version of this people
+    // rewrite from memory.
+    setDraft('');
+    onSent?.();
     add.mutate(body, {
-      // Cleared on success only: a failed send that also lost what somebody
-      // typed is the version of this people rewrite from memory.
-      onSuccess: () => {
-        setDraft('');
-        onSent?.();
+      onError: (error) => {
+        setDraft((now) => (now.trim() ? now : body));
+        Alert.alert("Couldn't post that", profileActionMessage(error, 'comment'));
       },
-      onError: (error) =>
-        Alert.alert("Couldn't post that", profileActionMessage(error, 'comment')),
     });
   };
 

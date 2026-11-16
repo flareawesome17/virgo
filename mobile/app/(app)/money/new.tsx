@@ -311,27 +311,48 @@ export default function MoneyEntryScreen() {
       leave();
       return;
     }
-    create.mutate(input, {
-      onSuccess: () => {
-        // Income that has arrived: Money asks, once this form has closed,
-        // whether some of it should be set aside.
-        if (input.kind === 'income' && input.paidOn) {
-          setAsidePrompt.offer({
-            amountMinor: input.amountMinor - (input.withheldMinor ?? 0),
-            from: input.counterparty ?? null,
-          });
-        }
-        saved();
-      },
-      onError: (error) => {
-        if (error instanceof ApiError && error.status === 0 && !repeat) {
-          queueMoneyEntry(input);
-          leave();
-          return;
-        }
-        failed(error);
-      },
+    // Income that has arrived: Money asks, once this form has closed, whether
+    // some of it should be set aside.
+    const offerSetAside = () => {
+      if (input.kind === 'income' && input.paidOn) {
+        setAsidePrompt.offer({
+          amountMinor: input.amountMinor - (input.withheldMinor ?? 0),
+          from: input.counterparty ?? null,
+        });
+      }
+    };
+
+    // Repeating needs the saved entry to exist first, so that one waits.
+    if (repeat) {
+      create.mutate(input, {
+        onSuccess: () => {
+          offerSetAside();
+          saved();
+        },
+        onError: failed,
+      });
+      return;
+    }
+
+    // Everything else closes on the tap. The entry is already on the list
+    // (useCreateMoneyEntry draws it at once), and the form used to stay open
+    // with a spinner until the server answered. If the save does not go
+    // through, the entry is not lost: with no connection it is kept on this
+    // phone and sent later; refused, it is kept with the reason, under "Saved
+    // on this phone", to be discarded or entered again.
+    //
+    // The promise, not mutate's own onError: this form is gone by the time the
+    // server answers, and callbacks given to mutate are dropped with the
+    // component that gave them.
+    create.mutateAsync(input).catch((error: unknown) => {
+      const offline = error instanceof ApiError && error.status === 0;
+      queueMoneyEntry(
+        input,
+        offline ? null : error instanceof ApiError ? error.message : 'It could not be saved.',
+      );
     });
+    offerSetAside();
+    leave();
   };
 
   const confirmDelete = () =>

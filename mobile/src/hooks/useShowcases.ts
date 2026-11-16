@@ -16,6 +16,7 @@ import {
   retryUnlessGone,
   shelvesApi,
   showcasesApi,
+  type Comment,
   type CommentPage,
   type FeedItem,
   type FeedPage,
@@ -521,14 +522,85 @@ export function useCommentActions(showcaseId: string) {
     }));
   };
 
+  const key = queryKeys.showcases.comments(showcaseId);
+  const bump = (delta: number) =>
+    patchShowcase(queryClient, showcaseId, (item) => ({
+      ...item,
+      commentCount: Math.max(0, item.commentCount + delta),
+    }));
+  /** The thread and the count as they were, for when the server says no. */
+  const undo = (context: { before: CommentPages | undefined; delta: number } | undefined) => {
+    if (!context) return;
+    queryClient.setQueryData(key, context.before);
+    bump(-context.delta);
+  };
+
+  /*
+   * Said at once. The comment is in the thread, and counted, on the tap; the
+   * server's answer then replaces the page with the real one. It used to wait
+   * for that answer, which on a phone's connection was a second or two of a
+   * send button spinning over words that were already written.
+   */
   const add = useMutation({
     mutationFn: (body: string) => commentsApi.add(showcaseId, body),
-    onSuccess: (result) => apply(result, 1),
+    onMutate: async (body: string) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const before = queryClient.getQueryData<CommentPages>(key);
+      const me = queryClient.getQueryData<{
+        id: string;
+        displayName?: string | null;
+        handle?: string | null;
+        avatarUrl?: string | null;
+      }>(queryKeys.auth.session);
+      // Nobody to sign it with, or a thread not loaded yet: wait for the
+      // answer, as before, rather than show a comment from no one.
+      if (!me?.id || !before?.pages?.length) return undefined;
+      const mine: Comment = {
+        id: `sending-${Date.now()}`,
+        body,
+        createdAt: new Date().toISOString(),
+        author: {
+          id: me.id,
+          displayName: me.displayName || 'You',
+          handle: me.handle ?? null,
+          avatarUrl: me.avatarUrl ?? null,
+        },
+        // Not until it has an id the server knows.
+        canRemove: false,
+      };
+      // The newest page is the first; each reads oldest first within itself.
+      const [newest, ...earlier] = before.pages;
+      queryClient.setQueryData<CommentPages>(key, {
+        ...before,
+        pages: [{ ...newest, data: [...newest.data, mine] }, ...earlier],
+      });
+      bump(1);
+      return { before, delta: 1 };
+    },
+    onError: (_error, _body, context) => undo(context),
+    // Already counted when it was shown; counted here when it was not.
+    onSuccess: (result, _body, context) => apply(result, context ? 0 : 1),
   });
 
+  /** Gone on the tap, back if the server refuses. */
   const remove = useMutation({
     mutationFn: (commentId: string) => commentsApi.remove(showcaseId, commentId),
-    onSuccess: (result) => apply(result, -1),
+    onMutate: async (commentId: string) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const before = queryClient.getQueryData<CommentPages>(key);
+      if (!before?.pages?.length) return undefined;
+      queryClient.setQueryData<CommentPages>(key, {
+        ...before,
+        pages: before.pages.map((page) => ({
+          ...page,
+          data: page.data.filter((comment) => comment.id !== commentId),
+        })),
+      });
+      bump(-1);
+      return { before, delta: -1 };
+    },
+    onError: (_error, _id, context) => undo(context),
+    onSuccess: (result, _id, context) => apply(result, context ? 0 : -1),
   });
 
   return { add, remove };
