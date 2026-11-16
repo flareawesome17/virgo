@@ -2,12 +2,13 @@ import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ArrowLeftIcon, BookmarkIcon, EllipsisIcon } from 'lucide-react-native';
+import { BookmarkIcon, EllipsisIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { KeptGrid } from '@/components/KeptGrid';
 import { LoadFailed } from '@/components/LoadFailed';
 import { NameSheet } from '@/components/NameSheet';
-import { ActionSheet } from '@/components/WorkspaceBits';
+import { ShelfBar, ShelfHeading } from '@/components/shelves/ShelfHeading';
+import { ShelfMenuSheet } from '@/components/shelves/ShelfMenuSheet';
 import { useShelfActions, useShelfEntries, useShelves, useTheme } from '@/src/hooks';
 import { ApiError } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
@@ -17,7 +18,7 @@ import { PALETTES } from '@/theme';
 const isGone = (error: unknown) =>
   error instanceof ApiError && (error.status === 404 || error.status === 403);
 
-for (const Icon of [ArrowLeftIcon, BookmarkIcon, EllipsisIcon]) {
+for (const Icon of [BookmarkIcon, EllipsisIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -31,9 +32,19 @@ for (const Icon of [ArrowLeftIcon, BookmarkIcon, EllipsisIcon]) {
  * Your own shelf can be renamed, made private or public, and deleted from here,
  * and anything on it removed from its post. The API had all of that from the
  * start; the phone could only ever add.
+ *
+ * The bar says only "Shelf". The shelf's name is the heading under it, with
+ * how much is kept, who sees it and whose it is; on the grid it scrolls away
+ * with the first row.
  */
 export default function ShelfScreen() {
-  const { id, own, name } = useLocalSearchParams<{ id?: string; own?: string; name?: string }>();
+  const { id, own, name, by } = useLocalSearchParams<{
+    id?: string;
+    own?: string;
+    name?: string;
+    /** Whose shelf it is, when it is somebody else's and the opener knew. */
+    by?: string;
+  }>();
   const mine = own !== '0';
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -97,44 +108,44 @@ export default function ShelfScreen() {
     return unkeep.mutateAsync({ shelfId: id, showcaseId });
   };
 
+  const loaded = !isLoading && !loadFailed;
+  const count = entries.length > 0 ? entries.length : loaded ? 0 : (shelf?.count ?? 0);
+  // Somebody else's shelf is public or it would not have loaded; until it
+  // has, nothing is claimed about it.
+  const isPublic = mine ? shelf?.isPublic : loaded ? true : undefined;
+  const heading = (
+    <ShelfHeading
+      name={title}
+      isPublic={isPublic}
+      meta={[
+        count > 0 ? `${count} kept` : null,
+        isPublic === undefined ? null : isPublic ? 'Public' : 'Private',
+        mine ? (shelf ? 'by you' : null) : by ? `by ${by}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')}
+    />
+  );
+
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <View className="flex-row items-center pl-1 pr-3 border-b border-border">
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          className="w-11 h-11 items-center justify-center"
-        >
-          <ArrowLeftIcon size={20} className="text-foreground" />
-        </Pressable>
-        <View className="flex-1 min-w-0">
-          <Text className="text-foreground text-[15px] font-bold" numberOfLines={1}>
-            {title}
-          </Text>
-          {entries.length > 0 || (shelf && !shelf.isPublic) ? (
-            <Text className="text-muted-foreground text-[11px]">
-              {[
-                entries.length > 0 ? `${entries.length} kept` : null,
-                shelf && !shelf.isPublic ? 'Private · only you see it' : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </Text>
-          ) : null}
-        </View>
-        {shelf ? (
-          <Pressable
-            onPress={() => setMenuOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Shelf options"
-            className="w-11 h-11 items-center justify-center"
-          >
-            <EllipsisIcon size={20} className="text-foreground" />
-          </Pressable>
-        ) : null}
-      </View>
+      <ShelfBar
+        title="Shelf"
+        right={
+          shelf ? (
+            <Pressable
+              onPress={() => setMenuOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Shelf options"
+              className="w-11 h-11 items-center justify-center active:opacity-60"
+            >
+              <EllipsisIcon size={22} className="text-foreground" />
+            </Pressable>
+          ) : null
+        }
+      />
+      {/* On the grid it is the list's header, and scrolls with it. */}
+      {entries.length === 0 ? heading : null}
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
@@ -143,7 +154,7 @@ export default function ShelfScreen() {
       ) : loadFailed && entries.length === 0 && isGone(error) ? (
         // Deleted, or made private since the link was shared. Not a
         // connection problem, and a Retry could only fail again.
-        <View className="items-center px-10 mt-20">
+        <View className="items-center px-10 mt-12">
           <Text className="text-foreground text-[15px] font-bold text-center">
             This shelf is no longer available
           </Text>
@@ -154,7 +165,7 @@ export default function ShelfScreen() {
       ) : loadFailed && entries.length === 0 ? (
         <LoadFailed what="this shelf" onRetry={() => refetch()} />
       ) : entries.length === 0 ? (
-        <View className="items-center px-10 mt-20">
+        <View className="items-center px-10 mt-12">
           <View className="w-16 h-16 rounded-full bg-primary/10 items-center justify-center mb-4">
             <BookmarkIcon size={24} className="text-primary" />
           </View>
@@ -167,23 +178,25 @@ export default function ShelfScreen() {
       ) : (
         <KeptGrid
           entries={entries}
+          header={heading}
           onRemove={shelf ? remove : undefined}
           onRefresh={() => refetch()}
+          // Yours says so, and calls the note yours; anybody else's keeps the
+          // post's own title.
+          postTitle={mine ? 'From your shelf' : undefined}
+          noteLabel={mine ? 'Why you kept it' : 'Why it was kept'}
         />
       )}
 
-      <ActionSheet
+      <ShelfMenuSheet
         visible={menuOpen}
-        title={title}
+        name={title}
+        isPublic={shelf?.isPublic ?? true}
+        count={shelf?.count ?? entries.length}
         onClose={() => setMenuOpen(false)}
-        actions={[
-          { label: 'Rename', onPress: () => setRenaming(true) },
-          {
-            label: shelf?.isPublic ? 'Make private' : 'Make public',
-            onPress: togglePrivacy,
-          },
-          { label: 'Delete shelf', destructive: true, onPress: confirmDelete },
-        ]}
+        onRename={() => setRenaming(true)}
+        onTogglePrivacy={togglePrivacy}
+        onDelete={confirmDelete}
       />
 
       <NameSheet

@@ -10,10 +10,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { CheckIcon } from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
 import { BottomSheet } from '@/components/BottomSheet';
-import { ChoiceRows } from '@/components/WorkspaceBits';
 import { useTheme } from '@/src/hooks';
 import { PALETTES } from '@/theme';
+
+cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 const NOTE_LIMIT = 500;
 
@@ -103,15 +106,55 @@ export function ReportSheet<T extends string>({
           phone at once. */}
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}
       >
-        <Text className="text-foreground text-lg font-bold" accessibilityRole="header">
-          {title}
-        </Text>
-        {hint ? <Text className="text-muted-foreground text-xs mt-1">{hint}</Text> : null}
+        <View className="min-h-[32px] justify-center">
+          <Text
+            className="text-foreground text-[18px] leading-[26px] font-bold"
+            accessibilityRole="header"
+          >
+            {title}
+          </Text>
+        </View>
+        {hint ? (
+          <Text className="text-muted-foreground text-[13px] leading-[18px] mt-1">{hint}</Text>
+        ) : null}
 
-        <View className="mt-3">
-          <ChoiceRows<T> options={reasons} value={reason} onChoose={(r) => setReason(r)} />
+        {/* The reasons, in one card. The chosen one is dark, not terracotta:
+            terracotta is Send's, and a terracotta tick put a second "do this"
+            above the real one. */}
+        <View
+          className="mt-3 rounded-[20px] border border-border/40 bg-card overflow-hidden"
+          accessibilityRole="radiogroup"
+        >
+          {reasons.map((option, index) => {
+            const on = option.value === reason;
+            return (
+              <Pressable
+                key={option.value}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: on, disabled: pending }}
+                disabled={pending}
+                onPress={() => setReason(option.value)}
+                className={`min-h-[52px] px-4 py-2 flex-row items-center gap-3 active:opacity-70 ${
+                  index > 0 ? 'border-t border-border/40' : ''
+                }`}
+              >
+                <Text
+                  className={`flex-1 text-foreground text-[15px] leading-5 ${on ? 'font-semibold' : ''}`}
+                >
+                  {option.label}
+                </Text>
+                {on ? (
+                  <View className="w-[22px] h-[22px] rounded-full bg-foreground items-center justify-center">
+                    <CheckIcon size={14} strokeWidth={3} className="text-background" />
+                  </View>
+                ) : (
+                  <View className="w-[22px] h-[22px] rounded-full border-2 border-border" />
+                )}
+              </Pressable>
+            );
+          })}
         </View>
 
         <TextInput
@@ -123,18 +166,22 @@ export function ReportSheet<T extends string>({
           multiline
           textAlignVertical="top"
           editable={!pending}
-          className="bg-muted rounded-2xl text-foreground text-sm px-4 py-3 mt-3"
-          style={{ minHeight: 88, maxHeight: 160 }}
+          className="mt-3.5 rounded-[14px] border border-border bg-card text-foreground text-[16px] leading-[22px] px-4"
+          style={{ minHeight: 76, maxHeight: 160, paddingVertical: 14 }}
         />
-        <Text className="text-muted-foreground text-[11px] text-right mt-1">
-          {`${note.length}/${NOTE_LIMIT}`}
+        <Text className="text-muted-foreground text-[12px] leading-4 text-right mt-1.5">
+          {`${note.length} of ${NOTE_LIMIT}`}
         </Text>
 
         {include ? (
-          <View className="mt-2 flex-row items-center gap-3 rounded-2xl bg-muted px-4 py-3">
+          <View className="mt-2 flex-row items-center gap-3 rounded-[20px] border border-border/40 bg-card px-4 py-3">
             <View className="flex-1">
-              <Text className="text-foreground text-sm font-semibold">{include.label}</Text>
-              <Text className="text-muted-foreground text-xs mt-0.5">{include.detail}</Text>
+              <Text className="text-foreground text-[15px] leading-5 font-semibold">
+                {include.label}
+              </Text>
+              <Text className="text-muted-foreground text-[13px] leading-[18px] mt-0.5">
+                {include.detail}
+              </Text>
             </View>
             <Switch
               value={included}
@@ -154,7 +201,9 @@ export function ReportSheet<T extends string>({
             region when what is inside it changes, and one that has only
             just appeared has nothing earlier to have changed from. */}
         <View accessibilityLiveRegion="polite">
-          {error ? <Text className="text-destructive text-xs mt-1">{error}</Text> : null}
+          {error ? (
+            <Text className="text-destructive text-[13px] leading-[18px] mt-1">{error}</Text>
+          ) : null}
         </View>
 
         <Pressable
@@ -164,12 +213,12 @@ export function ReportSheet<T extends string>({
           onPress={() => {
             if (reason !== null) onSubmit(reason, note, !!include && included);
           }}
-          className={`mt-4 rounded-2xl py-3.5 flex-row items-center justify-center gap-2 bg-action ${
+          className={`mt-2.5 h-[52px] rounded-[14px] flex-row items-center justify-center gap-2 bg-action ${
             ready || pending ? '' : 'opacity-40'
           }`}
         >
           {pending ? <ActivityIndicator size="small" color={palette.actionForeground} /> : null}
-          <Text className="text-action-foreground text-[15px] font-bold">
+          <Text className="text-action-foreground text-[16px] leading-[22px] font-semibold">
             {pending ? 'Sending…' : 'Send report'}
           </Text>
         </Pressable>
@@ -178,9 +227,9 @@ export function ReportSheet<T extends string>({
           accessibilityRole="button"
           onPress={close}
           disabled={pending}
-          className="py-3.5 items-center active:opacity-70"
+          className="mt-2 h-11 rounded-[14px] bg-muted items-center justify-center active:opacity-70"
         >
-          <Text className="text-muted-foreground text-base">Cancel</Text>
+          <Text className="text-foreground text-[15px] leading-5 font-semibold">Cancel</Text>
         </Pressable>
       </ScrollView>
     </BottomSheet>

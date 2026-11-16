@@ -1,16 +1,23 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, Platform, Pressable, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, Alert, Platform, Pressable, Text, View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import {
+  CheckIcon,
+  ChevronRightIcon,
+  CircleAlertIcon,
   EyeIcon,
   EyeOffIcon,
   FlagIcon,
   LifeBuoyIcon,
+  LinkIcon,
+  MessageCircleIcon,
+  MessageCircleOffIcon,
   PencilIcon,
   Share2Icon,
   ShareIcon,
   Trash2Icon,
   UserIcon,
+  UsersIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { BottomSheet } from '@/components/BottomSheet';
@@ -18,25 +25,48 @@ import { CommentsSheet } from '@/components/CommentsSheet';
 import { useKeepFlow } from '@/components/KeepFlow';
 import { ShowcaseReportSheet } from '@/components/ShowcaseReportSheet';
 import type { ShowcaseCardActions } from '@/components/ShowcaseCard';
+import {
+  COPIED_MS,
+  NOT_SHAREABLE,
+  PostConfirmSheet,
+  PostShareSheet,
+  PostThumb,
+  QuietButton,
+  copyShowcaseLink,
+  type PostConfirm,
+} from '@/components/showcase/PostSheets';
 import { useAuth, useShowcaseActions } from '@/src/hooks';
 import { makerOf, showcaseStatus, type FeedItem } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { isShareable, shareShowcase } from '@/src/lib/showcase-share';
 
 for (const Icon of [
-  EyeIcon, EyeOffIcon, FlagIcon, LifeBuoyIcon, PencilIcon, Share2Icon, ShareIcon, Trash2Icon, UserIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  CircleAlertIcon,
+  EyeIcon,
+  EyeOffIcon,
+  FlagIcon,
+  LifeBuoyIcon,
+  LinkIcon,
+  MessageCircleIcon,
+  MessageCircleOffIcon,
+  PencilIcon,
+  Share2Icon,
+  ShareIcon,
+  Trash2Icon,
+  UserIcon,
+  UsersIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
 const ShareGlyph = Platform.OS === 'ios' ? ShareIcon : Share2Icon;
 
-/** What the owner is told about a post of theirs that has no public link. */
-const NOT_SHAREABLE = 'Make it public to share it.';
-
 /**
  * Everything a screen of showcase cards draws once for all of them: the ⋯
- * options, the comments, keeping, reporting.
+ * options, the comments, keeping, sharing, reporting, and the questions asked
+ * before a post is deleted or made private.
  *
  * Returns the actions to hand every card and the sheets to render. The actions
  * are made once and read the latest of everything through a ref, so a
@@ -58,6 +88,8 @@ export function useShowcaseCardHost(
   const { update, setPublished, remove } = useShowcaseActions();
   const [commentsFor, setCommentsFor] = useState<FeedItem | null>(null);
   const [optionsFor, setOptionsFor] = useState<{ item: FeedItem; mine: boolean } | null>(null);
+  const [shareFor, setShareFor] = useState<{ item: FeedItem; mine: boolean } | null>(null);
+  const [confirm, setConfirm] = useState<PostConfirm | null>(null);
   const [reporting, setReporting] = useState<string | null>(null);
 
   const live = useRef({ opts, keepFlow, update, setPublished, remove });
@@ -71,22 +103,12 @@ export function useShowcaseCardHost(
 
   /*
    * A link, only for a post that has one. Somebody else's never offers Share
-   * without one; your own does, and says what would give it one — a link to a
-   * private post is a page that says "not found" to everyone you send it to.
+   * without one; your own does, and the sheet says what would give it one — a
+   * link to a private post is a page that says "not found" to everyone you
+   * send it to.
    */
   const share = useCallback((item: FeedItem, mine: boolean) => {
-    if (isShareable(item)) {
-      void shareShowcase(item, makerOf(item).displayName);
-      return;
-    }
-    if (mine) {
-      Alert.alert(
-        NOT_SHAREABLE,
-        showcaseStatus(item) === 'removed'
-          ? 'Virgo took this post down, so it has no public link.'
-          : 'Only a public post has a link other people can open.',
-      );
-    }
+    if (isShareable(item) || mine) setShareFor({ item, mine });
   }, []);
 
   const actions = useMemo<ShowcaseCardActions>(
@@ -104,22 +126,11 @@ export function useShowcaseCardHost(
   const failed = (title: string, action: 'setting' | 'unshowcase') => (error: unknown) =>
     Alert.alert(title, profileActionMessage(error, action));
 
-  const makePrivate = (item: FeedItem) =>
-    Alert.alert(
-      'Make this private?',
-      'Only you will see it. It leaves the feed and your profile until you make it public again.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Make private',
-          onPress: () => {
-            live.current.setPublished
-              .mutateAsync({ id: item.id, published: false })
-              .catch(failed("Couldn't change that", 'setting'));
-          },
-        },
-      ],
-    );
+  const makePrivate = (item: FeedItem) => {
+    live.current.setPublished
+      .mutateAsync({ id: item.id, published: false })
+      .catch(failed("Couldn't change that", 'setting'));
+  };
 
   /*
    * Public is public: out for everyone, not only connections. A post shown to
@@ -139,30 +150,37 @@ export function useShowcaseCardHost(
     }
   };
 
-  const confirmDelete = (item: FeedItem) =>
-    Alert.alert(
-      'Delete this post?',
-      "It's removed from the feed, your profile and everyone's shelves. Your album files stay.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            // mutateAsync: a per-call callback is dropped if the host has gone
-            // by the time the answer lands, and a failure would vanish with it.
-            live.current.remove.mutateAsync(item.id).then(
-              () => live.current.opts.onRemoved?.(item.id),
-              failed("Couldn't delete it", 'unshowcase'),
-            );
-          },
-        },
-      ],
+  /** The other way from makePublic: still posted, but to connections only. */
+  const showToConnections = (item: FeedItem) => {
+    live.current.update
+      .mutateAsync({ id: item.id, body: { visibility: 'connections' } })
+      .catch(failed("Couldn't change that", 'setting'));
+  };
+
+  const setComments = (item: FeedItem, allowComments: boolean) => {
+    live.current.update
+      .mutateAsync({ id: item.id, body: { allowComments } })
+      .catch(failed("Couldn't change that", 'setting'));
+  };
+
+  const deletePost = (item: FeedItem) => {
+    // mutateAsync: a per-call callback is dropped if the host has gone
+    // by the time the answer lands, and a failure would vanish with it.
+    live.current.remove.mutateAsync(item.id).then(
+      () => live.current.opts.onRemoved?.(item.id),
+      failed("Couldn't delete it", 'unshowcase'),
     );
+  };
 
   // What was chosen runs once the sheet has gone: iOS will not present an
   // alert, the share sheet or another sheet over one that is still leaving.
+  // One slot for all of this host's sheets, since only one is up at a time.
   const chosen = useRef<(() => void) | null>(null);
+  const runChosen = () => {
+    const run = chosen.current;
+    chosen.current = null;
+    run?.();
+  };
   const pick = (run: () => void) => {
     chosen.current = run;
     setOptionsFor(null);
@@ -176,9 +194,11 @@ export function useShowcaseCardHost(
       onEdit={() =>
         pick(() => go({ pathname: '/showcase/new', params: { edit: optionsFor.item.id } }))
       }
-      onPrivate={() => pick(() => makePrivate(optionsFor.item))}
+      onPrivate={() => pick(() => setConfirm({ kind: 'private', item: optionsFor.item }))}
       onPublic={() => pick(() => void makePublic(optionsFor.item))}
-      onDelete={() => pick(() => confirmDelete(optionsFor.item))}
+      onConnections={() => pick(() => showToConnections(optionsFor.item))}
+      onComments={(allow) => pick(() => setComments(optionsFor.item, allow))}
+      onDelete={() => pick(() => setConfirm({ kind: 'delete', item: optionsFor.item }))}
       onSupport={() => pick(() => go('/support'))}
       onProfile={() => {
         const handle = makerOf(optionsFor.item).handle;
@@ -194,17 +214,38 @@ export function useShowcaseCardHost(
       <BottomSheet
         visible={optionsFor !== null}
         onClose={() => setOptionsFor(null)}
-        onClosed={() => {
-          const run = chosen.current;
-          chosen.current = null;
-          run?.();
-        }}
+        onClosed={runChosen}
       >
         {options ?? <View />}
       </BottomSheet>
+      <PostShareSheet
+        target={shareFor}
+        onMore={(item) => {
+          chosen.current = () => void shareShowcase(item, makerOf(item).displayName);
+          setShareFor(null);
+        }}
+        onMakePublic={(item) => {
+          chosen.current = () => void makePublic(item);
+          setShareFor(null);
+        }}
+        onClose={() => setShareFor(null)}
+        onClosed={runChosen}
+      />
+      <PostConfirmSheet
+        confirm={confirm}
+        onConfirm={(asked) => {
+          chosen.current = () =>
+            asked.kind === 'delete' ? deletePost(asked.item) : makePrivate(asked.item);
+          setConfirm(null);
+        }}
+        onClose={() => setConfirm(null)}
+        onClosed={runChosen}
+      />
       <CommentsSheet
         showcaseId={commentsFor?.id ?? null}
         isOwner={Boolean(commentsFor && user && commentsFor.userId === user.id)}
+        makerId={commentsFor?.userId}
+        total={commentsFor?.commentCount}
         onClose={() => setCommentsFor(null)}
         onOpenProfile={(handle) => go(`/u/${handle}`)}
       />
@@ -222,16 +263,26 @@ export function useShowcaseCardHost(
   };
 }
 
+/** Who can see a post of your own, as the line under its title says it. */
+function audience(item: FeedItem): string {
+  if (showcaseStatus(item) !== 'live') return 'only you can see it';
+  return item.visibility === 'public' ? 'everyone can see it' : 'your connections can see it';
+}
+
 /**
  * The ⋯ sheet.
  *
- * Your own post: share it, edit it, make it private or public, delete it. A
- * post Virgo took down can only be deleted or asked about — publishing it
- * again would change nothing while the moderation flag hides it.
+ * It opens with the post it is about, since a sheet over a feed of many
+ * otherwise leaves you to remember which ⋯ you pressed.
  *
- * Somebody else's: share it, go to whoever made it, report it. Reporting
- * lives here rather than as a flag on every card: reporting is rare, and a
- * flag beside somebody's name read as an accusation.
+ * Your own post: share it, edit it, narrow or widen who sees it, turn its
+ * comments off or on, delete it. A post Virgo took down can only be deleted or
+ * asked about — publishing it again would change nothing while the moderation
+ * flag hides it.
+ *
+ * Somebody else's: share it, copy its link, go to whoever made it, report it.
+ * Reporting lives here rather than as a flag on every card: reporting is rare,
+ * and a flag beside somebody's name read as an accusation.
  */
 function OptionRows({
   item,
@@ -240,6 +291,8 @@ function OptionRows({
   onEdit,
   onPrivate,
   onPublic,
+  onConnections,
+  onComments,
   onDelete,
   onSupport,
   onProfile,
@@ -252,6 +305,9 @@ function OptionRows({
   onEdit: () => void;
   onPrivate: () => void;
   onPublic: () => void;
+  onConnections: () => void;
+  /** With what comments should be from now on: allowed, or not. */
+  onComments: (allow: boolean) => void;
   onDelete: () => void;
   onSupport: () => void;
   onProfile: () => void;
@@ -261,27 +317,87 @@ function OptionRows({
   const status = mine ? showcaseStatus(item) : 'live';
   const shareable = isShareable(item);
   const maker = makerOf(item);
+  const firstName = maker.displayName.trim().split(/\s+/)[0] || maker.displayName;
+  // Live and public: the one state with every choice on offer.
+  const out = status === 'live' && item.visibility === 'public';
+
+  // "Link copied" stays up for a moment and then the sheet goes: the row is
+  // the only place to say it worked.
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const copy = async () => {
+    if (copied || !(await copyShowcaseLink(item.id))) return;
+    setCopied(true);
+    AccessibilityInfo.announceForAccessibility('Link copied');
+    timer.current = setTimeout(onCancel, COPIED_MS);
+  };
 
   return (
-    <View className="px-5 pt-2 pb-5">
+    <View className="pt-1.5 pb-3">
       {mine && status === 'removed' ? (
-        <View className="rounded-xl bg-destructive/10 p-3.5 mb-2">
-          <Text className="text-destructive text-[13px] font-bold">Virgo took this down</Text>
-          <Text className="text-foreground text-[12px] leading-[18px] mt-1">
-            It was reported and reviewed, and only you can see it now.
+        <View
+          className="mx-5 mt-1 mb-2 p-3.5 rounded-2xl bg-destructive/10 flex-row gap-2.5"
+          accessibilityRole="alert"
+        >
+          <CircleAlertIcon size={20} className="text-destructive" />
+          <Text className="flex-1 text-foreground text-[13px] leading-[18px]">
+            <Text className="font-semibold">Virgo took this down.</Text> It was reported and
+            reviewed, and only you can see it now. If you think that was a mistake, tell us.
           </Text>
         </View>
-      ) : null}
+      ) : (
+        <View className="mx-5 my-1.5 flex-row items-center gap-3">
+          <PostThumb item={item} size={48} />
+          <View className="flex-1 min-w-0">
+            <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>
+              {item.title?.trim() || 'Post'}
+            </Text>
+            <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+              {mine ? `Your post · ${audience(item)}` : `by ${maker.displayName}`}
+            </Text>
+          </View>
+        </View>
+      )}
 
-      {shareable ? (
-        <Row icon={ShareGlyph} label="Share" onPress={onShare} />
-      ) : mine && status !== 'removed' ? (
-        <Row icon={ShareGlyph} label="Share" note={NOT_SHAREABLE} disabled onPress={onShare} />
-      ) : null}
-
-      {mine ? (
+      {mine && status === 'removed' ? (
         <>
-          {status !== 'removed' ? <Row icon={PencilIcon} label="Edit" onPress={onEdit} /> : null}
+          <Row icon={LifeBuoyIcon} label="Contact support" chevron onPress={onSupport} />
+          <Row
+            icon={ShareGlyph}
+            label="Share"
+            note="A post that was taken down has no link"
+            disabled
+            onPress={onShare}
+          />
+          <Row icon={Trash2Icon} label="Delete" destructive onPress={onDelete} />
+        </>
+      ) : mine ? (
+        <>
+          {shareable ? (
+            <Row icon={ShareGlyph} label="Share" onPress={onShare} />
+          ) : (
+            <Row icon={ShareGlyph} label="Share" note={NOT_SHAREABLE} disabled onPress={onShare} />
+          )}
+          <Row
+            icon={PencilIcon}
+            label="Edit"
+            note={out ? 'The words, the tags and who sees it' : undefined}
+            onPress={onEdit}
+          />
+          {out ? (
+            <Row
+              icon={UsersIcon}
+              label="Show to connections only"
+              note="It leaves the public feed and loses its link"
+              onPress={onConnections}
+            />
+          ) : null}
           {status === 'live' && item.visibility !== 'public' ? (
             <Row
               icon={EyeIcon}
@@ -291,7 +407,12 @@ function OptionRows({
             />
           ) : null}
           {status === 'live' ? (
-            <Row icon={EyeOffIcon} label="Make private" note="Only you will see it." onPress={onPrivate} />
+            <Row
+              icon={EyeOffIcon}
+              label="Make private"
+              note={out ? 'Only you will see it, until you post it again' : 'Only you will see it.'}
+              onPress={onPrivate}
+            />
           ) : status === 'draft' || status === 'down' ? (
             <Row
               icon={EyeIcon}
@@ -300,27 +421,44 @@ function OptionRows({
               onPress={onPublic}
             />
           ) : null}
-          {status === 'removed' ? (
-            <Row icon={LifeBuoyIcon} label="Contact support" onPress={onSupport} />
+          {out ? (
+            <Row
+              icon={item.allowComments ? MessageCircleOffIcon : MessageCircleIcon}
+              label={item.allowComments ? 'Turn off comments' : 'Turn on comments'}
+              note="Nothing said is deleted"
+              onPress={() => onComments(!item.allowComments)}
+            />
           ) : null}
           <Row icon={Trash2Icon} label="Delete" destructive onPress={onDelete} />
         </>
       ) : (
         <>
-          {maker.handle ? (
-            <Row icon={UserIcon} label={`View ${maker.displayName}'s profile`} onPress={onProfile} />
+          {shareable ? (
+            <>
+              <Row icon={ShareGlyph} label="Share" onPress={onShare} />
+              <Row
+                icon={copied ? CheckIcon : LinkIcon}
+                label={copied ? 'Link copied' : 'Copy the link'}
+                onPress={() => void copy()}
+              />
+            </>
           ) : null}
-          <Row icon={FlagIcon} label="Report" destructive onPress={onReport} />
+          {maker.handle ? (
+            <Row icon={UserIcon} label={`View ${firstName}'s profile`} onPress={onProfile} />
+          ) : null}
+          <Row
+            icon={FlagIcon}
+            label="Report"
+            note="Somebody at Virgo reads every report"
+            destructive
+            onPress={onReport}
+          />
         </>
       )}
 
-      <Pressable
-        onPress={onCancel}
-        accessibilityRole="button"
-        className="mt-3 bg-muted rounded-2xl min-h-[48px] items-center justify-center active:scale-[0.98]"
-      >
-        <Text className="text-foreground text-base font-semibold">Cancel</Text>
-      </Pressable>
+      <View className="px-5 pt-2">
+        <QuietButton label="Cancel" onPress={onCancel} />
+      </View>
     </View>
   );
 }
@@ -332,6 +470,7 @@ function Row({
   onPress,
   destructive,
   disabled,
+  chevron,
 }: {
   icon: typeof FlagIcon;
   label: string;
@@ -339,8 +478,10 @@ function Row({
   onPress: () => void;
   destructive?: boolean;
   disabled?: boolean;
+  /** For a row that leaves for another screen. */
+  chevron?: boolean;
 }) {
-  const tone = destructive ? 'text-destructive' : disabled ? 'text-muted-foreground' : 'text-foreground';
+  const tone = destructive ? 'text-destructive' : 'text-foreground';
   return (
     <Pressable
       onPress={onPress}
@@ -348,15 +489,24 @@ function Row({
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(disabled) }}
       accessibilityHint={note}
-      className="min-h-[52px] py-2.5 flex-row items-center gap-3 border-b border-border active:opacity-60"
+      className={`px-5 py-2 flex-row items-center gap-3.5 active:opacity-60 ${
+        note ? 'min-h-[64px]' : 'min-h-[56px]'
+      } ${disabled ? 'opacity-[0.45]' : ''}`}
     >
-      <Icon size={18} className={tone} />
+      <View
+        className={`w-10 h-10 rounded-xl items-center justify-center ${
+          destructive ? 'bg-destructive/10' : 'bg-muted'
+        }`}
+      >
+        <Icon size={20} className={tone} />
+      </View>
       <View className="flex-1 min-w-0">
-        <Text className={`text-base ${tone}`}>{label}</Text>
+        <Text className={`text-[15px] leading-5 font-semibold ${tone}`}>{label}</Text>
         {note ? (
-          <Text className="text-muted-foreground text-[12px] leading-4 mt-0.5">{note}</Text>
+          <Text className="text-muted-foreground text-[13px] leading-[18px]">{note}</Text>
         ) : null}
       </View>
+      {chevron ? <ChevronRightIcon size={18} className="text-muted-foreground" /> : null}
     </Pressable>
   );
 }

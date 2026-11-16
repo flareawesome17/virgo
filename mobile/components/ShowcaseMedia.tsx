@@ -95,8 +95,8 @@ export function PieceCount({ index, total }: { index: number; total: number }) {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <Text className="text-[11px] font-bold" style={{ color: '#FFFFFF' }}>
-        {index + 1}/{total}
+      <Text className="text-[12px] leading-4 font-semibold" style={{ color: '#FFFFFF' }}>
+        {index + 1} of {total}
       </Text>
     </View>
   );
@@ -109,8 +109,10 @@ function Dots({ index, total }: { index: number; total: number }) {
       {Array.from({ length: total }, (_, i) => (
         <View
           key={i}
-          className={`rounded-full ${i === index ? 'bg-primary' : 'bg-muted-foreground/35'}`}
-          style={{ width: 6, height: 6 }}
+          // The one you are on is a longer mark, not a coloured one:
+          // terracotta is kept for what can be pressed.
+          className={`rounded-full ${i === index ? 'bg-foreground' : 'bg-muted-foreground/35'}`}
+          style={{ width: i === index ? 16 : 6, height: 6 }}
         />
       ))}
     </View>

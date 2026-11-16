@@ -7,17 +7,22 @@ import { makerOf, type ShelfEntry } from '@/src/api';
 import { PALETTES } from '@/theme';
 
 /** Between tiles: enough to tell one from the next, no more. */
-const GAP = 2;
+const GAP = 1.5;
+/** A tile is upright, 4:5: most of what is kept is a portrait photograph. */
+const TILE_ASPECT = 5 / 4;
 
 /**
- * What is on a shelf, three across in squares, the way a saved collection is
- * laid out everywhere else: many at a glance, each one a tap from the whole
- * post.
+ * What is on a shelf, three across in upright tiles, the way a saved
+ * collection is laid out everywhere else: many at a glance, each one a tap
+ * from the whole post.
  *
- * A tile is a thumbnail and is cropped square like one; the post it opens,
- * in a sheet over the grid, is the work whole, with whoever made it credited
- * at the top and the keeper's note above that. It was one full-width picture
+ * A tile is a thumbnail and is cropped like one; the post it opens, in a
+ * sheet over the grid, is the work whole, with whoever made it credited at
+ * the top and the keeper's note above that. It was one full-width picture
  * after another, two to a screen, cropped to a band 200 points tall.
+ *
+ * A tile carries no film or set mark: an entry says neither whether it is a
+ * film nor how many pieces it has.
  *
  * `onRemove` takes a post off the shelf from the sheet — for your own shelves
  * only, and the way to clear a tile whose post has gone.
@@ -28,15 +33,22 @@ export function KeptGrid({
   removeLabel,
   onRefresh,
   header,
+  postTitle,
+  noteLabel,
 }: {
   entries: ShelfEntry[];
   onRemove?: (showcaseId: string) => Promise<unknown>;
   removeLabel?: string;
   onRefresh?: () => Promise<unknown>;
   header?: ReactElement;
+  /** What the opened post is titled ("From your shelf"); its own title without one. */
+  postTitle?: string;
+  /** What the keeper's note is called on the opened post. */
+  noteLabel?: string;
 }) {
   const { width } = useWindowDimensions();
-  const tile = Math.floor((width - GAP * 2) / 3);
+  const tile = (width - GAP * 2) / 3;
+  const tileHeight = Math.round(tile * TILE_ASPECT);
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [open, setOpen] = useState<ShelfEntry | null>(null);
@@ -56,17 +68,17 @@ export function KeptGrid({
         accessibilityRole="button"
         accessibilityLabel={`${entry.title ?? 'A showcase'} by ${makerOf(entry).displayName}. Open the post.`}
         className="bg-muted active:opacity-80"
-        style={{ width: tile, height: tile }}
+        style={{ width: tile, height: tileHeight }}
       >
         <RemoteImage
           source={{ uri: entry.url }}
-          style={{ width: tile, height: tile }}
+          style={{ width: tile, height: tileHeight }}
           contentFit="cover"
           recyclingKey={entry.showcaseId}
         />
       </Pressable>
     ),
-    [tile],
+    [tile, tileHeight],
   );
 
   return (
@@ -91,6 +103,8 @@ export function KeptGrid({
       <ShowcasePostSheet
         showcaseId={open?.showcaseId ?? null}
         note={open?.note}
+        title={postTitle}
+        noteLabel={noteLabel}
         onClose={() => setOpen(null)}
         onRemove={onRemove}
         removeLabel={removeLabel}

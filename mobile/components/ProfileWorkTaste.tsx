@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   PixelRatio,
@@ -8,12 +8,20 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { router } from 'expo-router';
-import { BookmarkIcon, ImageIcon } from 'lucide-react-native';
+import {
+  BookmarkIcon,
+  ChevronRightIcon,
+  ImageIcon,
+  LockIcon,
+  PlusIcon,
+} from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { LoadFailed } from '@/components/LoadFailed';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
 import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
 import { ShowcasePostSheet } from '@/components/ShowcasePostSheet';
+import { NewShelfSheet } from '@/components/shelves/NewShelfSheet';
+import { ShelfMosaic, shelfCoverUrls } from '@/components/shelves/ShelfMosaic';
 import {
   useAllKept,
   useMyShowcases,
@@ -32,7 +40,7 @@ import {
 } from '@/src/api';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [BookmarkIcon, ImageIcon]) {
+for (const Icon of [BookmarkIcon, ChevronRightIcon, ImageIcon, LockIcon, PlusIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -43,8 +51,6 @@ for (const Icon of [BookmarkIcon, ImageIcon]) {
 const CARD_ASPECT = 5 / 4;
 /** Between two cards side by side; rows sit a little further apart. */
 const GRID_GAP = 12;
-/** Between the tiles of a shelf's mosaic cover. */
-const MOSAIC_GAP = 2;
 
 /**
  * The still for a work card: the piece's 640 px thumbnail, or a display copy
@@ -79,7 +85,8 @@ function cardStill(piece: ShowcasePiece | undefined, cardWidth: number): string 
  *
  * A piece of work opens in a sheet as the feed's own card, over the profile,
  * rather than on a screen of its own. Your own Taste leads with All kept —
- * everything you kept, whatever shelf it is on — before the shelves.
+ * everything you kept, whatever shelf it is on — as a row of its own, then the
+ * shelves two across, and last a dashed tile that makes another.
  */
 export function ProfileWorkTaste({
   handle,
@@ -100,6 +107,7 @@ export function ProfileWorkTaste({
 }) {
   const [tab, setTab] = useState<'work' | 'taste'>('work');
   const [openWork, setOpenWork] = useState<string | null>(null);
+  const [addingShelf, setAddingShelf] = useState(false);
   const { width: screenWidth } = useWindowDimensions();
   // Two across, inside the 20 pt margins and the gap between them.
   const cardWidth = Math.floor((screenWidth - 40 - GRID_GAP) / 2);
@@ -229,51 +237,105 @@ export function ProfileWorkTaste({
           action={isSelf ? { label: 'Open the feed', to: '/feed' } : undefined}
         />
       ) : (
-        <View className="flex-row flex-wrap px-5 pt-4" style={{ columnGap: GRID_GAP, rowGap: 16 }}>
+        <View className="px-5 pt-4 gap-4">
           {showAllKept ? (
-            <CollectionCard
-              name="All kept"
-              count={allKept.total}
-              isPrivate
-              urls={allKept.entries.slice(0, 4).map((entry) => entry.url)}
-              size={shelfSize}
+            <Pressable
               onPress={() => router.push('/shelf/all')}
-            />
+              accessibilityRole="button"
+              accessibilityLabel={`All kept, ${allKept.total} ${allKept.total === 1 ? 'piece' : 'pieces'}, only you see this list`}
+              className="flex-row items-center gap-3.5 p-3 rounded-[20px] border border-border/40 bg-card active:opacity-80"
+            >
+              <ShelfMosaic
+                urls={allKept.entries.slice(0, 4).map((entry) => entry.url)}
+                size={72}
+                radius={14}
+              />
+              <View className="flex-1 gap-0.5">
+                <Text className="text-foreground text-[17px] leading-6 font-bold tracking-[-0.2px]">
+                  All kept
+                </Text>
+                <View className="flex-row items-center gap-[5px]">
+                  <LockIcon size={13} className="text-muted-foreground" />
+                  <Text className="flex-1 text-muted-foreground text-[13px] leading-[18px]">
+                    {allKept.total} {allKept.total === 1 ? 'piece' : 'pieces'} · only you see this
+                    list
+                  </Text>
+                </View>
+              </View>
+              <ChevronRightIcon size={18} className="text-muted-foreground" />
+            </Pressable>
           ) : null}
-          {taste.shelves.map((shelf) => (
-            <CollectionCard
-              key={shelf.id}
-              name={shelf.name}
-              count={shelf.count}
-              isPrivate={!shelf.isPublic}
-              // An API that predates the mosaic sends the one cover.
-              urls={
-                shelf.coverUrls?.length ? shelf.coverUrls : shelf.coverUrl ? [shelf.coverUrl] : []
-              }
-              size={shelfSize}
-              onPress={() =>
-                // Somebody else's shelf has to be read through the public
-                // route: the default is your own, and asking /me/shelves for a
-                // shelf that is not yours answers 404 — every shelf on every
-                // other profile opened as "no longer available".
-                router.push({
-                  pathname: '/shelf/[id]',
-                  params: isSelf
-                    ? { id: shelf.id, name: shelf.name }
-                    : { id: shelf.id, name: shelf.name, own: '0' },
-                })
-              }
-            />
-          ))}
+
+          <View className={`flex-row items-baseline justify-between ${showAllKept ? 'mt-2' : ''}`}>
+            <Text
+              accessibilityRole="header"
+              className="text-foreground text-[17px] leading-6 font-bold tracking-[-0.2px]"
+            >
+              Shelves
+            </Text>
+            <Text className="text-muted-foreground text-[13px] leading-[18px]">
+              {taste.shelves.length} {taste.shelves.length === 1 ? 'shelf' : 'shelves'}
+            </Text>
+          </View>
+
+          <View className="flex-row flex-wrap -mt-1" style={{ columnGap: GRID_GAP, rowGap: 16 }}>
+            {taste.shelves.map((shelf) => (
+              <CollectionCard
+                key={shelf.id}
+                name={shelf.name}
+                count={shelf.count}
+                isPrivate={!shelf.isPublic}
+                urls={shelfCoverUrls(shelf)}
+                size={shelfSize}
+                onPress={() =>
+                  // Somebody else's shelf has to be read through the public
+                  // route: the default is your own, and asking /me/shelves for a
+                  // shelf that is not yours answers 404 — every shelf on every
+                  // other profile opened as "no longer available". It is told
+                  // whose it is, too: the shelf itself does not say.
+                  router.push({
+                    pathname: '/shelf/[id]',
+                    params: isSelf
+                      ? { id: shelf.id, name: shelf.name }
+                      : { id: shelf.id, name: shelf.name, own: '0', by: firstName },
+                  })
+                }
+              />
+            ))}
+            {isSelf ? (
+              <Pressable
+                onPress={() => setAddingShelf(true)}
+                accessibilityRole="button"
+                accessibilityLabel="New shelf"
+                className="rounded-[20px] border-border items-center justify-center gap-2 active:opacity-70"
+                style={{
+                  width: shelfSize,
+                  height: shelfSize,
+                  borderWidth: 1.5,
+                  borderStyle: 'dashed',
+                }}
+              >
+                <View className="w-10 h-10 rounded-xl bg-muted items-center justify-center">
+                  <PlusIcon size={20} className="text-foreground" />
+                </View>
+                <Text className="text-foreground text-[15px] leading-5 font-semibold">
+                  New shelf
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       )}
 
       <ShowcasePostSheet showcaseId={openWork} onClose={() => setOpenWork(null)} />
+      {isSelf ? (
+        <NewShelfSheet visible={addingShelf} onClose={() => setAddingShelf(false)} />
+      ) : null}
     </View>
   );
 }
 
-/** A shelf, or All kept: its mosaic, its name, how much is on it. */
+/** A shelf: its mosaic, its name, how much is on it. */
 function CollectionCard({
   name,
   count,
@@ -298,72 +360,13 @@ function CollectionCard({
       style={{ width: size }}
     >
       <ShelfMosaic urls={urls} size={size} />
-      <Text className="text-foreground text-[14px] leading-5 font-semibold mt-2" numberOfLines={1}>
+      <Text className="text-foreground text-[15px] leading-5 font-semibold mt-2" numberOfLines={1}>
         {name}
       </Text>
-      <Text className="text-muted-foreground text-[12px] leading-4">
+      <Text className="text-muted-foreground text-[13px] leading-[18px]">
         {count} kept{isPrivate ? ' · Private' : ''}
       </Text>
     </Pressable>
-  );
-}
-
-/**
- * A shelf's cover: the newest four things kept on it, two by two. Fewer fill
- * the square differently — one whole, two side by side, three as one large
- * beside two small — so a shelf with three on it does not show a hole.
- */
-function ShelfMosaic({ urls, size }: { urls: string[]; size: number }) {
-  const half = (size - MOSAIC_GAP) / 2;
-  const tile = (uri: string, width: number, height: number) => (
-    <View key={uri} className="bg-muted" style={{ width, height }}>
-      <RemoteImage source={{ uri }} style={{ width, height }} contentFit="cover" />
-    </View>
-  );
-
-  let body: ReactNode;
-  if (urls.length === 0) {
-    body = (
-      <View className="flex-1 items-center justify-center bg-muted">
-        <BookmarkIcon size={20} className="text-muted-foreground" />
-      </View>
-    );
-  } else if (urls.length === 1) {
-    body = tile(urls[0], size, size);
-  } else if (urls.length === 2) {
-    body = (
-      <View className="flex-row" style={{ gap: MOSAIC_GAP }}>
-        {tile(urls[0], half, size)}
-        {tile(urls[1], half, size)}
-      </View>
-    );
-  } else if (urls.length === 3) {
-    body = (
-      <View className="flex-row" style={{ gap: MOSAIC_GAP }}>
-        {tile(urls[0], half, size)}
-        <View style={{ gap: MOSAIC_GAP }}>
-          {tile(urls[1], half, half)}
-          {tile(urls[2], half, half)}
-        </View>
-      </View>
-    );
-  } else {
-    body = (
-      <View className="flex-row flex-wrap" style={{ gap: MOSAIC_GAP }}>
-        {urls.slice(0, 4).map((uri) => tile(uri, half, half))}
-      </View>
-    );
-  }
-
-  return (
-    <View
-      className="rounded-xl overflow-hidden bg-background"
-      style={{ width: size, height: size }}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
-      {body}
-    </View>
   );
 }
 

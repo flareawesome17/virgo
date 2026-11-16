@@ -95,8 +95,13 @@ export interface ShowcaseCardActions {
 const alwaysSubscribed = () => () => undefined;
 
 /**
- * One showcase, the way a feed draws a post: who made it, the work at its own
- * shape, what you can do about it, and then the words.
+ * One showcase, the way a feed draws a post: who made it and when, the work at
+ * its own shape, what you can do about it, the words, and how it was made.
+ *
+ * How it was made is what this feed has that a photo app does not, so its tags
+ * are on the card and the note is one tap under them. It was a small link
+ * beneath the caption. What a thing has been liked or said about is a number
+ * beside its own button, not a line of its own.
  *
  * The same card in the feed and in the post sheet a shelf or a profile opens,
  * so a post looks and behaves the same wherever it is met. It never opens a
@@ -157,41 +162,48 @@ export const ShowcaseCard = memo(function ShowcaseCard({
     if (!item.likedByMe) like.mutate({ showcaseId: item.id, liked: true });
   };
 
-  const subtitle = [maker.title, item.location].filter(Boolean).join(' · ');
-  const counts = [
-    item.likeCount > 0 ? `${item.likeCount} ${item.likeCount === 1 ? 'like' : 'likes'}` : null,
-    // Keeping your own work is refused, so there is no bookmark on it; how
-    // many people kept it is what is worth seeing instead.
-    mine && item.keptCount > 0 ? `${item.keptCount} kept` : null,
-  ].filter(Boolean);
+  // Who they are, then when: the time used to trail the card in the smallest
+  // type on it.
+  const subtitle = [maker.title, posted.short].filter(Boolean).join(' · ');
+  // What kind of work it is and where, under the title.
+  const about = [item.category, item.location].filter(Boolean).join(' · ');
+  const hasCraft = Boolean(item.craftNote) || item.craftTags.length > 0;
+  const connectionsOnly = item.visibility === 'connections';
 
   return (
-    <View className="pb-5">
-      <View className="flex-row items-center pl-1.5 pr-1 py-1 gap-1">
+    <View className="pb-7">
+      <View className="flex-row items-center pl-3.5 pr-1 min-h-[60px] gap-1">
         <Pressable
           onPress={openMaker}
           disabled={!mine && !maker.handle}
           accessibilityRole="button"
-          accessibilityLabel={mine ? 'Your profile' : `${maker.displayName}'s profile`}
-          className="flex-1 min-w-0 min-h-[48px] flex-row items-center gap-2.5 px-1.5 rounded-xl active:opacity-70"
+          accessibilityLabel={
+            (mine ? 'Your profile' : `${maker.displayName}'s profile`) + (posted.label ? `. ${posted.label}` : '')
+          }
+          className="flex-1 min-w-0 min-h-[48px] flex-row items-center gap-3 px-1.5 rounded-xl active:opacity-70"
         >
-          <View className="w-9 h-9 rounded-full overflow-hidden bg-primary/15 items-center justify-center">
+          <View className="w-10 h-10 rounded-full overflow-hidden bg-muted items-center justify-center">
             {maker.avatarUrl ? (
-              <RemoteImage source={{ uri: maker.avatarUrl }} style={{ width: 36, height: 36 }} />
+              <RemoteImage source={{ uri: maker.avatarUrl }} style={{ width: 40, height: 40 }} />
             ) : (
-              <Text className="text-primary text-[14px] font-bold">
+              <Text className="text-foreground text-[15px] font-bold">
                 {maker.displayName.charAt(0).toUpperCase()}
               </Text>
             )}
           </View>
           <View className="flex-1 min-w-0">
-            <Text className="text-foreground text-[14px] font-bold" numberOfLines={1}>
-              {maker.displayName}
+            <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>
+              {mine ? 'You' : maker.displayName}
             </Text>
-            {subtitle ? (
-              <Text className="text-muted-foreground text-[12px]" numberOfLines={1}>
-                {subtitle}
-              </Text>
+            {subtitle || connectionsOnly ? (
+              <View className="flex-row items-center gap-1">
+                {connectionsOnly ? <LockIcon size={12} className="text-muted-foreground" /> : null}
+                <Text className="flex-1 text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                  {[connectionsOnly ? 'Connections only' : null, mine ? posted.short : subtitle]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              </View>
             ) : null}
           </View>
         </Pressable>
@@ -200,11 +212,11 @@ export const ShowcaseCard = memo(function ShowcaseCard({
             onPress={() => actions.go(`/hire/${maker.handle}`)}
             accessibilityRole="button"
             accessibilityLabel={`Hire ${maker.displayName}`}
-            // A 32 pt pill in a 44 pt target.
-            hitSlop={{ top: 6, bottom: 6 }}
-            className="min-h-8 px-3.5 rounded-full bg-action items-center justify-center active:opacity-90"
+            // 36 pt to look at, 44 pt to touch.
+            hitSlop={{ top: 4, bottom: 4 }}
+            className="h-9 px-4 rounded-xl bg-action items-center justify-center active:opacity-90"
           >
-            <Text className="text-action-foreground text-[12.5px] font-bold">Hire</Text>
+            <Text className="text-action-foreground text-[14px] font-semibold">Hire</Text>
           </Pressable>
         ) : null}
         <Pressable
@@ -227,153 +239,155 @@ export const ShowcaseCard = memo(function ShowcaseCard({
         label={item.title ?? `${maker.displayName}'s showcase`}
       />
 
-      <View className="flex-row items-center px-1.5 pt-0.5">
-        <IconButton
+      <View className="flex-row items-center pl-2 pr-5 pt-1">
+        <CountButton
           onPress={toggleLike}
           selected={item.likedByMe}
-          label={item.likedByMe ? 'Liked. Tap to unlike.' : 'Like'}
+          count={item.likeCount}
+          label={
+            (item.likedByMe ? 'Liked. Tap to unlike.' : 'Like') +
+            (item.likeCount > 0 ? ` ${item.likeCount} ${item.likeCount === 1 ? 'like' : 'likes'}.` : '')
+          }
         >
           <HeartIcon
-            size={25}
+            size={24}
             className={item.likedByMe ? 'text-destructive' : 'text-foreground'}
             // A literal colour, not currentColor, which renders hollow on a
             // device. Unfilled is the whole difference between the states.
             fill={item.likedByMe ? palette.destructive : 'none'}
           />
-        </IconButton>
+        </CountButton>
         {commentsOpen ? (
-          <IconButton
+          <CountButton
             onPress={() => actions.comments(item)}
+            count={item.commentCount}
             label={item.commentCount > 0 ? `Comments, ${item.commentCount}` : 'Comment'}
           >
-            <MessageCircleIcon size={24} className="text-foreground" />
-          </IconButton>
+            <MessageCircleIcon size={23} className="text-foreground" />
+          </CountButton>
         ) : null}
         {/* Somebody else's post that has no public link has nothing to share;
             your own still offers it, to say what would make it shareable. */}
         {shareable || (mine && status !== 'removed') ? (
-          <IconButton onPress={() => actions.share(item, mine)} label="Share this post">
-            <ShareGlyph size={23} className="text-foreground" />
-          </IconButton>
+          <CountButton onPress={() => actions.share(item, mine)} count={0} label="Share this post">
+            <ShareGlyph size={22} className="text-foreground" />
+          </CountButton>
         ) : null}
         <View className="flex-1" />
-        {!mine ? (
-          <IconButton
+        {mine ? (
+          // Keeping your own work is refused, so there is no Keep on it; how
+          // many people kept it is what is worth seeing instead.
+          item.keptCount > 0 ? (
+            <Text className="text-muted-foreground text-[13px] leading-[18px]">{item.keptCount} kept</Text>
+          ) : null
+        ) : (
+          <Pressable
             onPress={() => actions.keep(item)}
             onLongPress={() => actions.chooseShelf(item)}
-            selected={item.keptByMe}
-            label={item.keptByMe ? 'Kept. Change where.' : 'Keep this'}
-            hint={item.keptByMe ? undefined : 'Long press to choose the shelf'}
+            delayLongPress={350}
+            accessibilityRole="button"
+            accessibilityState={{ selected: item.keptByMe }}
+            accessibilityLabel={item.keptByMe ? 'Kept. Change where.' : 'Keep this'}
+            accessibilityHint={item.keptByMe ? undefined : 'Long press to choose the shelf'}
+            // 36 pt to look at, 44 pt to touch.
+            hitSlop={{ top: 4, bottom: 4 }}
+            className={`h-9 pl-3 pr-3.5 rounded-xl flex-row items-center gap-1.5 active:opacity-70 ${
+              item.keptByMe ? 'bg-foreground' : 'bg-muted'
+            }`}
           >
             <BookmarkIcon
-              size={24}
-              className="text-foreground"
-              // Filled once it is yours: an outline that means "kept" and an
-              // outline that means "keep" are the same picture.
-              fill={item.keptByMe ? palette.foreground : 'none'}
+              size={16}
+              className={item.keptByMe ? 'text-background' : 'text-foreground'}
+              // Filled once it is yours, and it says so: an outline that means
+              // "kept" and an outline that means "keep" are the same picture.
+              fill={item.keptByMe ? palette.background : 'none'}
             />
-          </IconButton>
-        ) : null}
-      </View>
-
-      <View className="px-4">
-        {counts.length > 0 ? (
-          <Text className="text-foreground text-[13.5px] font-bold">{counts.join(' · ')}</Text>
-        ) : null}
-        {item.title ? (
-          <Text className="text-foreground text-[14px] font-bold mt-1">{item.title}</Text>
-        ) : null}
-        {item.caption ? (
-          <Caption name={maker.displayName} text={item.caption} onName={openMaker} />
-        ) : null}
-
-        {/* How it was made. Behind a row of its own, so a scroll past is a
-            scroll past, and the note is one tap away for whoever wants it. */}
-        {item.craftNote || item.craftTags.length > 0 ? (
-          <>
-            <Pressable
-              onPress={() => setCraftOpen((open) => !open)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: craftOpen }}
-              hitSlop={{ top: 2, bottom: 2 }}
-              className="self-start min-h-[40px] flex-row items-center gap-1 active:opacity-60"
-            >
-              <Text className="text-primary text-[13px] font-semibold">How it was made</Text>
-              <View style={{ transform: [{ rotate: craftOpen ? '180deg' : '0deg' }] }}>
-                <ChevronDownIcon size={15} className="text-primary" />
-              </View>
-            </Pressable>
-            {craftOpen ? (
-              <View className="rounded-xl bg-card px-3.5 py-3 mb-1.5">
-                {item.craftNote ? (
-                  <Text className="text-foreground text-[13.5px] leading-5">{item.craftNote}</Text>
-                ) : null}
-                {item.craftTags.length > 0 ? (
-                  <View className={`flex-row flex-wrap gap-1.5 ${item.craftNote ? 'mt-2.5' : ''}`}>
-                    {item.craftTags.map((tag) => (
-                      <View key={tag} className="rounded-full bg-muted px-2.5 py-1">
-                        <Text className="text-secondary-foreground text-[12px] font-semibold">
-                          {tag}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
-          </>
-        ) : null}
-
-        {commentsOpen && item.commentCount > 0 ? (
-          <Pressable
-            onPress={() => actions.comments(item)}
-            accessibilityRole="button"
-            hitSlop={{ top: 6, bottom: 6 }}
-            className="self-start min-h-[32px] justify-center active:opacity-60"
-          >
-            <Text className="text-muted-foreground text-[13.5px]">
-              {item.commentCount === 1 ? 'View 1 comment' : `View all ${item.commentCount} comments`}
+            <Text className={`text-[14px] font-semibold ${item.keptByMe ? 'text-background' : 'text-foreground'}`}>
+              {item.keptByMe ? 'Kept' : 'Keep'}
             </Text>
           </Pressable>
-        ) : null}
+        )}
+      </View>
 
-        {posted.short ? (
-          <Text accessibilityLabel={posted.label} className="text-muted-foreground text-[11.5px] mt-1">
-            {posted.short}
+      <View className="px-5 pt-1">
+        {item.title ? (
+          <Text className="text-foreground text-[17px] leading-6 font-bold" accessibilityRole="header">
+            {item.title}
           </Text>
+        ) : null}
+        {about ? (
+          <Text className="text-muted-foreground text-[13px] leading-[18px] mt-0.5" numberOfLines={1}>
+            {about}
+          </Text>
+        ) : null}
+        {item.caption ? <Caption text={item.caption} /> : null}
+
+        {hasCraft ? (
+          <Pressable
+            onPress={item.craftNote ? () => setCraftOpen((open) => !open) : undefined}
+            disabled={!item.craftNote}
+            accessibilityRole={item.craftNote ? 'button' : undefined}
+            accessibilityState={item.craftNote ? { expanded: craftOpen } : undefined}
+            accessibilityLabel={`How it was made${item.craftTags.length > 0 ? `: ${item.craftTags.join(', ')}` : ''}`}
+            accessibilityHint={item.craftNote && !craftOpen ? 'Shows the note' : undefined}
+            className="mt-2.5 rounded-2xl border border-border/40 bg-card px-3.5 py-3 gap-2.5 active:opacity-80"
+          >
+            <View className="flex-row items-center justify-between">
+              <Text className="text-muted-foreground text-[13px] leading-[18px] font-semibold">How it was made</Text>
+              {item.craftNote ? (
+                <View style={{ transform: [{ rotate: craftOpen ? '180deg' : '0deg' }] }}>
+                  <ChevronDownIcon size={16} className="text-muted-foreground" />
+                </View>
+              ) : null}
+            </View>
+            {item.craftTags.length > 0 ? (
+              <View className="flex-row flex-wrap gap-1.5">
+                {item.craftTags.map((tag) => (
+                  <View key={tag} className="rounded-full bg-muted px-2.5 py-1">
+                    <Text className="text-secondary-foreground text-[13px] leading-[18px] font-medium">{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {/* With no tags there is nothing to show closed, so the note is. */}
+            {item.craftNote && (craftOpen || item.craftTags.length === 0) ? (
+              <Text className="text-secondary-foreground text-[15px] leading-[22px]">{item.craftNote}</Text>
+            ) : null}
+          </Pressable>
         ) : null}
       </View>
     </View>
   );
 });
 
-function IconButton({
+/** A thing to do to a post, with how many times it has been done beside it. */
+function CountButton({
   onPress,
-  onLongPress,
   label,
-  hint,
   selected,
+  count,
   children,
 }: {
   onPress: () => void;
-  onLongPress?: () => void;
   label: string;
-  hint?: string;
   selected?: boolean;
+  count: number;
   children: ReactNode;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onLongPress}
-      delayLongPress={350}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint={hint}
       accessibilityState={selected === undefined ? undefined : { selected }}
-      className="w-11 h-11 items-center justify-center active:opacity-60"
+      className="h-11 min-w-[44px] px-2 flex-row items-center justify-center gap-1.5 active:opacity-60"
     >
       {children}
+      {count > 0 ? (
+        <Text className="text-foreground text-[15px] font-semibold" style={{ fontVariant: ['tabular-nums'] }}>
+          {count > 9999 ? `${Math.floor(count / 1000)}k` : count}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -562,8 +576,8 @@ function CardFilm({
 }
 
 /**
- * The caption, after the maker's name in bold, cut at two lines with "more"
- * on the end of the second — and the rest in place when it is tapped.
+ * The caption, cut at two lines with "more" on the end of the second, and the
+ * rest in place when it is tapped.
  *
  * Where to cut is measured, not guessed by length: the whole caption is laid
  * out once, unseen, at the card's width, and the first two lines of it are
@@ -571,8 +585,11 @@ function CardFilm({
  * short caption with three lines of line breaks cut mid-word, and a long one
  * of narrow letters stopping half way along the line. The web preview cannot
  * measure lines, so there it falls back to a count.
+ *
+ * It began with the maker's name in bold, as photo apps do. The name is in
+ * the byline directly above, at the same size.
  */
-function Caption({ name, text, onName }: { name: string; text: string; onName: () => void }) {
+function Caption({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   // What the clamped caption shows, for the caption it was measured on: ''
   // when all of it fits. Keyed by the text, so an edited caption is measured
@@ -586,12 +603,10 @@ function Caption({ name, text, onName }: { name: string; text: string; onName: (
       setMeasured({ text, cut: '' });
       return;
     }
-    // The name and the space after it begin the first line.
     const shown = lines
       .slice(0, CAPTION_LINES)
       .map((line) => line.text)
-      .join('')
-      .slice(name.length + 1);
+      .join('');
     const room = shown.slice(0, Math.max(0, shown.length - MORE_ROOM));
     // At a word, unless the line was one unbroken word.
     const atWord = room.replace(/\s+\S*$/, '');
@@ -609,16 +624,16 @@ function Caption({ name, text, onName }: { name: string; text: string; onName: (
         : text;
 
   return (
-    <View className="mt-0.5">
+    <View className="mt-1">
       {!expanded && cut === null && Platform.OS !== 'web' ? (
         <Text
           onTextLayout={onMeasure}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
           pointerEvents="none"
-          className="absolute left-0 right-0 top-0 text-[13.5px] leading-5 opacity-0"
+          className="absolute left-0 right-0 top-0 text-[15px] leading-[22px] opacity-0"
         >
-          <Text className="font-bold">{name}</Text> {text}
+          {text}
         </Text>
       ) : null}
       <Text
@@ -628,11 +643,8 @@ function Caption({ name, text, onName }: { name: string; text: string; onName: (
         // Still clamped while it is being measured, so the first frame is not
         // the whole caption collapsing into two lines.
         numberOfLines={expanded || cut === '' ? undefined : CAPTION_LINES}
-        className="text-foreground text-[13.5px] leading-5"
+        className="text-secondary-foreground text-[15px] leading-[22px]"
       >
-        <Text className="font-bold" onPress={onName} suppressHighlighting>
-          {name}
-        </Text>{' '}
         {shownText}
         {clamped ? <Text className="text-muted-foreground">more</Text> : null}
       </Text>

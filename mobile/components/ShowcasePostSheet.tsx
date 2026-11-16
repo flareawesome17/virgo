@@ -36,11 +36,17 @@ const isGone = (error: unknown) =>
  *
  * A post that has gone since the grid was loaded says so, with `onRemove`
  * offered to clear its tile away.
+ *
+ * Opened from a shelf it says so in its title, and the keeper's reason sits
+ * in a quiet card above the post: "Why you kept it" on a shelf of your own,
+ * "Why it was kept" on somebody else's.
  */
 export function ShowcasePostSheet({
   showcaseId,
   onClose,
   note,
+  title,
+  noteLabel = 'Why it was kept',
   onRemove,
   removeLabel = 'Remove from this shelf',
 }: {
@@ -49,6 +55,10 @@ export function ShowcasePostSheet({
   onClose: () => void;
   /** What the keeper wrote about why they kept it, shown above the post. */
   note?: string | null;
+  /** Where it was opened from ("From your shelf"). The post's own title without one. */
+  title?: string;
+  /** What the note is called: whose reason it is. */
+  noteLabel?: string;
   /** Taking it off the shelf it was opened from, when that shelf is yours. */
   onRemove?: (showcaseId: string) => Promise<unknown>;
   removeLabel?: string;
@@ -103,21 +113,22 @@ export function ShowcasePostSheet({
     >
       {/* As tall as the sheet may be, shrinking only for a small screen. */}
       <View style={{ height: windowHeight, flexShrink: 1 }}>
-        <View className="flex-row items-center pl-4 pr-1 pb-1">
+        <View className="flex-row items-center pl-5 pr-2 min-h-10">
           <Text
             accessibilityRole="header"
-            className="flex-1 text-foreground text-[15px] font-bold"
+            className="flex-1 text-foreground text-[18px] leading-[26px] font-bold"
             numberOfLines={1}
           >
-            {showcase?.title ?? 'Post'}
+            {title ?? showcase?.title ?? 'Post'}
           </Text>
           {onRemove && showcase ? (
             <Pressable
               onPress={remove}
               accessibilityRole="button"
-              className="min-h-[44px] px-3 items-center justify-center active:opacity-60"
+              accessibilityLabel={removeLabel}
+              className="min-h-[44px] px-2 items-center justify-center active:opacity-60"
             >
-              <Text className="text-primary text-[13px] font-semibold">Remove</Text>
+              <Text className="text-destructive text-[15px] font-semibold">Take it off</Text>
             </Pressable>
           ) : null}
           <Pressable
@@ -126,7 +137,7 @@ export function ShowcasePostSheet({
             accessibilityLabel="Close"
             className="w-11 h-11 items-center justify-center rounded-full active:opacity-60"
           >
-            <XIcon size={20} className="text-foreground" />
+            <XIcon size={22} className="text-foreground" />
           </Pressable>
         </View>
 
@@ -136,11 +147,11 @@ export function ShowcasePostSheet({
           showsVerticalScrollIndicator={false}
         >
           {note && showcase ? (
-            <View className="mx-4 mb-2 pl-2.5 border-l-2 border-border">
-              <Text className="text-primary text-[10px] font-bold tracking-[1.5px]">
-                WHY IT WAS KEPT
+            <View className="mx-5 mt-1.5 mb-2 px-3.5 py-3 rounded-2xl bg-muted gap-0.5">
+              <Text className="text-muted-foreground text-[13px] leading-[18px] font-semibold">
+                {noteLabel}
               </Text>
-              <Text className="text-secondary-foreground text-[12.5px] leading-[18px] italic mt-0.5">
+              <Text className="text-secondary-foreground text-[15px] leading-[22px] italic">
                 {note}
               </Text>
             </View>
@@ -167,9 +178,9 @@ export function ShowcasePostSheet({
                 <Pressable
                   onPress={remove}
                   accessibilityRole="button"
-                  className="mt-5 min-h-11 px-5 rounded-xl bg-secondary items-center justify-center active:opacity-80"
+                  className="mt-5 h-11 px-5 rounded-[14px] bg-secondary items-center justify-center active:opacity-80"
                 >
-                  <Text className="text-secondary-foreground text-[13px] font-bold">
+                  <Text className="text-foreground text-[15px] font-semibold">
                     {removeLabel}
                   </Text>
                 </Pressable>
