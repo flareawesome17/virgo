@@ -253,6 +253,8 @@ const PUBLIC_KEYS = [
   'avatarUrl',
   'bio',
   'coverUrl',
+
+  'customRoles',
   'displayName',
   'handle',
   'location',
@@ -405,6 +407,8 @@ const OWNER_KEYS = [
   'avatarUrl',
   'bio',
   'coverUrl',
+
+  'customRoles',
   'displayName',
   'handle',
   'location',

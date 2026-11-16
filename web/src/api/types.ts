@@ -263,6 +263,8 @@ export interface Friend {
 export interface AuthUser {
   /** False until the address is proven by following the emailed link. */
   emailVerified?: boolean;
+  /** What they do, in their own words, for what the list lacks. Up to three. */
+  customRoles?: string[];
   /** What they do on a shoot. Chosen at sign-up, editable later. */
   roles?: string[];
   id: string;
@@ -336,6 +338,11 @@ export interface UpdateProfileInput {
    */
   location?: string | null;
   bio?: string | null;
+  /**
+   * Roles typed in by hand. Sent as the whole list; with `roles`, at least
+   * one of the two must be left non-empty.
+   */
+  customRoles?: string[];
   /** A setting rather than a field, so it is never cleared to null. */
   discoverable?: boolean;
   /**

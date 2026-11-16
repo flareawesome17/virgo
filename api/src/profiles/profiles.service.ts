@@ -68,6 +68,8 @@ export interface PublicProfile {
   /** Only when they switched it on, and it is not blank. */
   studioName: string | null;
   roles: string[];
+  /** In their own words. Shown, and matched on nothing. */
+  customRoles: string[];
   /** Year only. "Since 2026" is context; a join date is a fingerprint. */
   memberSince: number;
   /** A badge. It does not gate hiring. */
@@ -101,6 +103,8 @@ export interface ProfilePage {
   website: string | null;
   studioName: string | null;
   roles: string[];
+  /** In their own words. Shown, and matched on nothing. */
+  customRoles: string[];
   memberSince: number;
   availableForBookings: boolean;
   stats: ProfileStats;
@@ -168,6 +172,7 @@ interface ProfileColumns {
   location: string | null;
   website: string | null;
   roles: string[] | null;
+  custom_roles?: string[] | null;
   created_at: Date;
   available_for_bookings: boolean | null;
   /** Null unless show_studio is on and the name is not blank — see STUDIO_SQL. */
@@ -255,7 +260,7 @@ export class ProfilesService {
     // one row on its own is not a relationship — see friend-sql.ts.
     const row = await this.db.queryOne<ProfileRow>(
       `select u.id, u.handle, u.display_name, u.email, u.avatar_url, u.cover_url,
-              u.title, u.bio, u.location, u.website, u.roles, u.created_at,
+              u.title, u.bio, u.location, u.website, u.roles, u.custom_roles, u.created_at,
               u.available_for_bookings,
               ${STUDIO_SQL},
               mine.id as viewer_friend_id,
@@ -299,6 +304,7 @@ export class ProfilesService {
       website: row.website,
       studioName: row.studio_name ?? null,
       roles: row.roles ?? [],
+      customRoles: row.custom_roles ?? [],
       memberSince: row.created_at.getFullYear(),
       availableForBookings: row.available_for_bookings === true,
       stats: { connections, jobsDone },
@@ -323,7 +329,7 @@ export class ProfilesService {
   async ownerPage(userId: string): Promise<ProfilePage> {
     const row = await this.db.queryOne<OwnerRow>(
       `select u.id, u.handle, u.public_profile, u.display_name, u.email, u.avatar_url,
-              u.cover_url, u.title, u.bio, u.location, u.website, u.roles, u.created_at,
+              u.cover_url, u.title, u.bio, u.location, u.website, u.roles, u.custom_roles, u.created_at,
               u.available_for_bookings,
               ${STUDIO_SQL}
          from users u
@@ -351,6 +357,7 @@ export class ProfilesService {
       website: row.website,
       studioName: row.studio_name ?? null,
       roles: row.roles ?? [],
+      customRoles: row.custom_roles ?? [],
       memberSince: row.created_at.getFullYear(),
       availableForBookings: row.available_for_bookings === true,
       stats: { connections, jobsDone },
@@ -599,10 +606,11 @@ export class ProfilesService {
     const me = await this.db.queryOne<{
       handle: string | null;
       roles: string[] | null;
+      custom_roles: string[] | null;
       email_verified_at: Date | null;
       disabled_until: Date | null;
     }>(
-      `select handle, roles, email_verified_at, disabled_until
+      `select handle, roles, custom_roles, email_verified_at, disabled_until
          from users where id = $1`,
       [userId],
     );
@@ -612,7 +620,7 @@ export class ProfilesService {
       if (!me.handle) {
         throw new BadRequestException('Choose a handle first — it is your profile address.');
       }
-      if ((me.roles ?? []).length === 0) {
+      if ((me.roles ?? []).length + (me.custom_roles ?? []).length === 0) {
         throw new BadRequestException('Add at least one role, so people know what you do.');
       }
       if (!me.email_verified_at) {
@@ -645,9 +653,10 @@ export class ProfilesService {
       handle_changed_at: Date | null;
       public_profile: boolean;
       roles: string[] | null;
+      custom_roles: string[] | null;
       email_verified_at: Date | null;
     }>(
-      `select handle, handle_changed_at, public_profile, roles, email_verified_at
+      `select handle, handle_changed_at, public_profile, roles, custom_roles, email_verified_at
          from users where id = $1`,
       [userId],
     );
@@ -655,7 +664,7 @@ export class ProfilesService {
 
     const blockers: string[] = [];
     if (!me.handle) blockers.push('Choose a handle');
-    if ((me.roles ?? []).length === 0) blockers.push('Add at least one role');
+    if ((me.roles ?? []).length + (me.custom_roles ?? []).length === 0) blockers.push('Add at least one role');
     if (!me.email_verified_at) blockers.push('Verify your email');
 
     return {

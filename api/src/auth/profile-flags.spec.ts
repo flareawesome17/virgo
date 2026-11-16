@@ -67,6 +67,7 @@ describe('AuthService.updateProfile and the switches', () => {
       {} as unknown as PromosService,
       {} as unknown as TwoFactorService,
       {} as unknown as SessionsService,
+      {} as never,
     );
     return { service, users };
   }

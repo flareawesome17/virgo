@@ -1,28 +1,15 @@
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useTheme } from '@/src/hooks';
+import { View, Text, Pressable, TextInput, Alert } from 'react-native';
+import { useAuth } from '@/src/hooks';
 import { Redirect, router } from 'expo-router';
 import { useRef, useState } from 'react';
-import {
-  ArrowLeftIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
-} from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
-import { PALETTES } from '@/theme';
-
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(LockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(EyeOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ArrowRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+import { FormField, FormHint, FormInput, FormLabel } from '@/components/Form';
+import { AuthButton, AuthFooter, AuthFooterLine, AuthFrame, AuthTitle } from '@/components/auth/AuthFrame';
+import { PasswordInput } from '@/components/auth/AuthFields';
 
 export default function SignInScreen() {
   const { signIn, user } = useAuth();
-  const { isDark } = useTheme();
-  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   // Above the early return: a hook after it is skipped on the render that
@@ -83,7 +70,10 @@ export default function SignInScreen() {
             );
             return;
           }
-          const msg = err?.reason || err?.message || 'Sign in failed. Please check your credentials.';
+          const msg =
+            err?.reason ||
+            err?.message ||
+            'That email and password do not match. Check both, or reset the password.';
           setErrorMsg(msg);
         },
       }
@@ -91,103 +81,75 @@ export default function SignInScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
-          {/* Header */}
-          <View className="px-6 pt-4 pb-2 flex-row items-center gap-3">
-            <Pressable
-              onPress={() => router.back()}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:scale-[0.96]"
-            >
-              <ArrowLeftIcon size={18} className="text-foreground" />
-            </Pressable>
-            <View>
-              <Text className="text-foreground text-[28px] font-bold tracking-tight">Sign in</Text>
-              <Text className="text-muted-foreground text-sm mt-0.5">Welcome back to Virgo</Text>
-            </View>
-          </View>
-
+    <AuthFrame
+      onBack={() => router.back()}
+      footer={
+        <AuthFooter>
           {/* There was a "Continue with Google" button here that did nothing —
               no handler, no provider, no OAuth client. Offering a sign-in
               method that cannot sign anyone in is worse than not offering it:
               somebody with a Google-created account taps it, gets nothing, and
               reasonably concludes the app is broken. It comes back when it
               works. */}
-
-          {/* Form */}
-          <View className="px-6 gap-4">
-            {/* Email */}
-            <View>
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Email</Text>
-              <View className="bg-secondary rounded-xl px-4 py-3.5 flex-row items-center gap-3">
-                <MailIcon size={16} className="text-muted-foreground" />
-                <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
-                  placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                  keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
-                  textContentType="username" autoComplete="email" returnKeyType="next"
-                  onSubmitEditing={() => passwordRef.current?.focus()} submitBehavior="submit" />
-              </View>
-            </View>
-
-            {/* Password */}
-            <View>
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Password</Text>
-              <View className="bg-secondary rounded-xl px-4 py-3.5 flex-row items-center gap-3">
-                <LockIcon size={16} className="text-muted-foreground" />
-                <TextInput ref={passwordRef} value={password} onChangeText={setPassword} placeholder="Your password"
-                  placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                  secureTextEntry={!showPassword} autoCapitalize="none"
-                  textContentType="password" autoComplete="current-password" returnKeyType="go"
-                  onSubmitEditing={() => handleSignIn()} />
-                <Pressable
-                  onPress={() => setShowPassword(!showPassword)}
-                  accessibilityRole="button"
-                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                  className="w-11 h-11 items-center justify-center active:scale-[0.96]"
-                >
-                  {showPassword ? <EyeOffIcon size={18} className="text-muted-foreground" /> : <EyeIcon size={18} className="text-muted-foreground" />}
-                </Pressable>
-              </View>
-            </View>
-
-            {/* Error */}
-            {errorMsg ? (
-              <View className="bg-destructive/10 rounded-xl px-4 py-3">
-                <Text className="text-destructive text-sm">{errorMsg}</Text>
-              </View>
-            ) : null}
-
-            {/* Forgot password */}
-            <Pressable onPress={() => router.push('/forgot-password')} className="items-end active:opacity-60">
-              <Text className="text-primary text-sm font-semibold">Forgot password?</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-
-        {/* Bottom */}
-        <View className="px-6 pb-10 pt-4 bg-background gap-4">
-          <Pressable
+          <AuthButton
+            label={signIn.isPending ? 'Signing in…' : 'Sign in'}
             onPress={() => handleSignIn()}
-            disabled={!canSubmit || signIn.isPending}
+            disabled={!canSubmit}
+            busy={signIn.isPending}
+          />
+          <AuthFooterLine lead="New to Virgo?" action="Create an account" onPress={() => router.push('/sign-up')} />
+        </AuthFooter>
+      }
+    >
+      <AuthTitle title="Welcome back">Sign in to Virgo.</AuthTitle>
+
+      <FormField label="Email">
+        <FormInput
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@studio.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="username"
+          autoComplete="email"
+          returnKeyType="next"
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          submitBehavior="submit"
+        />
+      </FormField>
+
+      {/* Built by hand rather than with FormField: the way out for a
+          forgotten password sits on the label's own line, beside the field it
+          is about, and the kit's label is a word alone. */}
+      <View className="gap-2">
+        <View className="flex-row items-baseline justify-between">
+          <FormLabel>Password</FormLabel>
+          <Pressable
+            onPress={() => router.push('/forgot-password')}
             accessibilityRole="button"
-            accessibilityState={{ disabled: !canSubmit || signIn.isPending }}
-            className={`min-h-12 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${canSubmit ? 'bg-action' : 'bg-muted'}`}>
-            <Text className={`text-base font-bold ${canSubmit ? 'text-action-foreground' : 'text-muted-foreground'}`}>
-              {signIn.isPending ? 'Signing in...' : 'Sign in'}
-            </Text>
-            {!signIn.isPending && <ArrowRightIcon size={18} className={canSubmit ? 'text-action-foreground' : 'text-muted-foreground'} />}
+            accessibilityLabel="Forgot password?"
+            hitSlop={12}
+            className="active:opacity-60"
+          >
+            <Text className="text-primary text-[15px] leading-5 font-semibold">Forgot it?</Text>
           </Pressable>
-          <View className="flex-row items-center justify-center gap-1">
-            <Text className="text-muted-foreground text-sm">Don’t have an account?</Text>
-            <Pressable onPress={() => router.push('/sign-up')} className="active:opacity-60">
-              <Text className="text-primary text-sm font-bold">Sign up</Text>
-            </Pressable>
-          </View>
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        <PasswordInput
+          inputRef={passwordRef}
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Your password"
+          wrong={!!errorMsg}
+          textContentType="password"
+          autoComplete="current-password"
+          returnKeyType="go"
+          onSubmitEditing={() => handleSignIn()}
+        />
+        {/* Under the password, not in a banner of its own: the answer never
+            says which of the two was wrong, and this is the one to retype. */}
+        {errorMsg ? <FormHint wrong>{errorMsg}</FormHint> : null}
+      </View>
+    </AuthFrame>
   );
 }

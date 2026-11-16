@@ -1,12 +1,14 @@
-import { View, Text, Pressable, Image } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, Image } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { useAuth } from '@/src/hooks';
-import { ArrowRightIcon, MailIcon } from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
+import { AuthButton, AuthFooter, AuthFrame } from '@/components/auth/AuthFrame';
 
-cssInterop(ArrowRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+/** What Virgo is for, in three plain lines. No icons: the words carry it. */
+const REASONS = [
+  { title: 'Deliver the work', line: 'Albums your clients open with a link' },
+  { title: 'Find the next job', line: 'A board of shoots that need your role' },
+  { title: 'Know what you earned', line: 'Fees, expenses and what to set aside' },
+] as const;
 
 export default function WelcomeScreen() {
   const { user } = useAuth();
@@ -21,10 +23,38 @@ export default function WelcomeScreen() {
   }
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} className="flex-1 bg-background">
-      <View className="flex-1 px-8 justify-center" style={{ paddingBottom: 60 }}>
-        {/* Logo + Wordmark */}
-        <View className="items-center mb-10">
+    <AuthFrame
+      footer={
+        <AuthFooter>
+          {/* There was a "Continue with Google" button here. It was wired to
+              the email sign-in screen — tapping Google asked for a password,
+              which is the kind of thing that makes people think they have the
+              wrong app. There is no OAuth client behind it. It comes back when
+              it works. */}
+          <AuthButton label="Sign up with email" onPress={() => router.push('/sign-up')} />
+          <AuthButton label="Sign in" quiet onPress={() => router.push('/sign-in')} />
+
+          {/* Terms. Both used to be styled as links and were not tappable — the
+              document lives outside (app) precisely so it can be read before
+              signing in. */}
+          <Text className="text-muted-foreground text-[12px] leading-4 text-center mt-1">
+            By continuing you agree to the{' '}
+            <Text className="text-primary font-semibold" onPress={() => router.push('/legal')}>
+              Terms
+            </Text>{' '}
+            and the{' '}
+            <Text className="text-primary font-semibold" onPress={() => router.push('/legal?tab=privacy')}>
+              Privacy Policy
+            </Text>
+            .
+          </Text>
+        </AuthFooter>
+      }
+    >
+      {/* A little more room than a form gets: there is no bar above this one,
+          and it is the first thing anybody sees. */}
+      <View className="px-1 pt-[22px] gap-6">
+        <View className="flex-row items-center gap-3">
           {/*
             The real mark, not a letter in a box.
 
@@ -36,73 +66,34 @@ export default function WelcomeScreen() {
           */}
           <Image
             source={require('@/assets/splash-icon.png')}
-            style={{ width: 96, height: 96, marginBottom: 12 }}
+            style={{ width: 48, height: 48 }}
             resizeMode="contain"
             accessibilityLabel="Virgo"
           />
-          <Text className="text-foreground text-[32px] font-extrabold tracking-tight">
-            Virgo
+          <Text className="text-foreground text-[24px] leading-[30px] font-bold tracking-[-0.5px]">Virgo</Text>
+        </View>
+
+        <View className="gap-2.5">
+          <Text
+            accessibilityRole="header"
+            className="text-foreground text-[32px] leading-[38px] font-bold tracking-[-1px]"
+          >
+            Your shoots, your clients, your money. One place.
           </Text>
-          <Text className="text-primary text-sm font-semibold tracking-[3px] uppercase mt-1">
-            Private Creative OS
+          <Text className="text-muted-foreground text-[15px] leading-[22px]">
+            Made for photographers and videographers in the Philippines.
           </Text>
         </View>
 
-        {/* Message */}
-        <Text className="text-muted-foreground text-base leading-relaxed text-center mb-10 px-2">
-          Organize workspaces, albums, media deliveries, schedules, and collaborators — all in one private space.
-        </Text>
-
-        {/* Buttons */}
-        <View className="gap-3">
-          {/* There was a "Continue with Google" button here. It was wired to
-              the email sign-in screen — tapping Google asked for a password,
-              which is the kind of thing that makes people think they have the
-              wrong app. There is no OAuth client behind it. It comes back when
-              it works. */}
-
-          {/* Sign in with email */}
-          <Pressable
-            onPress={() => router.push('/sign-in')}
-            accessibilityRole="button"
-            className="min-h-12 bg-secondary rounded-xl py-3.5 flex-row items-center justify-center gap-2 active:scale-[0.98]"
-          >
-            <MailIcon size={18} className="text-primary" />
-            <Text className="text-foreground text-base font-semibold">Sign in with email</Text>
-          </Pressable>
-
-          {/* Create account */}
-          <Pressable
-            onPress={() => router.push('/sign-up')}
-            accessibilityRole="button"
-            className="min-h-12 bg-action rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98]"
-          >
-            <Text className="text-action-foreground text-base font-bold">Create account</Text>
-            <ArrowRightIcon size={18} className="text-action-foreground" />
-          </Pressable>
+        <View className="border-y border-border/60">
+          {REASONS.map((reason, i) => (
+            <View key={reason.title} className={`py-3.5 gap-0.5 ${i > 0 ? 'border-t border-border/60' : ''}`}>
+              <Text className="text-foreground text-[15px] leading-5 font-semibold">{reason.title}</Text>
+              <Text className="text-muted-foreground text-[13px] leading-[18px]">{reason.line}</Text>
+            </View>
+          ))}
         </View>
-
-        {/* Terms. Both used to be styled as links and were not tappable — the
-            document lives outside (app) precisely so it can be read before
-            signing in. */}
-        <Text className="text-muted-foreground text-[11px] text-center mt-8 leading-relaxed px-4">
-          By continuing, you agree to Virgo’s{' '}
-          <Text
-            className="text-primary font-semibold"
-            onPress={() => router.push('/legal')}
-          >
-            Terms of Service
-          </Text>{' '}
-          and{' '}
-          <Text
-            className="text-primary font-semibold"
-            onPress={() => router.push('/legal?tab=privacy')}
-          >
-            Privacy Policy
-          </Text>
-          .
-        </Text>
       </View>
-    </SafeAreaView>
+    </AuthFrame>
   );
 }

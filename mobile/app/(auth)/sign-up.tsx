@@ -1,35 +1,17 @@
-import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth, useTheme } from '@/src/hooks';
-import { useQuery } from '@tanstack/react-query';
-import { authApi } from '@/src/api';
+import { useAuth, useRoles, useTheme } from '@/src/hooks';
 import { Redirect, router, useNavigation } from 'expo-router';
 import { usePreventRemove } from '@react-navigation/native';
 import { useState } from 'react';
-import {
-  ArrowLeftIcon, UserIcon, MailIcon, LockIcon, EyeIcon, EyeOffIcon, ArrowRightIcon,
-  CheckIcon, MapPinIcon, Building2Icon, AtSignIcon, GlobeIcon, GiftIcon,
-} from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
+import { CheckIcon } from 'lucide-react-native';
 import { PALETTES } from '@/theme';
 import { LoadFailed } from '@/components/LoadFailed';
 import { CitySuggestions } from '@/components/LocationField';
 import { useHoldUpdates } from '@/src/lib/ota-updates';
-
-cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UserIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MailIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(LockIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(EyeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(EyeOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(ArrowRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(CheckIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(Building2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(AtSignIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(GlobeIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(GiftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+import { ChoiceChips, FormField, FormHint, FormInput, FormLabel, FormNotice } from '@/components/Form';
+import { AuthButton, AuthFooter, AuthFooterLine, AuthFrame, AuthTitle } from '@/components/auth/AuthFrame';
+import { PasswordInput, RoleChip } from '@/components/auth/AuthFields';
 
 /**
  * Signing up, in three steps.
@@ -45,11 +27,18 @@ cssInterop(GiftIcon, { className: { target: 'style', nativeStyleToProp: { color:
  * disclosure of a single form, not three saves: abandoning halfway leaves no
  * half-made account behind and nobody wondering whether they have one.
  *
- * Mirrors `web/src/components/sign-up-wizard.tsx` step for step and field for
- * field. Same account, same questions, whichever client somebody starts on.
+ * Mirrors `web/src/components/sign-up-wizard.tsx` step for step. The phone
+ * asks for the password once, with an eye to look at it, and takes roles in
+ * somebody's own words; otherwise the same account and the same questions,
+ * whichever client somebody starts on.
  */
 
-const STEPS = ['You', 'What you do', 'Where you are'] as const;
+const STEP_COUNT = 3;
+
+/** Roles in somebody's own words: how many, and how long each may be. */
+const CUSTOM_ROLE_LIMIT = 3;
+const CUSTOM_ROLE_MIN = 2;
+const CUSTOM_ROLE_MAX = 40;
 
 export default function SignUpScreen() {
   // A code fetched from email, or a form half filled: see useHoldUpdates.
@@ -76,17 +65,20 @@ export default function SignUpScreen() {
     setErrorMsg('');
     setStep((s) => Math.max(0, s - 1));
   });
-  const [showPassword, setShowPassword] = useState(false);
 
   // Step 1
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
 
   // Step 2
   const [roles, setRoles] = useState<string[]>([]);
+  // Typed in, for what the list lacks. Kept apart from `roles`: those are the
+  // server's own words and are checked against its list; these are not.
+  const [customRoles, setCustomRoles] = useState<string[]>([]);
+  const [customDraft, setCustomDraft] = useState('');
+  const [customError, setCustomError] = useState('');
 
   // Step 3
   const [line1, setLine1] = useState('');
@@ -104,15 +96,11 @@ export default function SignUpScreen() {
    * the register endpoint validates against, so the form cannot offer
    * something that will be rejected.
    */
-  const rolesQuery = useQuery({
-    queryKey: ['auth', 'roles'],
-    queryFn: () => authApi.listRoles(),
-    staleTime: Infinity,
-  });
+  const rolesQuery = useRoles();
   const roleList = rolesQuery.data;
   // Failed or paused (offline): either way there are no chips to pick, and
   // this step used to be a blank that could not be finished or retried.
-  const rolesFailed = !roleList && (rolesQuery.isError || rolesQuery.isPaused);
+  const rolesFailed = !roleList && rolesQuery.loadFailed;
 
   // <Redirect> rather than router.replace(): navigating during render mutates
   // the navigation container mid-render and triggers React's
@@ -120,6 +108,8 @@ export default function SignUpScreen() {
   if (process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE !== 'designer' && user) {
     return <Redirect href="/(app)/(tabs)" />;
   }
+
+  const chosenCount = roles.length + customRoles.length;
 
   /**
    * What each step is still missing, named rather than implied.
@@ -133,10 +123,10 @@ export default function SignUpScreen() {
       !name.trim() && 'your name',
       !email.trim() && 'an email address',
       password.length < 8 && 'a password of at least 8 characters',
-      confirmPassword.length > 0 && confirmPassword !== password && 'both passwords to match',
-      password.length >= 8 && !confirmPassword && 'the password confirmed',
     ].filter(Boolean) as string[],
-    [roles.length === 0 && 'at least one role'].filter(Boolean) as string[],
+    // One of either kind: somebody whose work is not on the list has still
+    // said what they do.
+    [chosenCount === 0 && 'at least one role'].filter(Boolean) as string[],
     [
       !line1.trim() && 'a street address',
       !city.trim() && 'a city or municipality',
@@ -147,12 +137,41 @@ export default function SignUpScreen() {
   ];
 
   const stepReady = missing[step].length === 0;
-  const isLast = step === STEPS.length - 1;
+  const isLast = step === STEP_COUNT - 1;
 
   const toggleRole = (role: string) =>
     setRoles((prev) =>
       prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
     );
+
+  const addCustomRole = () => {
+    const typed = customDraft.trim().replace(/\s+/g, ' ');
+    setCustomError('');
+    if (!typed) return;
+    const same = (other: string) => other.toLowerCase() === typed.toLowerCase();
+    // Typing a role the list already has is choosing it: one "Photographer",
+    // spelled the list's way, rather than two.
+    const listed = rolesQuery.roles.find(same);
+    if (listed) {
+      setRoles((prev) => (prev.includes(listed) ? prev : [...prev, listed]));
+      setCustomDraft('');
+      return;
+    }
+    if (customRoles.some(same)) {
+      setCustomDraft('');
+      return;
+    }
+    if (typed.length < CUSTOM_ROLE_MIN || typed.length > CUSTOM_ROLE_MAX) {
+      setCustomError(`Use ${CUSTOM_ROLE_MIN} to ${CUSTOM_ROLE_MAX} characters.`);
+      return;
+    }
+    if (customRoles.length >= CUSTOM_ROLE_LIMIT) {
+      setCustomError('Three is the most. Remove one to add another.');
+      return;
+    }
+    setCustomRoles((prev) => [...prev, typed]);
+    setCustomDraft('');
+  };
 
   const goBack = () => {
     setErrorMsg('');
@@ -161,7 +180,8 @@ export default function SignUpScreen() {
   };
 
   const advance = () => {
-    if (!stepReady) return;
+    // The button and a keyboard's Go both land here.
+    if (!stepReady || signUp.isPending) return;
     setErrorMsg('');
     if (!isLast) { setStep((s) => s + 1); return; }
     signUp.mutate(
@@ -170,6 +190,7 @@ export default function SignUpScreen() {
         password,
         displayName: name.trim(),
         roles,
+        customRoles,
         addressLine1: line1.trim(),
         addressCity: city.trim(),
         addressProvince: province.trim(),
@@ -196,354 +217,307 @@ export default function SignUpScreen() {
     );
   };
 
+  // Where the server's answer is shown. One about the email or the password
+  // sits under that field, on the step it sent everybody back to; anything
+  // else is about no field in particular and goes above the button.
+  const emailError = step === 0 && /email/i.test(errorMsg) ? errorMsg : '';
+  const passwordError = step === 0 && !emailError && /password/i.test(errorMsg) ? errorMsg : '';
+  const generalError = emailError || passwordError ? '' : errorMsg;
+
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-          {/* Header */}
-          <View className="px-6 pt-4 pb-2 flex-row items-center gap-3">
-            <Pressable
-              onPress={goBack}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:scale-[0.96]"
-            >
-              <ArrowLeftIcon size={18} className="text-foreground" />
-            </Pressable>
+    <AuthFrame
+      onBack={goBack}
+      progress={{ step: step + 1, of: STEP_COUNT }}
+      footer={
+        // Says what is still missing rather than leaving a dead button to be
+        // puzzled over.
+        <AuthFooter note={!stepReady ? `Still needed: ${missing[step].join(', ')}.` : null}>
+          {generalError ? <FormNotice title="That did not go through" body={generalError} /> : null}
+          <AuthButton
+            label={signUp.isPending ? 'Creating account…' : isLast ? 'Create account' : 'Next'}
+            onPress={advance}
+            disabled={!stepReady}
+            busy={signUp.isPending}
+          />
+          {step === 0 ? (
+            <AuthFooterLine lead="Have an account?" action="Sign in" onPress={() => router.push('/sign-in')} />
+          ) : null}
+        </AuthFooter>
+      }
+    >
+      {step === 0 && (
+        <>
+          <AuthTitle title="Create your account">It takes about a minute.</AuthTitle>
+
+          <FormField label="Your name">
+            <FormInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Your name"
+              autoCapitalize="words"
+              textContentType="name"
+              autoComplete="name"
+            />
+          </FormField>
+
+          <FormField label="Email" hint={emailError || undefined} wrong={!!emailError}>
+            <FormInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@studio.com"
+              wrong={!!emailError}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="username"
+              autoComplete="email"
+            />
+          </FormField>
+
+          {/* Asked for once. There was a second box to retype it in, because
+              a typo in the only one locked people out of an account they had
+              just made; the eye lets them read what they typed instead. */}
+          <FormField
+            label="Password"
+            hint={passwordError || 'At least 8 characters. Longer is stronger.'}
+            wrong={!!passwordError}
+          >
+            <PasswordInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="At least 8 characters"
+              wrong={!!passwordError}
+              textContentType="newPassword"
+              autoComplete="new-password"
+              passwordRules="minlength: 8;"
+            />
+          </FormField>
+
+          {/* On the first step rather than with the other optional fields
+              two screens later: somebody who was sent a code is holding it
+              now, and a field they have to go looking for is a referral
+              that never pays. */}
+          <FormField label="Invite code" optional>
+            <FormInput
+              value={referralCode}
+              onChangeText={(v) => setReferralCode(v.toUpperCase())}
+              placeholder="From whoever invited you"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={32}
+            />
+          </FormField>
+        </>
+      )}
+
+      {/* Roles. Chips rather than a picker: several apply at once — a
+          photographer who also cuts the SDE holds both — and a one-of
+          control would force people to misrepresent themselves. */}
+      {step === 1 && (
+        <>
+          <AuthTitle title="What do you do?">
+            Pick every role you take work for. The job board shows you shoots that need them.
+          </AuthTitle>
+
+          {rolesFailed ? (
+            <LoadFailed what="the list of roles" onRetry={() => rolesQuery.refetch()} compact />
+          ) : !roleList ? (
+            <ActivityIndicator color={palette.action} style={{ paddingVertical: 24 }} />
+          ) : null}
+
+          {rolesQuery.roles.length > 0 || customRoles.length > 0 ? (
+            <ChoiceChips>
+              {rolesQuery.roles.map((role) => (
+                <RoleChip key={role} label={role} selected={roles.includes(role)} onPress={() => toggleRole(role)} />
+              ))}
+              {customRoles.map((role) => (
+                <RoleChip
+                  key={`own:${role}`}
+                  label={role}
+                  selected
+                  removable
+                  onPress={() => {
+                    setCustomError('');
+                    setCustomRoles((prev) => prev.filter((r) => r !== role));
+                  }}
+                />
+              ))}
+            </ChoiceChips>
+          ) : null}
+
+          {/* Free text beside the list, not instead of it: the list is what
+              the job board matches on, and this is for the work it has no
+              word for yet. */}
+          <View className="gap-2">
+            <FormLabel optional>Something else</FormLabel>
+            <View className="flex-row gap-2">
+              <View className="flex-1">
+                <FormInput
+                  value={customDraft}
+                  onChangeText={(v) => {
+                    setCustomDraft(v);
+                    setCustomError('');
+                  }}
+                  placeholder="Photo booth operator"
+                  wrong={!!customError}
+                  maxLength={CUSTOM_ROLE_MAX}
+                  autoCapitalize="sentences"
+                  returnKeyType="done"
+                  onSubmitEditing={addCustomRole}
+                  submitBehavior="submit"
+                  accessibilityLabel="Something else you do"
+                />
+              </View>
+              <Pressable
+                onPress={addCustomRole}
+                disabled={!customDraft.trim()}
+                accessibilityRole="button"
+                accessibilityLabel="Add this role"
+                accessibilityState={{ disabled: !customDraft.trim() }}
+                className="h-[52px] px-[18px] rounded-[14px] bg-secondary items-center justify-center active:opacity-80"
+              >
+                <Text
+                  className={`text-[15px] font-semibold ${customDraft.trim() ? 'text-foreground' : 'text-muted-foreground'}`}
+                >
+                  Add
+                </Text>
+              </Pressable>
+            </View>
+            <FormHint wrong={!!customError}>
+              {customError || 'In your own words, if what you do is not on the list. Up to three.'}
+            </FormHint>
+          </View>
+
+          {chosenCount > 0 ? (
+            <Text className="text-muted-foreground text-[13px] leading-[18px] font-semibold">
+              {chosenCount} chosen. You can change these later in Settings.
+            </Text>
+          ) : null}
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          <AuthTitle title="Where do you work?">
+            Your town puts nearby jobs and people first. Your street is never shown.
+          </AuthTitle>
+
+          {/* Full width, with the suggestions under it: the city is
+              what places somebody in Nearby, so the spelling the app
+              knows is worth offering. Still free text — a town the list
+              lacks is placed by its province. */}
+          <FormField label="City or town">
             <View>
-              <Text className="text-foreground text-[28px] font-bold tracking-tight">Create account</Text>
-              <Text className="text-muted-foreground text-sm mt-0.5">Step {step + 1} of {STEPS.length}</Text>
+              <FormInput
+                value={city}
+                onChangeText={setCity}
+                placeholder="Cebu City"
+                maxLength={120}
+                onFocus={() => setCityFocused(true)}
+                // A beat late, so a tap on a suggestion lands first.
+                onBlur={() => setTimeout(() => setCityFocused(false), 200)}
+              />
+              <CitySuggestions
+                query={city}
+                visible={cityFocused}
+                onPick={(picked) => {
+                  setCity(picked);
+                  setCityFocused(false);
+                }}
+              />
+            </View>
+          </FormField>
+
+          <View className="flex-row gap-3">
+            <View style={{ flex: 1.4 }}>
+              <FormField label="Province">
+                <FormInput value={province} onChangeText={setProvince} placeholder="Cebu" maxLength={120} />
+              </FormField>
+            </View>
+            {/* Optional on purpose. Plenty of Philippine addresses have
+                no ZIP, and refusing somebody for that is refusing them
+                for where they live. Said in the field: the label has no
+                room for the word at this width. */}
+            <View className="flex-1">
+              <FormField label="Postal code">
+                <FormInput
+                  value={postal}
+                  onChangeText={setPostal}
+                  placeholder="Optional"
+                  keyboardType="number-pad"
+                  inputAccessoryViewID={KEYBOARD_DONE}
+                  maxLength={20}
+                />
+              </FormField>
             </View>
           </View>
 
-          {/* How far in, and what is still coming. Three labelled markers
-              rather than a bare bar: the number says how far, the labels say
-              what is left, and the second is what stops it feeling
-              open-ended. */}
-          <View className="px-6 mt-4 mb-5 flex-row gap-2">
-            {STEPS.map((label, i) => (
-              <View key={label} className="flex-1 gap-1.5">
-                <View
-                  className={`h-1 rounded-full ${i < step ? 'bg-action' : i === step ? 'bg-primary/60' : 'bg-muted'}`}
-                />
-                <Text
-                  className={`text-[11px] ${i === step ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}
-                >
-                  {label}
-                </Text>
-              </View>
-            ))}
-          </View>
+          <FormField
+            label="Street"
+            hint="Private. Only your city and province show on your profile, and you can hide from Nearby in Privacy."
+          >
+            <FormInput
+              value={line1}
+              onChangeText={setLine1}
+              placeholder="123 Rizal Street, Barangay San Roque"
+              maxLength={200}
+            />
+          </FormField>
 
-          <View className="px-6 gap-4">
-            {step === 0 && (
-              <>
-                <Field label="Full name" icon={<UserIcon size={16} className="text-muted-foreground" />}>
-                  <TextInput value={name} onChangeText={setName} placeholder="Your name"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" autoCapitalize="words"
-                    textContentType="name" autoComplete="name" />
-                </Field>
+          <FormField label="Country" hint="Two letters. PH is the Philippines.">
+            <FormInput
+              value={country}
+              onChangeText={(v) => setCountry(v.toUpperCase())}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={2}
+            />
+          </FormField>
 
-                <Field label="Email" icon={<MailIcon size={16} className="text-muted-foreground" />}>
-                  <TextInput value={email} onChangeText={setEmail} placeholder="you@studio.com"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
-                    textContentType="username" autoComplete="email" />
-                </Field>
+          <FormField label="Studio name" optional hint="If you trade under one.">
+            <FormInput value={studioName} onChangeText={setStudioName} placeholder="Northlight Studio" maxLength={120} />
+          </FormField>
 
-                <Field label="Password" icon={<LockIcon size={16} className="text-muted-foreground" />}>
-                  <TextInput value={password} onChangeText={setPassword} placeholder="Min. 8 characters"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    secureTextEntry={!showPassword} autoCapitalize="none"
-                    textContentType="newPassword" autoComplete="new-password"
-                    passwordRules="minlength: 8;" />
-                  <Pressable
-                    onPress={() => setShowPassword(!showPassword)}
-                    accessibilityRole="button"
-                    accessibilityLabel={showPassword ? 'Hide passwords' : 'Show passwords'}
-                    className="w-11 h-11 items-center justify-center active:scale-[0.96]"
-                  >
-                    {showPassword ? <EyeOffIcon size={18} className="text-muted-foreground" /> : <EyeIcon size={18} className="text-muted-foreground" />}
-                  </Pressable>
-                </Field>
+          <FormField label="Social" optional hint="An @handle, a page, or a link.">
+            <FormInput
+              value={socialHandle}
+              onChangeText={setSocialHandle}
+              placeholder="@yourstudio"
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={200}
+            />
+          </FormField>
 
-                {/* A typo in the only password box locked people out of an
-                    account they had just made, and the way back was the
-                    password reset flow. */}
-                <Field
-                  label="Confirm password"
-                  icon={<LockIcon size={16} className="text-muted-foreground" />}
-                  error={confirmPassword.length > 0 && confirmPassword !== password ? 'These do not match.' : undefined}
-                >
-                  <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Re-enter password"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    secureTextEntry={!showPassword} autoCapitalize="none"
-                    textContentType="newPassword" autoComplete="new-password" />
-                </Field>
-
-                {/* On the first step rather than with the other optional fields
-                    two screens later: somebody who was sent a code is holding it
-                    now, and a field they have to go looking for is a referral
-                    that never pays. */}
-                <Field
-                  label="Invite Code (optional)"
-                  icon={<GiftIcon size={16} className="text-muted-foreground" />}
-                >
-                  <TextInput
-                    value={referralCode}
-                    onChangeText={(v) => setReferralCode(v.toUpperCase())}
-                    placeholder="From whoever invited you"
-                    placeholderTextColor={palette.mutedForeground}
-                    className="flex-1 text-foreground text-base tracking-[2px]"
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                    maxLength={32}
-                  />
-                </Field>
-              </>
-            )}
-
-            {/* Roles. Chips rather than a picker: several apply at once — a
-                photographer who also cuts the SDE holds both — and a one-of
-                control would force people to misrepresent themselves. */}
-            {step === 1 && (
-              <View>
-                <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-1 ml-1">
-                  What do you do? <Text className="text-destructive">*</Text>
-                </Text>
-                <Text className="text-muted-foreground text-xs mb-3 ml-1">
-                  Pick every one that applies. It is how the right jobs find you.
-                </Text>
-                {rolesFailed ? (
-                  <LoadFailed what="the list of roles" onRetry={() => rolesQuery.refetch()} compact />
-                ) : !roleList ? (
-                  <ActivityIndicator color="#B66A40" style={{ paddingVertical: 24 }} />
-                ) : null}
-                <View className="flex-row flex-wrap gap-2">
-                  {(roleList?.data ?? []).map((role) => {
-                    const on = roles.includes(role);
-                    return (
-                      <Pressable
-                        key={role}
-                        onPress={() => toggleRole(role)}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: on }}
-                        className={`min-h-11 flex-row items-center gap-1.5 rounded-full px-3.5 py-2 active:scale-[0.98] ${on ? 'bg-action' : 'bg-secondary'}`}
-                      >
-                        {on && <CheckIcon size={12} className="text-action-foreground" />}
-                        <Text className={`text-xs font-semibold ${on ? 'text-action-foreground' : 'text-foreground'}`}>
-                          {role}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                {roleList && (
-                  <Text
-                    className={`text-xs mt-3 ml-1 ${roles.length === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
-                  >
-                    {roles.length === 0
-                      ? 'Required — choose at least one.'
-                      : `${roles.length} selected — you can change these later.`}
-                  </Text>
-                )}
-              </View>
-            )}
-
-            {step === 2 && (
-              <>
-                <Field label="Street address" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
-                  <TextInput value={line1} onChangeText={setLine1} placeholder="123 Rizal Street, Barangay San Roque"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={200} />
-                </Field>
-
-                {/* Full width, with the suggestions under it: the city is
-                    what places somebody in Nearby, so the spelling the app
-                    knows is worth offering. Still free text — a town the list
-                    lacks is placed by its province. */}
-                <View>
-                  <Field label="City or municipality" icon={<MapPinIcon size={16} className="text-muted-foreground" />}>
-                    <TextInput value={city} onChangeText={setCity} placeholder="Cebu City"
-                      placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120}
-                      onFocus={() => setCityFocused(true)}
-                      // A beat late, so a tap on a suggestion lands first.
-                      onBlur={() => setTimeout(() => setCityFocused(false), 200)} />
-                  </Field>
-                  <CitySuggestions
-                    query={city}
-                    visible={cityFocused}
-                    onPick={(picked) => {
-                      setCity(picked);
-                      setCityFocused(false);
-                    }}
-                  />
-                </View>
-
-                <Field label="Province">
-                  <TextInput value={province} onChangeText={setProvince} placeholder="Cebu"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
-                </Field>
-
-                <View className="flex-row gap-3">
-                  {/* Optional on purpose. Plenty of Philippine addresses have
-                      no ZIP, and refusing somebody for that is refusing them
-                      for where they live. */}
-                  <View className="flex-1">
-                    <Field label="Postal code" hint="Optional.">
-                      <TextInput value={postal} onChangeText={setPostal} placeholder="6000"
-                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                        keyboardType="number-pad" inputAccessoryViewID={KEYBOARD_DONE} maxLength={20} />
-                    </Field>
-                  </View>
-                  <View className="flex-1">
-                    <Field label="Country" icon={<GlobeIcon size={16} className="text-muted-foreground" />}>
-                      <TextInput value={country} onChangeText={(v) => setCountry(v.toUpperCase())}
-                        placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                        autoCapitalize="characters" autoCorrect={false} maxLength={2} />
-                    </Field>
-                  </View>
-                </View>
-
-                <Field label="Studio name" hint="Optional — if you trade under one." icon={<Building2Icon size={16} className="text-muted-foreground" />}>
-                  <TextInput value={studioName} onChangeText={setStudioName} placeholder="Northlight Studio"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base" maxLength={120} />
-                </Field>
-
-                <Field label="Social" hint="Optional — an @handle, a page, or a link." icon={<AtSignIcon size={16} className="text-muted-foreground" />}>
-                  <TextInput value={socialHandle} onChangeText={setSocialHandle} placeholder="@yourstudio"
-                    placeholderTextColor={palette.mutedForeground} className="flex-1 text-foreground text-base"
-                    autoCapitalize="none" autoCorrect={false} maxLength={200} />
-                </Field>
-
-                {/* Terms. Required, and the links open the same document the
-                    app shows in Settings. */}
-                <Pressable
-                  onPress={() => setAcceptedTerms((v) => !v)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: acceptedTerms }}
-                  className="flex-row items-start gap-3 bg-secondary rounded-xl px-4 py-3.5 active:opacity-80"
-                >
-                  <View
-                    className={`w-5 h-5 items-center justify-center rounded-md mt-0.5 ${
-                      acceptedTerms ? 'bg-action' : 'border border-input'
-                    }`}
-                  >
-                    {acceptedTerms && <CheckIcon size={13} className="text-action-foreground" />}
-                  </View>
-                  <Text className="text-muted-foreground text-xs flex-1 leading-5">
-                    I have read and agree to the{' '}
-                    <Text
-                      className="text-primary font-semibold"
-                      onPress={() => router.push('/legal')}
-                    >
-                      Terms of Service
-                    </Text>{' '}
-                    and{' '}
-                    <Text
-                      className="text-primary font-semibold"
-                      onPress={() => router.push('/legal?tab=privacy')}
-                    >
-                      Privacy Policy
-                    </Text>
-                    . <Text className="text-destructive">*</Text>
-                  </Text>
-                </Pressable>
-
-                <Text className="text-muted-foreground text-xs leading-5 px-1">
-                  Your street address is private. Your city and province show
-                  on your profile and place you in Nearby — never your street,
-                  and you can hide from Nearby in Privacy.
-                </Text>
-              </>
-            )}
-
-            {/* Says what is still missing rather than leaving a dead button to
-                be puzzled over. */}
-            {!stepReady ? (
-              <Text className="text-muted-foreground text-xs text-center px-2">
-                Still needed: {missing[step].join(', ')}.
+          {/* Terms. Required, and the links open the same document the
+              app shows in Settings. */}
+          <Pressable
+            onPress={() => setAcceptedTerms((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: acceptedTerms }}
+            className="flex-row items-start gap-3 rounded-2xl border border-border/40 bg-card px-4 py-3.5 active:opacity-80"
+          >
+            <View
+              className={`w-[22px] h-[22px] items-center justify-center rounded-[7px] mt-px ${
+                acceptedTerms ? 'bg-action' : 'border-[1.5px] border-border'
+              }`}
+            >
+              {acceptedTerms ? <CheckIcon size={14} strokeWidth={3} color={palette.actionForeground} /> : null}
+            </View>
+            <Text className="flex-1 text-secondary-foreground text-[15px] leading-[22px]">
+              I agree to the{' '}
+              <Text className="text-primary font-semibold" onPress={() => router.push('/legal')}>
+                Terms
+              </Text>{' '}
+              and the{' '}
+              <Text className="text-primary font-semibold" onPress={() => router.push('/legal?tab=privacy')}>
+                Privacy Policy
               </Text>
-            ) : null}
-
-            {errorMsg ? (
-              <View className="bg-destructive/10 rounded-xl px-4 py-3">
-                <Text className="text-destructive text-sm">{errorMsg}</Text>
-              </View>
-            ) : null}
-          </View>
-        </ScrollView>
-
-        {/* Bottom */}
-        <View className="px-6 pb-10 pt-4 bg-background gap-4">
-          <View className="flex-row items-center gap-3">
-            {step > 0 && (
-              <Pressable
-                onPress={goBack}
-                accessibilityRole="button"
-                className="min-h-12 rounded-xl py-4 px-5 flex-row items-center justify-center gap-2 bg-secondary active:scale-[0.98]"
-              >
-                <ArrowLeftIcon size={18} className="text-foreground" />
-                <Text className="text-foreground text-base font-semibold">Back</Text>
-              </Pressable>
-            )}
-            <Pressable
-              onPress={advance}
-              disabled={!stepReady || signUp.isPending}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !stepReady || signUp.isPending }}
-              className={`min-h-12 flex-1 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${stepReady ? 'bg-action' : 'bg-muted'}`}>
-              <Text className={`text-base font-bold ${stepReady ? 'text-action-foreground' : 'text-muted-foreground'}`}>
-                {signUp.isPending ? 'Creating account...' : isLast ? 'Create account' : 'Continue'}
-              </Text>
-              {!signUp.isPending && (
-                isLast
-                  ? <CheckIcon size={18} className={stepReady ? 'text-action-foreground' : 'text-muted-foreground'} />
-                  : <ArrowRightIcon size={18} className={stepReady ? 'text-action-foreground' : 'text-muted-foreground'} />
-              )}
-            </Pressable>
-          </View>
-          <View className="flex-row items-center justify-center gap-1">
-            <Text className="text-muted-foreground text-sm">Already have an account?</Text>
-            <Pressable onPress={() => router.push('/sign-in')} className="active:opacity-60">
-              <Text className="text-primary text-sm font-bold">Sign in</Text>
-            </Pressable>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
-}
-
-/**
- * One labelled input row. Fifteen of these were the same eight lines of
- * shadow and rounding copied over, which is how two of them ended up with
- * different corner radii.
- */
-function Field({
-  label,
-  hint,
-  error,
-  icon,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  error?: string;
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <View>
-      <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">{label}</Text>
-      <View className="bg-secondary rounded-xl px-4 py-3.5 flex-row items-center gap-3">
-        {icon}
-        {children}
-      </View>
-      {error ? (
-        <Text className="text-destructive text-xs mt-1.5 ml-1">{error}</Text>
-      ) : hint ? (
-        <Text className="text-muted-foreground text-xs mt-1.5 ml-1">{hint}</Text>
-      ) : null}
-    </View>
+              .
+            </Text>
+          </Pressable>
+        </>
+      )}
+    </AuthFrame>
   );
 }

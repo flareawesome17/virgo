@@ -21,6 +21,7 @@ export interface ProfileHeaderPerson {
   website: string | null;
   studioName?: string | null;
   roles: string[];
+  customRoles?: string[];
   memberSince: number;
   availableForBookings?: boolean;
   stats?: ProfileStats | null;
@@ -110,7 +111,7 @@ export function ProfileHeader({
 
         {person.title && <p className="mt-4 text-[15px] font-medium">{person.title}</p>}
 
-        {(person.roles.length > 0 || person.availableForBookings) && (
+        {(person.roles.length > 0 || (person.customRoles ?? []).length > 0 || person.availableForBookings) && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {person.availableForBookings && (
               <Badge variant="secondary" className="text-[12px]">
@@ -118,7 +119,7 @@ export function ProfileHeader({
                 Available for bookings
               </Badge>
             )}
-            {person.roles.map((role) => (
+            {[...person.roles, ...(person.customRoles ?? [])].map((role) => (
               <Badge key={role} variant="secondary" className="text-[12px]">
                 {role}
               </Badge>

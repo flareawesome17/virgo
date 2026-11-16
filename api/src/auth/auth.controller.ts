@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import {
+  AppleSignInDto,
   ChangeEmailDto,
   ChangePasswordDto,
   DeleteAccountDto,
@@ -73,6 +74,7 @@ export class AuthController {
       dto.displayName,
       dto.roles,
       {
+        customRoles: dto.customRoles,
         addressLine1: dto.addressLine1,
         addressLine2: dto.addressLine2,
         addressCity: dto.addressCity,
@@ -209,6 +211,29 @@ export class AuthController {
   ) {
     return this.auth.login(dto.email, dto.password, {
       unpause: dto.unpause === true,
+      userAgent,
+      origin,
+      country,
+      ip,
+    });
+  }
+
+  /**
+   * Sign in with Apple. One endpoint for signing in and for joining: which it
+   * was comes back as `isNew`.
+   */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('apple')
+  apple(
+    @Body() dto: AppleSignInDto,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('origin') origin?: string,
+    @Headers('cf-ipcountry') country?: string,
+    @Headers('cf-connecting-ip') ip?: string,
+  ) {
+    return this.auth.signInWithApple(dto.identityToken, dto.nonce, dto.displayName, {
       userAgent,
       origin,
       country,

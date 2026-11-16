@@ -101,6 +101,8 @@ export interface PublicProfile {
   location: string | null;
   website: string | null;
   roles: string[];
+  /** In their own words. Absent from a server older than custom roles. */
+  customRoles?: string[];
   /** Year only. */
   memberSince: number;
   portfolio: PortfolioItem[];
@@ -153,6 +155,8 @@ export interface ProfilePage {
   website: string | null;
   studioName: string | null;
   roles: string[];
+  /** In their own words. Absent from a server older than custom roles. */
+  customRoles?: string[];
   memberSince: number;
   availableForBookings: boolean;
   stats: ProfileStats;
