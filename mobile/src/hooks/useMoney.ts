@@ -19,6 +19,7 @@ import {
   type MoneySavingMoveInput,
   type MoneySavingPatch,
   type MoneySuggestion,
+  type MoneySummary,
 } from '@/src/api';
 
 /**
@@ -71,11 +72,120 @@ export function useMoneySummary(from: string, to: string, options: { enabled?: b
   };
 }
 
+/** A cached page of the ledger, as `moneyApi.list` returns it. */
+type MoneyListData = { data: MoneyEntry[]; total: number };
+
+function isMoneyList(data: unknown): data is MoneyListData {
+  return !!data && typeof data === 'object' && Array.isArray((data as { data?: unknown }).data);
+}
+
+/** Whether a list asked for with `params` would hold this entry. */
+function listHolds(params: unknown, entry: MoneyEntry): boolean {
+  const p = (params ?? {}) as { from?: string; to?: string; kind?: string; unpaid?: boolean };
+  if (p.kind && p.kind !== entry.kind) return false;
+  if (p.unpaid) return entry.paidOn === null;
+  // A month's list is read by the day money moved, or was due to.
+  const day = entry.paidOn ?? entry.occurredOn;
+  if (p.from && day < p.from) return false;
+  if (p.to && day > p.to) return false;
+  return true;
+}
+
+/**
+ * Adds an entry, on screen at once.
+ *
+ * The entry's id is made on the device, so the row can be drawn before the
+ * server has heard of it and is the same row afterwards. It goes into every
+ * list it belongs in and onto the month's totals on the tap; all of it is put
+ * back if the save fails, and read again from the server either way. Saving
+ * used to hold the form open, then refetch the whole ledger, before the new
+ * row appeared.
+ */
 export function useCreateMoneyEntry() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: MoneyEntryInput) => moneyApi.create(input),
-    onSuccess: () => {
+    onMutate: async (input: MoneyEntryInput) => {
+      // Without an id there is nothing to tell the drawn row from the saved one.
+      if (!input.id) return undefined;
+      await queryClient.cancelQueries({ queryKey: queryKeys.money.all });
+      const before = queryClient.getQueriesData<unknown>({ queryKey: queryKeys.money.all });
+      const now = new Date().toISOString();
+      const entry = {
+        id: input.id,
+        kind: input.kind,
+        amountMinor: input.amountMinor,
+        withheldMinor: input.withheldMinor ?? 0,
+        currency: 'PHP',
+        category: input.category,
+        occurredOn: input.occurredOn,
+        paidOn: input.paidOn ?? null,
+        method: input.method ?? null,
+        reference: input.reference ?? null,
+        counterparty: input.counterparty ?? null,
+        note: input.note ?? null,
+        receipt: null,
+        booking: null,
+        package: null,
+        recurringId: null,
+        createdAt: now,
+        updatedAt: now,
+      } as MoneyEntry;
+
+      for (const [key, data] of before) {
+        if (key[1] === 'list' && isMoneyList(data)) {
+          if (!listHolds(key[2], entry) || data.data.some((e) => e.id === entry.id)) continue;
+          queryClient.setQueryData<MoneyListData>(key, {
+            ...data,
+            data: [entry, ...data.data],
+            total: data.total + 1,
+          });
+        } else if (key[1] === 'summary' && data && typeof data === 'object') {
+          const from = String(key[2] ?? '');
+          const to = String(key[3] ?? '');
+          const summary = data as MoneySummary;
+          const net = entry.amountMinor - entry.withheldMinor;
+          if (entry.paidOn === null) {
+            // Owed is counted whatever the month.
+            queryClient.setQueryData<MoneySummary>(
+              key,
+              entry.kind === 'income'
+                ? {
+                    ...summary,
+                    owedToYouMinor: summary.owedToYouMinor + net,
+                    owedToYouCount: summary.owedToYouCount + 1,
+                  }
+                : {
+                    ...summary,
+                    youOweMinor: summary.youOweMinor + entry.amountMinor,
+                    youOweCount: summary.youOweCount + 1,
+                  },
+            );
+          } else if (entry.paidOn >= from && entry.paidOn <= to) {
+            queryClient.setQueryData<MoneySummary>(
+              key,
+              entry.kind === 'income'
+                ? {
+                    ...summary,
+                    incomeMinor: summary.incomeMinor + entry.amountMinor,
+                    withheldMinor: summary.withheldMinor + entry.withheldMinor,
+                    entries: summary.entries + 1,
+                  }
+                : {
+                    ...summary,
+                    expenseMinor: summary.expenseMinor + entry.amountMinor,
+                    entries: summary.entries + 1,
+                  },
+            );
+          }
+        }
+      }
+      return { before };
+    },
+    onError: (_error, _input, context) => {
+      for (const [key, data] of context?.before ?? []) queryClient.setQueryData(key, data);
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.money.all });
     },
   });
@@ -124,12 +234,33 @@ export function useUpdateMoneyEntry() {
   });
 }
 
+/** Deletes an entry: off every list on the tap, back if the server refuses. */
 export function useDeleteMoneyEntry() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => moneyApi.remove(id),
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.money.all });
+      const before = queryClient.getQueriesData<unknown>({ queryKey: queryKeys.money.all });
+      for (const [key, data] of before) {
+        if (key[1] !== 'list' || !isMoneyList(data)) continue;
+        if (!data.data.some((e) => e.id === id)) continue;
+        queryClient.setQueryData<MoneyListData>(key, {
+          ...data,
+          data: data.data.filter((e) => e.id !== id),
+          total: Math.max(0, data.total - 1),
+        });
+      }
+      return { before };
+    },
+    onError: (_error, _id, context) => {
+      for (const [key, data] of context?.before ?? []) queryClient.setQueryData(key, data);
+    },
     onSuccess: (_result, id) => {
       queryClient.removeQueries({ queryKey: queryKeys.money.detail(id) });
+    },
+    // The totals are the server's to work out, so they are read again.
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.money.all });
     },
   });

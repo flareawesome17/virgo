@@ -1,3 +1,4 @@
+import { canDrawOriginal } from '@/src/lib/draw-original';
 import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -22,8 +23,9 @@ const GRID_GAP = 1.5;
 /** A tile's still: the thumbnail, never the original. None for a film with no poster. */
 export function stillOf(file: StoredFile): string | undefined {
   return (
-    (kindOf(file.contentType) === 'video' ? file.posterUrl : (file.thumbnailUrl ?? file.url)) ??
-    undefined
+    (kindOf(file.contentType) === 'video'
+      ? file.posterUrl
+      : (file.thumbnailUrl ?? (canDrawOriginal(file) ? file.url : null))) ?? undefined
   );
 }
 

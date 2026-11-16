@@ -79,10 +79,16 @@ export function resetMoneyOutbox(): void {
   if (userId) AsyncStorage.removeItem(storageKey(userId)).catch(() => undefined);
 }
 
-/** Keeps an entry to send when there is a connection. */
-export function queueMoneyEntry(input: MoneyEntryInput & { id: string }): void {
+/**
+ * Keeps an entry to send when there is a connection.
+ *
+ * With `refused`, it is kept as one the server has already turned down, and
+ * why: it is not sent again, and stays on the list until it is discarded. That
+ * is where an entry goes when its form closed before the server answered.
+ */
+export function queueMoneyEntry(input: MoneyEntryInput & { id: string }, refused: string | null = null): void {
   if (items.some((i) => i.input.id === input.id)) return;
-  publish([...items, { input, queuedAt: new Date().toISOString(), attempts: 0, error: null }]);
+  publish([...items, { input, queuedAt: new Date().toISOString(), attempts: 0, error: refused }]);
 }
 
 /** Lets go of one the server refused, at the person's say-so. */

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { canDrawOriginal } from '@/src/lib/draw-original';
 import {
   ActivityIndicator,
   Alert,
@@ -105,7 +106,7 @@ import { daySpan } from '@/src/lib/media-days';
 import { albumDeleteConsequence } from '@/src/lib/workspaces';
 import { PALETTES } from '@/theme';
 import { useVideoPlayback } from '@/src/providers/VideoPlayerProvider';
-import { useAlbumAudio } from '@/src/providers/AlbumAudioProvider';
+import { useAlbumAudioControls } from '@/src/providers/AlbumAudioProvider';
 import { PendingUploads, UploadBar } from '@/components/upload/UploadBar';
 import { UploadSourceSheet } from '@/components/upload/UploadSourceSheet';
 import { useUploadPicker } from '@/components/upload/useUploadPicker';
@@ -251,7 +252,7 @@ export default function AlbumScreen() {
     [headHeight],
   );
 
-  const audio = useAlbumAudio();
+  const audio = useAlbumAudioControls();
   // Read by the tap handler, which must not be rebuilt four times a second
   // while something plays: the provider is a new object on every tick.
   const audioRef = useRef(audio);
@@ -1350,6 +1351,13 @@ export default function AlbumScreen() {
             renderItem={renderRow}
             renderSectionHeader={renderDay}
             stickySectionHeadersEnabled
+            // The defaults keep about twenty screens of rows mounted, which at
+            // four or five photographs a row is several hundred images held
+            // and redrawn. Three screens either side is still more than a
+            // flick covers.
+            windowSize={7}
+            initialNumToRender={8}
+            maxToRenderPerBatch={6}
             onScroll={onGridScroll}
             scrollEventThrottle={32}
             // Room under the last row for the upload bar, when there is one.
@@ -1813,8 +1821,13 @@ export default function AlbumScreen() {
   );
 }
 
-/** One square of the grid: a photograph, a film, a recording or a document. */
-function MediaTile({
+/**
+ * One square of the grid: a photograph, a film, a recording or a document.
+ *
+ * Memoised below, as MediaTile: ticking one photograph redrew every tile that
+ * was mounted, several hundred images in a large album.
+ */
+function MediaTileBase({
   file,
   size,
   index,
@@ -1840,7 +1853,14 @@ function MediaTile({
   const need = kind === 'image' ? longEdgeToCover(file, pixels, pixels) : 0;
   const copy = need > THUMBNAIL_EDGE ? displaySourceAtLeast(file, need) : null;
   const still =
-    kind === 'video' ? file.posterUrl : kind === 'image' ? copy ?? file.thumbnailUrl ?? file.url : null;
+    kind === 'video'
+      ? file.posterUrl
+      : kind === 'image'
+        ? // Never the camera original in a tile: see canDrawOriginal. A file
+          // still waiting on its thumbnail shows its inline preview, or the
+          // plain tile, for the few seconds that takes.
+          (copy ?? file.thumbnailUrl ?? (canDrawOriginal(file) ? file.url : (file.blurDataUrl ?? null)))
+        : null;
   // Under a copy, the thumbnail: usually already on the device from the
   // density before, and sharper than the inline preview.
   const placeholder =
@@ -1928,8 +1948,9 @@ function MediaTile({
  * Shown when the album is narrowed to films. In the mixed grid a film is a
  * square like everything else; on their own they were the same squares, a
  * wide picture cropped to its middle with nothing to say which was which.
+ * Memoised below, as FilmCard.
  */
-function FilmCard({
+function FilmCardBase({
   file,
   width,
   index,
@@ -2194,3 +2215,6 @@ function AlbumDetailsSheet({
     </Modal>
   );
 }
+
+const MediaTile = memo(MediaTileBase);
+const FilmCard = memo(FilmCardBase);

@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
@@ -242,6 +242,11 @@ export function PeopleView() {
       },
     );
 
+  // One function for every row, the same one each render. Each row was given
+  // a new arrow of its own, which made a memoised row redraw anyway: every
+  // letter typed in the search box drew every connection again.
+  const removeFriendRef = useRef<(row: Friend) => void>(() => undefined);
+  const onMoreFriend = useCallback((row: Friend) => removeFriendRef.current(row), []);
   const confirmRemoveFriend = (row: Friend) =>
     Alert.alert(
       `Remove ${row.friend_name}?`,
@@ -261,6 +266,8 @@ export function PeopleView() {
         },
       ],
     );
+  // The ref follows the function, which closes over this render's state.
+  removeFriendRef.current = confirmRemoveFriend;
 
   // ── Search ────────────────────────────────────────────────────────────────
 
@@ -355,7 +362,7 @@ export function PeopleView() {
                       borderColor={border}
                       cardColor={palette.card}
                       last={i === connectionMatches.length - 1}
-                      onMore={() => confirmRemoveFriend(f)}
+                      onMore={onMoreFriend}
                     />
                   ))}
                 </View>
@@ -515,7 +522,7 @@ export function PeopleView() {
                       borderColor={border}
                       cardColor={palette.card}
                       last={i === connections.friends.length - 1}
-                      onMore={() => confirmRemoveFriend(f)}
+                      onMore={onMoreFriend}
                     />
                   ))
                 )}
@@ -762,7 +769,8 @@ const FriendRow = memo(function FriendRow({
   borderColor: string;
   cardColor: string;
   last: boolean;
-  onMore: () => void;
+  /** Given the row's own connection, so one function serves every row. */
+  onMore: (friend: Friend) => void;
 }) {
   const { online, lastSeenAt } = usePresence(friend.friend_user_id);
   // A friend added by name, with no account behind them yet, can never be
@@ -845,7 +853,7 @@ const FriendRow = memo(function FriendRow({
         </Pressable>
       )}
       <Pressable
-        onPress={onMore}
+        onPress={() => onMore(friend)}
         accessibilityRole="button"
         accessibilityLabel={`More options for ${friend.friend_name}`}
         accessibilityHint="Remove this connection"

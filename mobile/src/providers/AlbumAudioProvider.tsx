@@ -78,6 +78,21 @@ interface AlbumAudioContextValue {
 
 const AlbumAudioContext = createContext<AlbumAudioContextValue | null>(null);
 
+/**
+ * Everything about what is playing except how far through it is.
+ *
+ * The position moves four times a second, and every reader of the one context
+ * there was redrew with it. The album and the recordings list only want to
+ * know which recording is playing and to start another; they redrew, grid and
+ * all, on every tick for as long as anything played. The dock, the player and
+ * the scrubber read the full value; everything else reads this.
+ */
+export type AlbumAudioControls = Omit<
+  AlbumAudioContextValue,
+  "position" | "duration" | "seekTo" | "seekBy"
+>;
+const AlbumAudioControlsContext = createContext<AlbumAudioControls | null>(null);
+
 type RuntimeLockScreenPlayer = {
   setActiveForLockScreen?: (
     active: boolean,
@@ -381,11 +396,81 @@ export function AlbumAudioProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return (
-    <AlbumAudioContext.Provider value={value}>
-      {children}
-    </AlbumAudioContext.Provider>
+  // The same, less the position: built from its own dependencies, not cut
+  // out of `value`, which is new on every tick.
+  const loading =
+    currentIndex >= 0 &&
+    !unplayable &&
+    (!status.isLoaded || (status.isBuffering && !status.playing));
+  const isPlaying = status.playing;
+  const controls = useMemo<AlbumAudioControls>(
+    () => ({
+      queue,
+      current,
+      currentIndex,
+      albumName,
+      artworkUrl,
+      playing: isPlaying,
+      loading,
+      unplayable,
+      shuffle,
+      repeat,
+      rate,
+      playQueue,
+      toggle: () => {
+        if (isPlaying) {
+          player.pause();
+          return;
+        }
+        pauseDockedFilm();
+        player.play();
+      },
+      next,
+      previous,
+      setShuffle,
+      cycleRepeat: () =>
+        setRepeat((value) =>
+          value === "off" ? "all" : value === "all" ? "one" : "off",
+        ),
+      setRate,
+      stop,
+    }),
+    [
+      albumName,
+      artworkUrl,
+      current,
+      currentIndex,
+      isPlaying,
+      loading,
+      next,
+      playQueue,
+      player,
+      previous,
+      queue,
+      rate,
+      repeat,
+      setRate,
+      shuffle,
+      stop,
+      unplayable,
+    ],
   );
+
+  return (
+    <AlbumAudioControlsContext.Provider value={controls}>
+      <AlbumAudioContext.Provider value={value}>
+        {children}
+      </AlbumAudioContext.Provider>
+    </AlbumAudioControlsContext.Provider>
+  );
+}
+
+/** What is playing and how to change it, without its position. See AlbumAudioControls. */
+export function useAlbumAudioControls() {
+  const value = useContext(AlbumAudioControlsContext);
+  if (!value)
+    throw new Error("useAlbumAudioControls must be used inside AlbumAudioProvider");
+  return value;
 }
 
 export function useAlbumAudio() {

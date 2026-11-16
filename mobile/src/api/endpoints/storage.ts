@@ -899,8 +899,29 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 /** Where a part waits, as its own file, while the native uploader sends it. */
 const PART_DIR = 'multipart-parts';
 
-/** Bytes copied per read. Each read blocks the JS thread for its duration. */
-const PART_COPY_CHUNK_BYTES = 2 * 1024 * 1024;
+/**
+ * Bytes copied per read. Each read blocks the JS thread for its duration, and
+ * the JS thread is the one that answers taps: at 2 MB a read, with four parts
+ * copying at once and no real gap between reads, a large film froze every
+ * button in the app for as long as its parts were being cut, and churned
+ * through memory fast enough for iOS to end the app on an older phone.
+ */
+const PART_COPY_CHUNK_BYTES = 512 * 1024;
+
+/** The gap left between reads, so taps and frames get the thread in between. */
+const PART_COPY_PAUSE_MS = 8;
+
+/**
+ * One part is cut at a time. The parts still upload side by side, which is
+ * native work; it is only the copying, which runs on the JS thread, that
+ * takes turns.
+ */
+let partCopyTurn: Promise<unknown> = Promise.resolve();
+function inCopyTurn<T>(work: () => Promise<T>): Promise<T> {
+  const next = partCopyTurn.then(work, work);
+  partCopyTurn = next.catch(() => undefined);
+  return next;
+}
 
 /** Multipart uploads running in this process; part files are swept at zero. */
 let activeMultipartUploads = 0;
@@ -925,10 +946,16 @@ function clearStalePartFiles(): void {
  * Copies one range of the source file into a part file of its own.
  *
  * The native uploader sends a whole file from disk, so a part has to be one.
- * The copy goes through a FileHandle in 2 MB reads, so at most one chunk per
- * part in flight is ever in memory, never the part and never the file.
+ * The copy goes through a FileHandle in small reads, one part at a time, so
+ * at most one chunk is ever in memory, never the part and never the file.
  */
-async function writePartFile(range: FileRange, signal?: AbortSignal): Promise<File> {
+function writePartFile(range: FileRange, signal?: AbortSignal): Promise<File> {
+  return inCopyTurn(() => copyPartFile(range, signal));
+}
+
+async function copyPartFile(range: FileRange, signal?: AbortSignal): Promise<File> {
+  // Cancelled while it waited its turn.
+  if (signal?.aborted) throw new ApiError(0, 'Upload was cancelled.');
   const dir = new Directory(Paths.cache, PART_DIR);
   dir.create({ idempotent: true, intermediates: true });
   const out = new File(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.part`);
@@ -943,8 +970,8 @@ async function writePartFile(range: FileRange, signal?: AbortSignal): Promise<Fi
     await copyRange(source, sink, range.start, range.end, {
       chunkBytes: PART_COPY_CHUNK_BYTES,
       isCancelled: () => Boolean(signal?.aborted),
-      // Reads are synchronous. Between chunks, let a frame draw.
-      pause: () => sleep(0),
+      // Reads are synchronous. Between chunks, let taps and frames through.
+      pause: () => sleep(PART_COPY_PAUSE_MS),
     });
     return out;
   } catch (error) {

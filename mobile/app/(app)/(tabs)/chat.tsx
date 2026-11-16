@@ -10,7 +10,7 @@ import {
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   MessageCircleIcon,
   UsersIcon,
@@ -90,6 +90,124 @@ function whenLabel(iso: string | null): string {
   }
   return then.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
 }
+
+/**
+ * One conversation in the list.
+ *
+ * Its own memoised component. The row was drawn inline by the list, so every
+ * keystroke in the search box, and every message arriving for any chat, drew
+ * every row on screen again, each with its picture. Now a row draws when its
+ * own conversation changes.
+ */
+const ConversationRow = memo(function ConversationRow({ item }: { item: Conversation }) {
+  const { isDark } = useTheme();
+  const palette = isDark ? PALETTES.dark : PALETTES.light;
+  return (
+          <Pressable
+            onPress={() => router.push(`/chat/${item.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel={[
+              item.title,
+              item.isGroup ? 'group' : null,
+              item.unread > 0 ? `${item.unread} unread` : null,
+              item.muted ? 'muted' : null,
+              item.lastMessage
+                ? `${item.isGroup && item.lastSender ? `${item.lastSender}: ` : ''}${item.lastMessage}`
+                : 'No messages yet',
+              whenLabel(item.lastAt) || null,
+            ]
+              .filter(Boolean)
+              .join(', ')}
+            className="min-h-[72px] px-5 py-2.5 flex-row items-center gap-3 active:bg-muted/40"
+          >
+            {item.isGroup ? (
+              <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
+                <UsersIcon size={20} className="text-secondary-foreground" />
+              </View>
+            ) : (
+              // Wrapped so the presence dot has something to anchor to.
+              <View style={{ position: 'relative' }}>
+                {item.avatarUrl ? (
+                  <RemoteImage
+                    source={{ uri: item.avatarUrl }}
+                    style={{ width: 48, height: 48, borderRadius: 24 }}
+                  />
+                ) : (
+                  <View
+                    className="w-12 h-12 rounded-full items-center justify-center"
+                    style={{ backgroundColor: `${palette.primary}18` }}
+                  >
+                    <Text style={{ color: palette.primary, fontWeight: '700', fontSize: 17 }}>
+                      {item.title.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <PresenceDot userId={item.otherUserId} />
+              </View>
+            )}
+
+            <View className="flex-1 min-w-0">
+              <View className="flex-row items-center gap-2">
+                <Text
+                  // Unread is the only thing in the list that gets weight.
+                  className={`text-foreground text-[16px] leading-[22px] ${item.unread > 0 ? 'font-bold' : 'font-medium'}`}
+                  numberOfLines={1}
+                  style={{ flexShrink: 1 }}
+                >
+                  {item.title}
+                </Text>
+                {item.muted && <BellOffIcon size={13} className="text-muted-foreground" />}
+                <View className="flex-1" />
+                <Text
+                  className={`text-[12px] ${
+                    item.unread > 0 && !item.muted ? 'text-primary font-semibold' : 'text-muted-foreground'
+                  }`}
+                >
+                  {whenLabel(item.lastAt)}
+                </Text>
+              </View>
+              <View className="flex-row items-center gap-2 mt-0.5">
+                {/* One or the other, never both: two lines would make every
+                    row taller the moment somebody touched a key. */}
+                <TypingOrPreview conversation={item} />
+                {/* Nothing when there is nothing unread. A double tick stood in
+                    for "caught up" here, and read as a read receipt on a
+                    message somebody else had sent. A muted chat's count is
+                    greyed: it waits for you without calling for you. */}
+                {item.unread > 0 ? (
+                  <View
+                    className={`rounded-full px-1.5 h-5 min-w-[20px] items-center justify-center ${
+                      item.muted ? 'bg-muted' : 'bg-action'
+                    }`}
+                  >
+                    <Text
+                      allowFontScaling={false}
+                      className={`text-[12px] font-bold ${
+                        item.muted ? 'text-muted-foreground' : 'text-action-foreground'
+                      }`}
+                    >
+                      {item.unread > 99 ? '99+' : item.unread}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* Why this row is a search result, when the hit was buried in
+                  the thread rather than in its name. */}
+              {item.matchSnippet && (
+                <View className="flex-row items-center gap-1.5 mt-1">
+                  <SearchIcon size={12} className="text-primary" />
+                  <Text className="text-primary text-[13px] flex-1" numberOfLines={1}>
+                    {item.matchSnippet}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </Pressable>
+  );
+});
+
+const renderConversation = ({ item }: { item: Conversation }) => <ConversationRow item={item} />;
 
 /**
  * Conversations, direct and group.
@@ -218,109 +336,7 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
             </View>
           ) : null
         }
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => router.push(`/chat/${item.id}`)}
-            accessibilityRole="button"
-            accessibilityLabel={[
-              item.title,
-              item.isGroup ? 'group' : null,
-              item.unread > 0 ? `${item.unread} unread` : null,
-              item.muted ? 'muted' : null,
-              item.lastMessage
-                ? `${item.isGroup && item.lastSender ? `${item.lastSender}: ` : ''}${item.lastMessage}`
-                : 'No messages yet',
-              whenLabel(item.lastAt) || null,
-            ]
-              .filter(Boolean)
-              .join(', ')}
-            className="min-h-[72px] px-5 py-2.5 flex-row items-center gap-3 active:bg-muted/40"
-          >
-            {item.isGroup ? (
-              <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
-                <UsersIcon size={20} className="text-secondary-foreground" />
-              </View>
-            ) : (
-              // Wrapped so the presence dot has something to anchor to.
-              <View style={{ position: 'relative' }}>
-                {item.avatarUrl ? (
-                  <RemoteImage
-                    source={{ uri: item.avatarUrl }}
-                    style={{ width: 48, height: 48, borderRadius: 24 }}
-                  />
-                ) : (
-                  <View
-                    className="w-12 h-12 rounded-full items-center justify-center"
-                    style={{ backgroundColor: `${palette.primary}18` }}
-                  >
-                    <Text style={{ color: palette.primary, fontWeight: '700', fontSize: 17 }}>
-                      {item.title.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-                <PresenceDot userId={item.otherUserId} />
-              </View>
-            )}
-
-            <View className="flex-1 min-w-0">
-              <View className="flex-row items-center gap-2">
-                <Text
-                  // Unread is the only thing in the list that gets weight.
-                  className={`text-foreground text-[16px] leading-[22px] ${item.unread > 0 ? 'font-bold' : 'font-medium'}`}
-                  numberOfLines={1}
-                  style={{ flexShrink: 1 }}
-                >
-                  {item.title}
-                </Text>
-                {item.muted && <BellOffIcon size={13} className="text-muted-foreground" />}
-                <View className="flex-1" />
-                <Text
-                  className={`text-[12px] ${
-                    item.unread > 0 && !item.muted ? 'text-primary font-semibold' : 'text-muted-foreground'
-                  }`}
-                >
-                  {whenLabel(item.lastAt)}
-                </Text>
-              </View>
-              <View className="flex-row items-center gap-2 mt-0.5">
-                {/* One or the other, never both: two lines would make every
-                    row taller the moment somebody touched a key. */}
-                <TypingOrPreview conversation={item} />
-                {/* Nothing when there is nothing unread. A double tick stood in
-                    for "caught up" here, and read as a read receipt on a
-                    message somebody else had sent. A muted chat's count is
-                    greyed: it waits for you without calling for you. */}
-                {item.unread > 0 ? (
-                  <View
-                    className={`rounded-full px-1.5 h-5 min-w-[20px] items-center justify-center ${
-                      item.muted ? 'bg-muted' : 'bg-action'
-                    }`}
-                  >
-                    <Text
-                      allowFontScaling={false}
-                      className={`text-[12px] font-bold ${
-                        item.muted ? 'text-muted-foreground' : 'text-action-foreground'
-                      }`}
-                    >
-                      {item.unread > 99 ? '99+' : item.unread}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
-              {/* Why this row is a search result, when the hit was buried in
-                  the thread rather than in its name. */}
-              {item.matchSnippet && (
-                <View className="flex-row items-center gap-1.5 mt-1">
-                  <SearchIcon size={12} className="text-primary" />
-                  <Text className="text-primary text-[13px] flex-1" numberOfLines={1}>
-                    {item.matchSnippet}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </Pressable>
-        )}
+        renderItem={renderConversation}
         ListEmptyComponent={
           // Nothing is said about an inbox that has not arrived yet. It
           // showed "No conversations" while the first page loaded.

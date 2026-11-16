@@ -5,6 +5,7 @@ import {
 import { RemoteImage } from '@/components/RemoteImage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
+import { hireDrafts } from '@/src/lib/hire-draft';
 import { useHireEnquiries, usePublicProfile, useSendEnquiry, useTheme } from '@/src/hooks';
 import { UserSearchIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -88,10 +89,12 @@ export default function HireScreen() {
   // Asking again, after already asking about another job, is your call.
   const [askAgain, setAskAgain] = useState(false);
 
-  const [message, setMessage] = useState('');
-  const [roleWanted, setRoleWanted] = useState<string | null>(null);
-  const [eventDate, setEventDate] = useState('');
-  const [budget, setBudget] = useState('');
+  // What was written last time, if its send did not go through.
+  const [draft] = useState(() => hireDrafts.get(handle));
+  const [message, setMessage] = useState(draft?.message ?? '');
+  const [roleWanted, setRoleWanted] = useState<string | null>(draft?.roleWanted ?? null);
+  const [eventDate, setEventDate] = useState(draft?.eventDate ?? '');
+  const [budget, setBudget] = useState(draft?.budget ?? '');
 
   if (profile.isLoading) {
     return (
@@ -153,26 +156,42 @@ export default function HireScreen() {
       e.personHandle.toLowerCase() === String(handle).replace(/^@/, '').toLowerCase(),
   );
 
+  /*
+   * Sent on the tap. The enquiry is in your sent list at once and this form
+   * gives way to that list; it used to sit with a spinner until the server
+   * answered, then put up an alert to say what the list already shows.
+   *
+   * The brief is kept until the server has it. If the send fails, the enquiry
+   * leaves the list again, and the way back to this form has everything that
+   * was written still in it.
+   *
+   * The promise, not mutate's own callbacks: this screen is gone by the time
+   * the server answers, and those are dropped with the component.
+   */
   const onSubmit = () => {
-    send.mutate(
-      {
-        handle: handle as string,
+    const to = String(handle);
+    hireDrafts.keep(to, { message, roleWanted, eventDate, budget });
+    send
+      .mutateAsync({
+        handle: to,
         message: message.trim(),
         roleWanted: roleWanted ?? undefined,
         eventDate: eventDate || undefined,
         budget: budget.trim() || undefined,
-      },
-      {
-        onSuccess: () => {
-          Alert.alert(
-            `Enquiry sent to ${firstName}`,
-            'You will be connected as soon as they accept.',
-          );
-          router.replace('/friends/enquiries');
-        },
-        onError: (error: Error) => Alert.alert("Couldn't send it", error.message),
-      },
-    );
+        to: { name: person.displayName, avatarUrl: person.avatarUrl },
+      })
+      .then(() => hireDrafts.clear(to))
+      .catch((error: unknown) =>
+        Alert.alert(
+          `Your enquiry to ${firstName} was not sent`,
+          `${error instanceof Error && error.message ? error.message : 'Check your connection.'} What you wrote has been kept.`,
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open it again', onPress: () => router.push(`/hire/${to}`) },
+          ],
+        ),
+      );
+    router.replace('/friends/enquiries');
   };
 
   if (waiting && !askAgain) {
