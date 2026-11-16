@@ -115,6 +115,13 @@ function TabsLayoutInner() {
       screenListeners={{ focus: reveal }}
       screenOptions={{
         headerShown: false,
+        // A tab that is not on screen stops redrawing. Every tab stays
+        // mounted once visited, and each went on re-rendering behind the one
+        // in front for every poll and every socket frame that touched its
+        // data: the Feed's cards, the conversation list, the job board, all at
+        // once, on a phone showing one of them. Frozen, it keeps its state and
+        // its scroll, and draws what is new when it is next in front.
+        freezeOnBlur: true,
         // No transition between tabs: they cut straight across, as the system
         // tab bars do. A cross-fade was tried and is gone — the navigator
         // detaches the tab you leave and fades the one you arrive at in from
