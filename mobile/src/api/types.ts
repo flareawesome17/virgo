@@ -404,6 +404,13 @@ export interface AuthResult {
   expiresIn: string;
 }
 
+/**
+ * What signing in with Apple returns: a session, and whether the account was
+ * made just now and still owes its roles and address. Or, as with a password,
+ * the two-step challenge.
+ */
+export type AppleSignInResult = (AuthResult & { isNew: boolean }) | TwoFactorLoginRequired;
+
 export interface TwoFactorLoginRequired {
   twoFactorRequired: true;
   challengeToken: string;

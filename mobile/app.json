@@ -10,6 +10,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "bundleIdentifier": "com.virgo.app",
       "config": {
         "usesNonExemptEncryption": false
@@ -49,6 +50,7 @@
         }
       ],
       "expo-font",
+      "expo-apple-authentication",
       "expo-web-browser",
       [
         "@react-native-community/datetimepicker",
