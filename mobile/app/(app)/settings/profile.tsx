@@ -12,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth, useTheme, useUpdateProfileFlags } from '@/src/hooks';
 import { COVER_ASPECT, queryKeys, titleFromRoles, type AuthUser } from '@/src/api';
 import { RolePicker } from '@/components';
+import { CustomRolesField } from '@/components/auth/CustomRolesField';
 import { CitySuggestions } from '@/components/LocationField';
 import { useAvatarEditor, useCoverEditor } from '@/components/ProfilePhotoEditors';
 import { profileActionMessage } from '@/src/lib/profile-media';
@@ -63,6 +64,7 @@ export default function ProfileSettingsScreen() {
   const [website, setWebsite] = useState('');
   const [bio, setBio] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
+  const [customRoles, setCustomRoles] = useState<string[]>([]);
   const [studioName, setStudioName] = useState('');
   const [socialHandle, setSocialHandle] = useState('');
   const [line1, setLine1] = useState('');
@@ -99,6 +101,7 @@ export default function ProfileSettingsScreen() {
     setWebsite(profile.website ?? '');
     setBio(profile.bio ?? '');
     setRoles(profile.roles ?? []);
+    setCustomRoles(profile.customRoles ?? []);
 
     /*
      * Does the saved title look like one the roles produced?
@@ -110,7 +113,9 @@ export default function ProfileSettingsScreen() {
      */
     const savedTitle = (profile.title ?? '').trim();
     setTitleFollowsRoles(
-      savedTitle === '' || savedTitle === titleFromRoles(profile.roles ?? []),
+      savedTitle === '' ||
+        savedTitle ===
+          titleFromRoles([...(profile.roles ?? []), ...(profile.customRoles ?? [])]),
     );
 
     setStudioName(profile.studioName ?? '');
@@ -134,7 +139,8 @@ export default function ProfileSettingsScreen() {
   }, [profile, hydrated]);
 
   /** "Photographer & Videographer", from whatever is selected below. */
-  const derivedTitle = titleFromRoles(roles);
+  const derivedTitle = titleFromRoles([...roles, ...customRoles]);
+  const noRoles = roles.length + customRoles.length === 0;
 
   // Keeps Title in step with the roles until somebody writes their own.
   useEffect(() => {
@@ -153,6 +159,7 @@ export default function ProfileSettingsScreen() {
       website,
       bio,
       roles,
+      customRoles,
       studioName,
       socialHandle,
       line1,
@@ -212,7 +219,9 @@ export default function ProfileSettingsScreen() {
         socialHandle: orNull(socialHandle),
         // Omitted when empty: the API requires at least one, and an empty
         // array would fail the whole save rather than just leaving roles be.
-        ...(roles.length > 0 ? { roles } : {}),
+        // The two kinds are sent together: the API reads them as a pair and
+        // refuses only when both would be empty.
+        ...(noRoles ? {} : { roles, customRoles }),
         ...(addressStarted
           ? {
               ...address,
@@ -273,7 +282,7 @@ export default function ProfileSettingsScreen() {
 
   const savedStudio = profile?.studioName?.trim() || null;
   const busy = updateProfile.isPending || avatar.busy;
-  const blocked = roles.length === 0 || addressMissing.length > 0;
+  const blocked = noRoles || addressMissing.length > 0;
   const coverUrl = profile?.coverUrl ?? null;
   const coverWidth = width - 40;
 
@@ -457,7 +466,15 @@ export default function ProfileSettingsScreen() {
               with none is invisible to them.
             </Text>
             <RolePicker selected={roles} onChange={setRoles} />
-            {roles.length === 0 && (
+            <View className="mt-4">
+              <CustomRolesField
+                value={customRoles}
+                onChange={setCustomRoles}
+                listed={roles}
+                onListed={setRoles}
+              />
+            </View>
+            {noRoles && (
               <Text style={{ color: '#C4776A' }} className="text-xs font-semibold mt-2 ml-1">
                 Choose at least one.
               </Text>
@@ -571,7 +588,7 @@ export default function ProfileSettingsScreen() {
           // Roles are required and a part-filled address is rejected, so both
           // would fail at the API anyway — better to say so before the round
           // trip than to bounce a save back with a validation error.
-          disabled={busy || roles.length === 0 || addressMissing.length > 0}
+          disabled={busy || noRoles || addressMissing.length > 0}
           className={`rounded-2xl py-3.5 items-center active:scale-[0.97] ${
             blocked ? 'bg-muted' : saved ? 'bg-[#6B8E4E]' : 'bg-action'
           }`}
@@ -581,7 +598,7 @@ export default function ProfileSettingsScreen() {
               blocked ? 'text-muted-foreground' : 'text-white'
             }`}
           >
-            {roles.length === 0
+            {noRoles
               ? 'Choose a role to save'
               : addressMissing.length > 0
                 ? 'Finish the address to save'

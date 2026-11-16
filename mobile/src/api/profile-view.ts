@@ -109,6 +109,7 @@ export function withProfileDefaults(p: PublicProfile): ProfileView {
     mutualConnections: Number.isFinite(p.mutualConnections) ? (p.mutualConnections as number) : 0,
     viewer: viewerOf(p.viewer),
     roles: Array.isArray(p.roles) ? p.roles : [],
+    customRoles: Array.isArray(p.customRoles) ? p.customRoles : [],
     portfolio: Array.isArray(p.portfolio) ? p.portfolio : [],
   };
 }

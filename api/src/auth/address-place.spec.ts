@@ -52,6 +52,7 @@ function serviceWith(row: Partial<UserRow>) {
     {} as unknown as PromosService,
     {} as unknown as TwoFactorService,
     {} as unknown as SessionsService,
+    {} as never,
   );
   return { service, users };
 }

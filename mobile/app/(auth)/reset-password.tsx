@@ -1,33 +1,10 @@
-import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import {
-  ArrowLeftIcon,
-  LockIcon,
-  EyeIcon,
-  EyeOffIcon,
-  CheckCircleIcon,
-  AlertCircleIcon,
-} from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
 import { authApi } from '@/src/api';
-
-for (const Icon of [
-  ArrowLeftIcon, LockIcon, EyeIcon, EyeOffIcon, CheckCircleIcon, AlertCircleIcon,
-]) {
-  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-}
+import { FormField, FormNotice } from '@/components/Form';
+import { AuthButton, AuthFooter, AuthFrame, AuthTitle } from '@/components/auth/AuthFrame';
+import { PasswordInput } from '@/components/auth/AuthFields';
 
 /**
  * Completes a password reset.
@@ -41,8 +18,9 @@ export default function ResetPasswordScreen() {
   const { token } = useLocalSearchParams<{ token?: string }>();
 
   const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  // What is wrong with the password as typed, as opposed to what the server
+  // refused: the first sits under the field, the second above the button.
+  const [fieldError, setFieldError] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
   const reset = useMutation({
@@ -51,186 +29,94 @@ export default function ResetPasswordScreen() {
       setErrorMsg(err?.message || 'Could not reset the password. Please try again.'),
   });
 
+  // One field, with an eye. It was typed twice so a typo could be caught;
+  // looking at it catches the same typo.
   const submit = () => {
+    if (reset.isPending) return;
     setErrorMsg('');
+    setFieldError('');
     if (password.length < 8) {
-      setErrorMsg('Use at least 8 characters.');
-      return;
-    }
-    // Checked here rather than only on the server: retyping is the whole point
-    // of the second field, and a round trip to learn they differ is a slower
-    // way to say so.
-    if (password !== confirm) {
-      setErrorMsg('Those two passwords do not match.');
+      setFieldError('Use at least 8 characters.');
       return;
     }
     reset.mutate();
   };
 
-  const canSubmit = password.length >= 8 && confirm.length > 0 && !reset.isPending;
-
   // No token means the link was truncated, or somebody opened this screen
   // directly.
   if (!token) {
     return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background">
-        <View className="px-6 pt-4">
-          <Pressable accessibilityRole="button" accessibilityLabel="Back"
-            onPress={() => router.replace('/(auth)/sign-in')}
-            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-          >
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-        </View>
-        <View className="flex-1 items-center justify-center px-8">
-          <View className="w-20 h-20 rounded-full bg-destructive/10 items-center justify-center mb-6">
-            <AlertCircleIcon size={34} className="text-destructive" />
-          </View>
-          <Text className="text-foreground text-xl font-extrabold">Link is incomplete</Text>
-          <Text className="text-muted-foreground text-sm text-center mt-3 leading-relaxed">
-            That link is missing its token. Open the whole link from the email,
-            including everything after the question mark.
-          </Text>
-          <Pressable
-            onPress={() => router.replace('/(auth)/forgot-password')}
-            className="mt-8 bg-action rounded-2xl px-7 py-3.5 active:scale-[0.97]"
-          >
-            <Text className="text-white text-base font-bold">Request a new link</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
+      <AuthFrame
+        onBack={() => router.replace('/(auth)/sign-in')}
+        backLabel="Back"
+        footer={
+          <AuthFooter>
+            <AuthButton label="Request a new link" onPress={() => router.replace('/(auth)/forgot-password')} />
+          </AuthFooter>
+        }
+      >
+        <AuthTitle title="Link is incomplete">
+          That link is missing its token. Open the whole link from the email, including everything after the
+          question mark.
+        </AuthTitle>
+      </AuthFrame>
     );
   }
 
   if (reset.isSuccess) {
     return (
-      <SafeAreaView edges={['top']} className="flex-1 bg-background">
-        <View className="flex-1 items-center justify-center px-8">
-          <View
-            className="w-20 h-20 rounded-full items-center justify-center mb-6"
-            style={{ backgroundColor: '#6B8E4E18' }}
-          >
-            <CheckCircleIcon size={36} color="#6B8E4E" />
-          </View>
-          <Text className="text-foreground text-xl font-extrabold">Password changed</Text>
-          <Text className="text-muted-foreground text-sm text-center mt-3 leading-relaxed">
-            You can sign in with it now. Every other device has been signed out.
-          </Text>
-          <Pressable
-            onPress={() => router.replace('/(auth)/sign-in')}
-            className="mt-8 bg-action rounded-2xl px-8 py-3.5 active:scale-[0.97]"
-          >
-            <Text className="text-white text-base font-bold">Sign in</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
+      <AuthFrame
+        footer={
+          <AuthFooter>
+            <AuthButton label="Sign in" onPress={() => router.replace('/(auth)/sign-in')} />
+          </AuthFooter>
+        }
+      >
+        <AuthTitle title="Password changed">
+          You can sign in with it now. Every other device has been signed out.
+        </AuthTitle>
+      </AuthFrame>
     );
   }
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
-          className="flex-1"
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingBottom: 40 }}
-        >
-          <View className="px-6 pt-4 pb-2 flex-row items-center gap-3">
-            <Pressable accessibilityRole="button" accessibilityLabel="Back"
-              onPress={() => router.replace('/(auth)/sign-in')}
-              className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-              style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-            >
-              <ArrowLeftIcon size={18} className="text-foreground" />
-            </Pressable>
-          </View>
-
-          <View className="px-6 mt-4">
-            <Text className="text-foreground text-[28px] font-extrabold tracking-tight">
-              Choose a new password
-            </Text>
-            <Text className="text-muted-foreground text-sm mt-2 leading-relaxed">
-              Make it one you have not used here before.
-            </Text>
-          </View>
-
-          <View className="px-6 mt-8 gap-5">
-            <View>
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-                New password
-              </Text>
-              <View
-                className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3"
-                style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-              >
-                <LockIcon size={16} className="text-muted-foreground" />
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="At least 8 characters"
-                  placeholderTextColor="#A89489"
-                  className="flex-1 text-foreground text-base"
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoFocus
-                />
-                <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'} onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
-                  {showPassword ? (
-                    <EyeOffIcon size={16} className="text-muted-foreground" />
-                  ) : (
-                    <EyeIcon size={16} className="text-muted-foreground" />
-                  )}
-                </Pressable>
-              </View>
-            </View>
-
-            <View>
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-                Confirm password
-              </Text>
-              <View
-                className="bg-card rounded-2xl px-4 py-3.5 flex-row items-center gap-3"
-                style={{ shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
-              >
-                <LockIcon size={16} className="text-muted-foreground" />
-                <TextInput
-                  value={confirm}
-                  onChangeText={setConfirm}
-                  placeholder="Type it again"
-                  placeholderTextColor="#A89489"
-                  className="flex-1 text-foreground text-base"
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-              </View>
-            </View>
-
-            {errorMsg ? (
-              <View className="bg-destructive/10 rounded-xl px-4 py-3">
-                <Text className="text-destructive text-sm">{errorMsg}</Text>
-              </View>
-            ) : null}
-          </View>
-        </ScrollView>
-
-        <View className="px-6 pb-10 pt-4 bg-background">
-          <Pressable
+    <AuthFrame
+      onBack={() => router.replace('/(auth)/sign-in')}
+      backLabel="Back"
+      footer={
+        <AuthFooter>
+          {/* Usually about the link (used already, or too old), not about
+              what was typed, so it is not hung on the field. */}
+          {errorMsg ? <FormNotice title="That did not save" body={errorMsg} /> : null}
+          <AuthButton
+            label={reset.isPending ? 'Saving…' : 'Set new password'}
             onPress={submit}
-            disabled={!canSubmit}
-            className={`rounded-2xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.97] ${canSubmit ? 'bg-action' : 'bg-muted'}`}
-            style={canSubmit ? { shadowColor: '#B66A40', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 } : undefined}
-          >
-            {reset.isPending && <ActivityIndicator size="small" color="#FFFFFF" />}
-            <Text className={`text-base font-bold ${canSubmit ? 'text-white' : 'text-muted-foreground'}`}>
-              {reset.isPending ? 'Saving…' : 'Set new password'}
-            </Text>
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            disabled={password.length < 8}
+            busy={reset.isPending}
+          />
+        </AuthFooter>
+      }
+    >
+      <AuthTitle title="Choose a new password">Make it one you have not used here before.</AuthTitle>
+
+      <FormField
+        label="New password"
+        hint={fieldError || 'At least 8 characters. Longer is stronger.'}
+        wrong={!!fieldError}
+      >
+        <PasswordInput
+          value={password}
+          onChangeText={(next) => {
+            setPassword(next);
+            setFieldError('');
+          }}
+          placeholder="At least 8 characters"
+          wrong={!!fieldError}
+          autoFocus
+          returnKeyType="go"
+          onSubmitEditing={submit}
+        />
+      </FormField>
+    </AuthFrame>
   );
 }

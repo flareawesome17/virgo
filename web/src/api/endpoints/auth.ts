@@ -43,6 +43,8 @@ export interface Credentials {
 export interface SignupProfile {
   displayName?: string;
   roles: string[];
+  /** Typed in, for what the list lacks. One of the two must have something. */
+  customRoles?: string[];
   addressLine1: string;
   addressLine2?: string;
   addressCity: string;

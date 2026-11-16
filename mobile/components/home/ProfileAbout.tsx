@@ -74,7 +74,7 @@ export function ProfileAbout() {
   const handle = settings?.handle ?? null;
   const published = Boolean(settings?.published && handle);
   const name = profile.displayName?.trim() || user.email.split('@')[0];
-  const title = profile.title?.trim() || titleFromRoles(profile.roles);
+  const title = profile.title?.trim() || titleFromRoles([...(profile.roles ?? []), ...(profile.customRoles ?? [])]);
   const coverUrl = profile.coverUrl ?? null;
   const banner = profileBanner({ coverUrl, portfolio: page?.portfolio ?? [] });
   const stats = page?.stats ?? null;

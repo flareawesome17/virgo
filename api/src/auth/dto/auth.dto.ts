@@ -18,7 +18,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { USER_ROLES } from '../roles';
+import { CUSTOM_ROLES_MAX, CUSTOM_ROLE_MAX, CUSTOM_ROLE_MIN, USER_ROLES } from '../roles';
 
 export class RegisterDto {
   @IsEmail({}, { message: 'A valid email address is required' })
@@ -39,17 +39,35 @@ export class RegisterDto {
   displayName?: string;
 
   /**
-   * What they do on a shoot. Required, and more than one is normal — a
+   * What they do on a shoot, from the list. More than one is normal — a
    * photographer who also cuts the SDE holds both.
+   *
+   * No longer required to hold one by itself: somebody whose work is not on
+   * the list may have only roles of their own (below). That there is at least
+   * one of either kind is checked in the service, where both are in hand.
    */
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1, { message: 'Choose at least one role' })
   @ArrayMaxSize(USER_ROLES.length)
   @IsIn(USER_ROLES as readonly string[], {
     each: true,
     message: 'Unknown role',
   })
-  roles!: string[];
+  roles?: string[];
+
+  /**
+   * Roles in their own words, for what the list above does not name. A few,
+   * and short: they are shown on a profile, not matched on. Sorted and tidied
+   * by the service; one that turns out to be on the list becomes the listed
+   * role.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(CUSTOM_ROLES_MAX, { message: 'Add up to three roles of your own' })
+  @IsString({ each: true })
+  @MinLength(CUSTOM_ROLE_MIN, { each: true, message: 'A role needs at least two letters' })
+  @MaxLength(CUSTOM_ROLE_MAX, { each: true, message: 'Keep a role under 40 characters' })
+  customRoles?: string[];
 
   /*
    * Postal address, collected on the last step of signup and required there.
@@ -329,10 +347,23 @@ export class UpdateProfileDto {
    */
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(1, { message: 'Choose at least one role' })
   @ArrayMaxSize(USER_ROLES.length)
   @IsIn(USER_ROLES as readonly string[], { each: true, message: 'Unknown role' })
   roles?: string[];
+
+  /**
+   * Roles in their own words, for what the list above does not name. A few,
+   * and short: they are shown on a profile, not matched on. Sorted and tidied
+   * by the service; one that turns out to be on the list becomes the listed
+   * role.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(CUSTOM_ROLES_MAX, { message: 'Add up to three roles of your own' })
+  @IsString({ each: true })
+  @MinLength(CUSTOM_ROLE_MIN, { each: true, message: 'A role needs at least two letters' })
+  @MaxLength(CUSTOM_ROLE_MAX, { each: true, message: 'Keep a role under 40 characters' })
+  customRoles?: string[];
 
   /*
    * The address, editable after signup — people move.
@@ -476,4 +507,30 @@ export class ChangeEmailDto {
   @IsEmail({}, { message: 'A valid email address is required' })
   @MaxLength(255)
   newEmail!: string;
+}
+
+/**
+ * A sign-in with Apple, as the phone hands it over.
+ *
+ * The token is Apple's and is checked before anything in it is believed (see
+ * AppleIdentityService). The name is the phone's word, not Apple's: Apple
+ * gives it to the app once, on the first sign-in, and never puts it in the
+ * token. It is only ever used to name a brand-new account.
+ */
+export class AppleSignInDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(6000)
+  identityToken!: string;
+
+  /** The one-time value this sign-in began with, before hashing. */
+  @IsString()
+  @MinLength(16)
+  @MaxLength(200)
+  nonce!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  displayName?: string;
 }

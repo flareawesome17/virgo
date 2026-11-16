@@ -1,30 +1,14 @@
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  KeyRoundIcon,
-  MailIcon,
-} from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
-import { useAuth, useTheme } from '@/src/hooks';
-import { PALETTES } from '@/theme';
+import { useAuth } from '@/src/hooks';
 import { useHoldUpdates } from '@/src/lib/ota-updates';
+import { FormField, FormHint, FormInput } from '@/components/Form';
+import { AuthButton, AuthFooter, AuthFooterLine, AuthFrame, AuthTitle } from '@/components/auth/AuthFrame';
+import { clock, CodeBoxes, useCountdown } from '@/components/auth/AuthFields';
 
-for (const Icon of [ArrowLeftIcon, ArrowRightIcon, KeyRoundIcon, MailIcon]) {
-  cssInterop(Icon, {
-    className: { target: 'style', nativeStyleToProp: { color: true } },
-  });
-}
+/** How long before another code can be asked for. One was sent on the way here. */
+const RESEND_WAIT = 30;
 
 function messageOf(error: unknown): string {
   if (error && typeof error === 'object') {
@@ -39,12 +23,13 @@ export default function TwoFactorChallengeScreen() {
   useHoldUpdates();
   const params = useLocalSearchParams<{ challenge?: string; email?: string }>();
   const { completeTwoFactorSignIn, resendTwoFactorCode } = useAuth();
-  const { isDark } = useTheme();
-  const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [code, setCode] = useState('');
   const [usingRecovery, setUsingRecovery] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  // Asking again the second the screen opens sends two codes, and the first
+  // to arrive is then the one that no longer works.
+  const [wait, restartWait] = useCountdown(RESEND_WAIT, true);
 
   const normalized = code.trim();
   const canSubmit = usingRecovery
@@ -67,150 +52,122 @@ export default function TwoFactorChallengeScreen() {
   };
 
   const resend = () => {
-    if (!params.challenge) return;
+    if (!params.challenge || wait > 0) return;
     setError('');
     setNotice('');
     resendTwoFactorCode.mutate(params.challenge, {
-      onSuccess: () => setNotice('A fresh code is on its way.'),
+      onSuccess: () => {
+        setNotice('A fresh code is on its way.');
+        restartWait();
+      },
       onError: (err) => setError(messageOf(err)),
     });
   };
 
+  const onChangeCode = (value: string) => {
+    setCode(
+      usingRecovery
+        ? value.toUpperCase()
+        : value.replace(/\D/g, '').slice(0, 6),
+    );
+    setError('');
+    setNotice('');
+  };
+
+  const resendOff = resendTwoFactorCode.isPending || !params.challenge || wait > 0;
+
   return (
-    <SafeAreaView edges={['top', 'bottom']} className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <View className="px-6 pt-4 flex-row items-center gap-3">
-          <Pressable
-            onPress={() => router.replace('/sign-in')}
-            accessibilityRole="button"
-            accessibilityLabel="Return to sign in"
-            className="w-11 h-11 rounded-xl bg-secondary items-center justify-center active:scale-[0.96]"
-          >
-            <ArrowLeftIcon size={18} className="text-foreground" />
-          </Pressable>
-          <Text className="text-foreground text-[22px] font-bold tracking-tight">
-            Verify it’s you
-          </Text>
+    <AuthFrame
+      onBack={() => router.replace('/sign-in')}
+      backLabel="Return to sign in"
+      footer={
+        <AuthFooter>
+          <AuthButton
+            label={completeTwoFactorSignIn.isPending ? 'Checking…' : 'Verify'}
+            onPress={submit}
+            disabled={!canSubmit || !params.challenge}
+            busy={completeTwoFactorSignIn.isPending}
+          />
+          <AuthFooterLine lead="Not you?" action="Use another account" onPress={() => router.replace('/sign-in')} />
+        </AuthFooter>
+      }
+    >
+      <AuthTitle title={usingRecovery ? 'Use a recovery code' : 'Enter the code'}>
+        {usingRecovery
+          ? 'Enter one of the single-use codes you saved when you enabled two-factor authentication.'
+          : `We emailed a 6-digit code${params.email ? ` to ${params.email}` : ' to your account email'}. It is good for ten minutes.`}
+      </AuthTitle>
+
+      {usingRecovery ? (
+        <FormField label="Recovery code" hint={error || undefined} wrong={!!error}>
+          <FormInput
+            value={code}
+            onChangeText={onChangeCode}
+            onSubmitEditing={submit}
+            placeholder="XXXX-XXXX-XXXX"
+            keyboardType="default"
+            autoCapitalize="characters"
+            autoCorrect={false}
+            textContentType="oneTimeCode"
+            wrong={!!error}
+            accessibilityLabel="Recovery code"
+          />
+        </FormField>
+      ) : (
+        <View className="gap-2">
+          <CodeBoxes
+            value={code}
+            onChangeText={onChangeCode}
+            onSubmitEditing={submit}
+            wrong={!!error}
+            accessibilityLabel="Six-digit email code"
+            autoFocus
+          />
+          {error ? <FormHint wrong>{error}</FormHint> : notice ? <FormHint>{notice}</FormHint> : null}
         </View>
+      )}
 
-        <View className="flex-1 px-6 pt-12">
-          <View className="w-14 h-14 rounded-2xl bg-primary/10 items-center justify-center mb-6">
-            {usingRecovery ? (
-              <KeyRoundIcon size={27} className="text-primary" />
-            ) : (
-              <MailIcon size={27} className="text-primary" />
-            )}
-          </View>
-          <Text className="text-foreground text-[28px] leading-[34px] font-bold tracking-tight">
-            {usingRecovery ? 'Use a recovery code' : 'Check your email'}
-          </Text>
-          <Text className="text-muted-foreground text-[15px] leading-[22px] mt-2 mb-7">
-            {usingRecovery
-              ? 'Enter one of the single-use codes you saved when you enabled two-factor authentication.'
-              : `We sent a six-digit code${params.email ? ` to ${params.email}` : ' to your account email'}. It expires in ten minutes.`}
-          </Text>
-
-          <View className="bg-secondary rounded-2xl px-4 min-h-14 flex-row items-center gap-3">
-            <KeyRoundIcon size={18} className="text-muted-foreground" />
-            <TextInput
-              value={code}
-              onChangeText={(value) => {
-                setCode(
-                  usingRecovery
-                    ? value.toUpperCase()
-                    : value.replace(/\D/g, '').slice(0, 6),
-                );
-                setError('');
-                setNotice('');
-              }}
-              onSubmitEditing={submit}
-              placeholder={usingRecovery ? 'XXXX-XXXX-XXXX' : '000000'}
-              placeholderTextColor={palette.mutedForeground}
-              keyboardType={usingRecovery ? 'default' : 'number-pad'}
-              autoCapitalize={usingRecovery ? 'characters' : 'none'}
-              autoCorrect={false}
-              textContentType="oneTimeCode"
-              className={`flex-1 text-foreground font-semibold ${usingRecovery ? 'text-base' : 'text-[24px] tracking-[8px]'}`}
-              accessibilityLabel={
-                usingRecovery ? 'Recovery code' : 'Six-digit email code'
-              }
-            />
-          </View>
-
-          {error ? (
-            <View className="bg-destructive/10 rounded-xl px-4 py-3 mt-3">
-              <Text className="text-destructive text-sm">{error}</Text>
-            </View>
-          ) : null}
-          {notice ? (
-            <View className="bg-primary/10 rounded-xl px-4 py-3 mt-3">
-              <Text className="text-primary text-sm">{notice}</Text>
-            </View>
-          ) : null}
-
-          {!usingRecovery ? (
+      <View className="gap-4">
+        {!usingRecovery ? (
+          <View className="flex-row items-center justify-between">
+            <Text className="text-muted-foreground text-[13px] leading-[18px]">Nothing arrived?</Text>
             <Pressable
               onPress={resend}
-              disabled={resendTwoFactorCode.isPending || !params.challenge}
-              className="self-start mt-4 py-2 active:opacity-60"
+              disabled={resendOff}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: resendOff }}
+              hitSlop={12}
+              className="active:opacity-60"
             >
-              <Text className="text-primary text-sm font-semibold">
-                {resendTwoFactorCode.isPending ? 'Sending…' : 'Send a new code'}
+              <Text
+                className={`text-[15px] leading-5 font-semibold ${resendOff ? 'text-muted-foreground' : 'text-primary'}`}
+              >
+                {resendTwoFactorCode.isPending
+                  ? 'Sending…'
+                  : wait > 0
+                    ? `Send it again in ${clock(wait)}`
+                    : 'Send a new code'}
               </Text>
             </Pressable>
-          ) : null}
+          </View>
+        ) : null}
 
-          <Pressable
-            onPress={() => {
-              setUsingRecovery((value) => !value);
-              setCode('');
-              setError('');
-              setNotice('');
-            }}
-            className="self-start py-2 active:opacity-60"
-          >
-            <Text className="text-primary text-sm font-semibold">
-              {usingRecovery ? 'Use an email code instead' : 'Use a recovery code'}
-            </Text>
-          </Pressable>
-        </View>
-
-        <View className="px-6 pb-6">
-          <Pressable
-            onPress={submit}
-            disabled={
-              !canSubmit || completeTwoFactorSignIn.isPending || !params.challenge
-            }
-            accessibilityRole="button"
-            accessibilityState={{
-              disabled:
-                !canSubmit ||
-                completeTwoFactorSignIn.isPending ||
-                !params.challenge,
-            }}
-            className={`min-h-12 rounded-xl py-4 flex-row items-center justify-center gap-2 active:scale-[0.98] ${canSubmit ? 'bg-action' : 'bg-muted'}`}
-          >
-            <Text
-              className={`text-base font-bold ${canSubmit ? 'text-action-foreground' : 'text-muted-foreground'}`}
-            >
-              {completeTwoFactorSignIn.isPending ? 'Checking…' : 'Continue'}
-            </Text>
-            {!completeTwoFactorSignIn.isPending && (
-              <ArrowRightIcon
-                size={18}
-                className={
-                  canSubmit
-                    ? 'text-action-foreground'
-                    : 'text-muted-foreground'
-                }
-              />
-            )}
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        <Pressable
+          onPress={() => {
+            setUsingRecovery((value) => !value);
+            setCode('');
+            setError('');
+            setNotice('');
+          }}
+          accessibilityRole="button"
+          hitSlop={12}
+          className="self-start active:opacity-60"
+        >
+          <Text className="text-primary text-[15px] leading-5 font-semibold">
+            {usingRecovery ? 'Use an email code instead' : 'Use a recovery code'}
+          </Text>
+        </Pressable>
+      </View>
+    </AuthFrame>
   );
 }

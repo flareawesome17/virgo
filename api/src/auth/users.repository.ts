@@ -23,6 +23,13 @@ export interface UserRow {
   /** What they do on a shoot. See auth/roles.ts. */
   roles: string[];
   /**
+   * Roles in their own words, beside the listed ones. Shown on a profile and
+   * matched on nothing. Optional: a row read before migration 108 has none.
+   */
+  custom_roles?: string[];
+  /** Apple's identifier for them, once they have signed in with Apple. */
+  apple_sub?: string | null;
+  /**
    * Postal address, collected at signup. Private — see PublicUser below for
    * why it is safe to return. Null on accounts made before migration 050.
    */
@@ -111,6 +118,8 @@ export interface PublicUser {
   discoverable: boolean;
   emailVerified: boolean;
   roles: string[];
+  /** Roles in their own words. See UserRow.custom_roles. */
+  customRoles: string[];
   addressLine1: string | null;
   addressLine2: string | null;
   addressCity: string | null;
@@ -148,6 +157,8 @@ export function toPublicUser(row: UserRow): PublicUser {
     emailVerified: !!row.email_verified_at,
     // Defaulted for rows written before the column existed.
     roles: row.roles ?? [],
+    // Defaulted for a row read before migration 108.
+    customRoles: row.custom_roles ?? [],
     // Null on accounts made before migration 050, which is not an error —
     // they signed up before there was anywhere to put an address.
     addressLine1: row.address_line1 ?? null,
@@ -189,6 +200,7 @@ export type ProfileFields = Partial<
     | 'bio'
     | 'discoverable'
     | 'roles'
+    | 'custom_roles'
     | 'address_line1'
     | 'address_line2'
     | 'address_city'
@@ -231,6 +243,15 @@ export interface SignupDetails {
   location?: string | null;
   studioName?: string;
   socialHandle?: string;
+  /** Already sorted and tidied by the service (roles.ts, splitRoles). */
+  customRoles?: string[];
+  /** Set when the account is being made by a sign-in with Apple. */
+  appleSub?: string;
+  /**
+   * The address is already proven, by whoever vouched for it (Apple), so the
+   * account is made verified and no link is emailed.
+   */
+  emailVerified?: boolean;
   /**
    * Resolved from a referral code before this call, never the raw code — an
    * unknown code is a no-op signup detail, not a failed registration, and that
@@ -254,6 +275,30 @@ export class UsersRepository {
     return this.db.queryOne<UserRow>('select * from users where id = $1', [id]);
   }
 
+  /** The account an Apple ID opens, if it has opened one before. */
+  async findByAppleSub(sub: string): Promise<UserRow | null> {
+    return this.db.queryOne<UserRow>('select * from users where apple_sub = $1', [sub]);
+  }
+
+  /**
+   * Ties an Apple ID to an account that was made with an email address.
+   *
+   * Only ever called with an address Apple has vouched for, which is also why
+   * the address is marked proven here if it was not already: somebody who
+   * registered and never followed the link has now proved it another way.
+   * Does nothing to an account that already has a different Apple ID.
+   */
+  async linkApple(id: string, sub: string): Promise<UserRow | null> {
+    return this.db.queryOne<UserRow>(
+      `update users
+          set apple_sub = $2,
+              email_verified_at = coalesce(email_verified_at, now())
+        where id = $1 and apple_sub is null
+        returning *`,
+      [id, sub],
+    );
+  }
+
   async create(
     email: string,
     passwordHash: string,
@@ -271,13 +316,14 @@ export class UsersRepository {
          address_postal, address_country, studio_name, social_handle,
          referred_by_user_id, location,
          address_latitude, address_longitude, address_place, address_precision,
-         address_geocoded_at
+         address_geocoded_at, custom_roles, apple_sub, email_verified_at
        )
        values ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11, $12, $13,
                $14, $15, $16, $17, $18,
                -- Looked at whenever there is a city, placed or not, so the
                -- backfill does not try it again.
-               case when $7::text is not null then now() end)
+               case when $7::text is not null then now() end,
+               $19::text[], $20, case when $21::boolean then now() end)
        returning *`,
       [
         email,
@@ -298,6 +344,9 @@ export class UsersRepository {
         details.addressPlace?.longitude ?? null,
         details.addressPlace?.place ?? null,
         details.addressPlace?.precision ?? null,
+        details.customRoles ?? [],
+        details.appleSub ?? null,
+        details.emailVerified === true,
       ],
     );
     return row as UserRow;

@@ -114,6 +114,8 @@ export default function ProfileScreen() {
     person.viewer?.isSelf ??
     (!!own?.handle && own.handle.toLowerCase() === person.handle.toLowerCase());
   const first = person.displayName.split(' ')[0];
+  // The list's roles first, then the ones in their own words.
+  const shownRoles = [...person.roles, ...(person.customRoles ?? [])];
 
   const rows: ProfileDetailRow[] = [];
   if (person.location) rows.push({ icon: MapPinIcon, text: person.location });
@@ -279,9 +281,9 @@ export default function ProfileScreen() {
           ) : null}
 
           {/* Plain chips: terracotta is kept for what can be pressed. */}
-          {person.roles.length > 0 && (
+          {shownRoles.length > 0 && (
             <View className="flex-row flex-wrap gap-2 mt-3">
-              {person.roles.map((role) => (
+              {shownRoles.map((role) => (
                 <View key={role} className="rounded-full px-3 py-1.5 bg-muted">
                   <Text className="text-secondary-foreground text-[13px] leading-[18px] font-medium">
                     {role}

@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AppleIdentityService } from './apple-identity.service';
 import { AccountService } from './account.service';
 import { AccountFlowsService } from './account-flows.service';
 import { AuthTokensService } from './auth-tokens.service';
@@ -38,6 +39,7 @@ import { SessionsService } from './sessions.service';
   controllers: [AuthController, SessionsController],
   providers: [
     AuthService,
+    AppleIdentityService,
     AccountService,
     AccountFlowsService,
     AuthTokensService,

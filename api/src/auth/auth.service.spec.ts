@@ -72,6 +72,7 @@ function serviceFor(user: UserRow) {
     {} as unknown as PromosService,
     twoFactor as unknown as TwoFactorService,
     sessions as unknown as SessionsService,
+    {} as never,
   );
   return { service, users, jwt, twoFactor, sessions };
 }

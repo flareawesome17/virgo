@@ -36,7 +36,7 @@ export function RolesRequiredDialog() {
   const [postponed, setPostponed] = useState(false);
 
   const needsRoles =
-    isAuthenticated && !!profile && (profile.roles ?? []).length === 0;
+    isAuthenticated && !!profile && (profile.roles ?? []).length + (profile.customRoles ?? []).length === 0;
 
   if (!needsRoles || postponed) return null;
 

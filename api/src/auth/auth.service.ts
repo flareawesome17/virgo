@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpException,
@@ -24,7 +25,8 @@ import { addressLocation, addressPlace } from '../discover/places';
 import { PromosService } from '../promos/promos.service';
 import { accountRefusal } from './account-state';
 import { sessionClient, type SessionClient } from './device-label';
-import { normalizeRoles } from './roles';
+import { splitRoles } from './roles';
+import { AppleIdentityService } from './apple-identity.service';
 import { SessionsService, type SignInContext } from './sessions.service';
 import { TwoFactorService } from './two-factor.service';
 
@@ -79,6 +81,7 @@ export class AuthService {
     private readonly promos: PromosService,
     private readonly twoFactor: TwoFactorService,
     private readonly sessions: SessionsService,
+    private readonly apple: AppleIdentityService,
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -236,6 +239,13 @@ export class AuthService {
       this.logger.log('Signup used a referral code that matches no account');
     }
 
+    // From the list, in their own words, or both; but something. Checked
+    // here and not in the DTO because it is a rule about the two together.
+    const chosen = splitRoles(roles, details.customRoles);
+    if (chosen.roles.length + chosen.customRoles.length === 0) {
+      throw new BadRequestException('Choose at least one role');
+    }
+
     const rounds = Number(this.config.get('BCRYPT_ROUNDS', '12'));
     const passwordHash = await bcrypt.hash(password, rounds);
     // Normalized rather than trusted: the DTO rejects unknown values, this
@@ -250,9 +260,10 @@ export class AuthService {
       normalized,
       passwordHash,
       displayName,
-      normalizeRoles(roles),
+      chosen.roles,
       {
         ...details,
+        customRoles: chosen.customRoles,
         referredByUserId,
         addressPlace: addressPlace(details.addressCity, details.addressProvince),
         location: addressLocation(details.addressCity, details.addressProvince),
@@ -348,6 +359,85 @@ export class AuthService {
     }
 
     return { user: toPublicUser(user), ...(await this.signIn(user, options)) };
+  }
+
+  /**
+   * Signs in with Apple: the account that Apple ID has opened before, the
+   * account whose address Apple vouches for, or a new one.
+   *
+   * In that order, and the second only for an address Apple says is proven.
+   * Tying an Apple ID to an existing account on an unproven address would let
+   * anybody who can get Apple to show an address take the account that owns
+   * it.
+   *
+   * An account with two-step sign-in on still gets its code. Apple proving
+   * who holds the Apple ID is the first step, not both.
+   *
+   * `isNew` tells the app to ask what a sign-up would have asked: what they
+   * do, and where they work. A new account has neither.
+   */
+  async signInWithApple(
+    identityToken: string,
+    nonce: string,
+    displayName: string | undefined,
+    context: SignInContext = {},
+  ): Promise<(AuthResult & { isNew: boolean }) | TwoFactorLoginRequired> {
+    const identity = await this.apple.verify(identityToken, nonce);
+
+    let user = await this.users.findByAppleSub(identity.sub);
+    let isNew = false;
+
+    if (!user && identity.email && identity.emailVerified) {
+      const byEmail = await this.users.findByEmail(identity.email);
+      if (byEmail) {
+        // Null when that account already has another Apple ID on it.
+        user = await this.users.linkApple(byEmail.id, identity.sub);
+        if (!user) {
+          this.auditLogin('apple-other-id', identity.email, context);
+          throw new ConflictException(
+            'That email already belongs to an account that signs in with a different Apple ID.',
+          );
+        }
+      }
+    }
+
+    if (!user) {
+      if (!identity.email || !identity.emailVerified) {
+        throw new BadRequestException(
+          'Apple did not share an email address, so an account could not be made. Sign up with email, or allow the email in your Apple ID settings and try again.',
+        );
+      }
+      // Nobody knows this password, including them: the account is opened by
+      // Apple. "Forgot password" sets a real one if they ever want it.
+      const rounds = Number(this.config.get('BCRYPT_ROUNDS', '12'));
+      const passwordHash = await bcrypt.hash(randomBytes(32).toString('hex'), rounds);
+      const name = displayName?.replace(/\s+/g, ' ').trim().slice(0, 120) || undefined;
+      try {
+        user = await this.users.create(identity.email, passwordHash, name, [], {
+          appleSub: identity.sub,
+          emailVerified: true,
+        });
+      } catch (error) {
+        // Two sign-ins for the same new person at once: the second finds the
+        // first's row.
+        user = await this.users.findByAppleSub(identity.sub);
+        if (!user) throw error;
+      }
+      isNew = true;
+    }
+
+    this.assertNotDisabled(user);
+
+    if (user.two_factor_enabled_at) {
+      this.auditLogin('apple-ok-code-sent', user.email, context);
+      this.limitLoginCodes(user.id);
+      return {
+        twoFactorRequired: true,
+        ...(await this.twoFactor.createLoginChallenge(user)),
+      };
+    }
+
+    return { user: toPublicUser(user), ...(await this.signIn(user, context)), isNew };
   }
 
   private readonly loginCodeAsks = new Map<string, number[]>();
@@ -552,6 +642,7 @@ export class AuthService {
       bio?: string | null;
       discoverable?: boolean;
       roles?: string[];
+      customRoles?: string[];
       // Not nullable, like roles: signup requires these, so accepting null
       // here would make the edit screen a way around that. Omit to leave the
       // address as it is.
@@ -583,7 +674,24 @@ export class AuthService {
     const previousAvatar =
       input.avatarUrl !== undefined ? (before?.avatar_url ?? null) : null;
 
+    // Roles are saved as a pair. Either half may be sent alone; what must not
+    // happen is the two together coming to nothing, which the edit screen
+    // could otherwise use to undo what sign-up requires.
+    let roleFields: { roles?: string[]; custom_roles?: string[] } = {};
+    if (input.roles !== undefined || input.customRoles !== undefined) {
+      const current = await this.users.findById(userId);
+      const next = splitRoles(
+        input.roles ?? current?.roles ?? [],
+        input.customRoles ?? current?.custom_roles ?? [],
+      );
+      if (next.roles.length + next.customRoles.length === 0) {
+        throw new BadRequestException('Choose at least one role');
+      }
+      roleFields = { roles: next.roles, custom_roles: next.customRoles };
+    }
+
     const user = await this.users.updateProfile(userId, {
+      ...roleFields,
       display_name: input.displayName,
       avatar_url: input.avatarUrl,
       title: input.title,
@@ -592,7 +700,6 @@ export class AuthService {
       location: input.location,
       bio: input.bio,
       discoverable: input.discoverable,
-      roles: input.roles ? normalizeRoles(input.roles) : undefined,
       address_line1: input.addressLine1,
       address_line2: input.addressLine2,
       address_city: input.addressCity,
