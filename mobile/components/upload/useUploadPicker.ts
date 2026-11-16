@@ -17,7 +17,7 @@ import {
   skippedSummary,
 } from '@/src/api/upload-dedup';
 import { useUsage } from '@/src/hooks';
-import { useUploadQueue } from '@/src/providers/UploadProvider';
+import { useUploadActions } from '@/src/providers/UploadProvider';
 
 export type UploadSource = 'media' | 'audio';
 
@@ -163,7 +163,9 @@ export function useUploadPicker({
    */
   billedToMe: boolean;
 }): { pick: (source: UploadSource) => Promise<number>; busy: boolean } {
-  const { enqueue } = useUploadQueue();
+  // Only to add files: reading the queue itself would redraw whoever uses
+  // this for every percent of every upload.
+  const { enqueue } = useUploadActions();
   const { storageLimitBytes, storageUsedBytes } = useUsage();
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);

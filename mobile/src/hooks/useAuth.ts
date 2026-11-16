@@ -9,7 +9,7 @@
 
 import { clearReminderNotifications, knownPushToken, setAppBadgeCount } from '@/src/lib/notifications';
 import { forgetUploadQueue } from '@/src/lib/upload-queue-storage';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { setAppleFinishing, type AppleProof } from '@/src/lib/apple-sign-in';
 import {
   useIsRestoring,
@@ -227,9 +227,17 @@ export function useAuth() {
   });
 
   const authUser = sessionQuery.data ?? null;
-  const user: User | null = authUser
-    ? { id: authUser.id, email: authUser.email }
-    : null;
+  // The same objects until who is signed in changes. About fifty screens ask
+  // this hook who that is, and each was handed a new `user` on every render:
+  // anything that depended on it (an effect, a memo, a child's props) ran
+  // again each time for the same person.
+  const userId = authUser?.id ?? null;
+  const userEmail = authUser?.email ?? null;
+  const user: User | null = useMemo(
+    () => (userId && userEmail !== null ? { id: userId, email: userEmail } : null),
+    [userId, userEmail],
+  );
+  const session = useMemo(() => (authUser ? { user: authUser } : null), [authUser]);
 
   const signIn = useMutation({
     mutationFn: async ({
@@ -424,7 +432,7 @@ export function useAuth() {
   return {
     user,
     /** Kept for shape compatibility; there is no session object now. */
-    session: authUser ? { user: authUser } : null,
+    session,
     isAuthenticated: !!authUser,
     /*
      * Restoring counts as loading, and leaving it out was the sign-in flash.
@@ -447,8 +455,19 @@ export function useAuth() {
      * offers a retry instead of redirecting to login.
      */
     isSessionError: sessionQuery.isError,
-    /** True while a session check is running, including a retry. */
-    isCheckingSession: sessionQuery.isFetching,
+    /**
+     * True while a session check is running, including a retry.
+     *
+     * Read through a getter on purpose. React Query redraws a component for
+     * the fields of a query it has read, and reading `isFetching` here, for
+     * everyone, meant every screen that asks who is signed in redrew twice
+     * each time the app came back to the front and the session was checked
+     * again. Only the one screen that shows the check running reads it now,
+     * so only that one hears about it.
+     */
+    get isCheckingSession() {
+      return sessionQuery.isFetching;
+    },
     retrySession: sessionQuery.refetch,
     /** Full profile from /auth/me — includes displayName / avatarUrl. */
     profile: authUser,

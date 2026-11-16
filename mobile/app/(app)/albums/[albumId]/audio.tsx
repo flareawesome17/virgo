@@ -6,7 +6,7 @@ import * as Haptics from 'expo-haptics';
 import { ArrowLeftIcon, MusicIcon, UploadIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useAlbum, useAlbumFiles, useTheme } from '@/src/hooks';
-import { useAlbumAudio } from '@/src/providers/AlbumAudioProvider';
+import { useAlbumAudioControls } from '@/src/providers/AlbumAudioProvider';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PlayAllBar, RecordingRow } from '@/components/Recordings';
 import { PALETTES } from '@/theme';
@@ -49,7 +49,7 @@ export default function AudioScreen() {
     picked: params.picked === '1' ? true : undefined,
   });
   const files = filesQuery.audio;
-  const audio = useAlbumAudio();
+  const audio = useAlbumAudioControls();
 
   const cover = album?.cover_url ?? null;
   const activeKey = audio.current?.albumId === albumId ? audio.current.key : null;

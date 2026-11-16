@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { canDrawOriginal } from '@/src/lib/draw-original';
 import {
   ActivityIndicator,
   Alert,
@@ -138,7 +139,12 @@ function ZoomablePhoto({
   // phones of the last few years.
   const screenPixels = Math.max(width, height) * PixelRatio.get();
   const copy = displaySourceAtLeast(photo, screenPixels);
-  const base = copy ?? photo.url ?? photo.thumbnailUrl ?? undefined;
+  // The original only when it is small, or when there is nothing else at
+  // all: see canDrawOriginal. The pager keeps three pages, and three camera
+  // originals decoded at once is what ends the app on an older phone. The
+  // full file still arrives through the pinch, one photograph at a time.
+  const base =
+    copy ?? (canDrawOriginal(photo) ? photo.url : null) ?? photo.thumbnailUrl ?? photo.url ?? undefined;
   const original =
     (photo.width ?? 0) * (photo.height ?? 0) <= MAX_DETAIL_PIXELS
       ? originalForDetail(photo, { alsoDraws: Platform.OS === 'ios' ? IOS_ALSO_DRAWS : [] })
@@ -926,7 +932,9 @@ export default function PhotoViewerScreen() {
                   }
                 >
                   <RemoteImage
-                    source={{ uri: item.thumbnailUrl ?? item.url ?? undefined }}
+                    source={{
+                      uri: item.thumbnailUrl ?? (canDrawOriginal(item) ? (item.url ?? undefined) : undefined),
+                    }}
                     placeholder={item.blurDataUrl ? { uri: item.blurDataUrl } : undefined}
                     placeholderContentFit="cover"
                     style={{ width: '100%', height: '100%' }}

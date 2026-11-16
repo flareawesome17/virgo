@@ -21,6 +21,12 @@ for (const Icon of [BriefcaseIcon, ChevronDownIcon, MapPinIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
+/** Below this many, the end of the board needs no saying. */
+const JOBS_END_AFTER = 6;
+
+const renderJob = ({ item }: { item: JobPost }) => <JobCard job={item} />;
+const JobGap = () => <View className="h-3" />;
+
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((value) => b.includes(value));
 
 /**
@@ -100,8 +106,8 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
     }));
 
   const best = useMemo(() => bestFor(jobs, myRoles), [jobs, myRoles]);
-  const rest = best ? jobs.filter((job) => job.id !== best.id) : jobs;
-  const fresh = jobs.filter((job) => isFreshJob(job)).length;
+  const rest = useMemo(() => (best ? jobs.filter((job) => job.id !== best.id) : jobs), [jobs, best]);
+  const fresh = useMemo(() => jobs.filter((job) => isFreshJob(job)).length, [jobs]);
 
   const refresher = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />;
 
@@ -206,53 +212,69 @@ export function JobsFeed({ bottomPadding = 40 }: { bottomPadding?: number }) {
           />
         </ScrollView>
       ) : (
-        <Animated.ScrollView
+        // A list that draws the jobs near the screen and lets go of the rest,
+        // and fetches the next page as its end comes up. It was a ScrollView
+        // with every loaded job in it, and a "Show more" button: each tap kept
+        // another page of cards mounted for good, and the further somebody
+        // read, the slower every touch got.
+        <Animated.FlatList
+          data={rest}
+          keyExtractor={(job) => job.id}
+          renderItem={renderJob}
           onScroll={onScroll}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: bottomPadding, gap: 12 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: bottomPadding }}
+          ItemSeparatorComponent={JobGap}
           refreshControl={refresher}
-        >
-          {best ? (
-            <View className="mb-2">
-              <BestJobCard
-                job={best}
-                reason={myRoles.length > 0 ? 'Closest to you, and one of your roles' : 'Closest to you'}
-              />
-            </View>
-          ) : null}
-          <View className="flex-row items-baseline justify-between gap-3 min-h-[28px]">
-            <Text className="flex-1 text-foreground text-[17px] leading-6 font-bold" accessibilityRole="header" numberOfLines={1}>
-              {heading}
-            </Text>
-            {filtered ? (
-              <Pressable onPress={clearFilters} accessibilityRole="button" hitSlop={10} className="active:opacity-60">
-                <Text className="text-primary text-[15px] font-semibold">Clear</Text>
-              </Pressable>
-            ) : fresh > 0 ? (
-              <Text className="text-muted-foreground text-[13px] leading-[18px]">{fresh} new since yesterday</Text>
-            ) : null}
-          </View>
-          {rest.map((job) => (
-            <JobCard key={job.id} job={job} />
-          ))}
-          {hasNextPage && (
-            <Pressable
-              onPress={() => void fetchNextPage()}
-              disabled={isFetchingNextPage}
-              accessibilityRole="button"
-              className="h-11 rounded-[14px] bg-secondary items-center justify-center active:opacity-80"
-            >
-              {isFetchingNextPage ? (
-                <ActivityIndicator color={palette.primary} />
-              ) : (
-                <Text className="text-secondary-foreground text-[15px] font-semibold">
-                  Show more ({jobs.length} of {total})
+          initialNumToRender={5}
+          maxToRenderPerBatch={5}
+          windowSize={7}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+          }}
+          onEndReachedThreshold={0.6}
+          ListHeaderComponent={
+            <View className="gap-3 pb-3">
+              {best ? (
+                <View className="mb-2">
+                  <BestJobCard
+                    job={best}
+                    reason={myRoles.length > 0 ? 'Closest to you, and one of your roles' : 'Closest to you'}
+                  />
+                </View>
+              ) : null}
+              <View className="flex-row items-baseline justify-between gap-3 min-h-[28px]">
+                <Text className="flex-1 text-foreground text-[17px] leading-6 font-bold" accessibilityRole="header" numberOfLines={1}>
+                  {heading}
                 </Text>
-              )}
-            </Pressable>
-          )}
-        </Animated.ScrollView>
+                {filtered ? (
+                  <Pressable onPress={clearFilters} accessibilityRole="button" hitSlop={10} className="active:opacity-60">
+                    <Text className="text-primary text-[15px] font-semibold">Clear</Text>
+                  </Pressable>
+                ) : fresh > 0 ? (
+                  <Text className="text-muted-foreground text-[13px] leading-[18px]">{fresh} new since yesterday</Text>
+                ) : null}
+              </View>
+            </View>
+          }
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View className="py-5 items-center gap-2" accessibilityLiveRegion="polite">
+                <ActivityIndicator color={palette.primary} />
+                <Text className="text-muted-foreground text-[13px] leading-[18px]">
+                  Loading more jobs ({jobs.length} of {total})
+                </Text>
+              </View>
+            ) : !hasNextPage && jobs.length > JOBS_END_AFTER ? (
+              // Said only once there was enough to scroll through: under a few
+              // cards it is plain to see that the list has ended.
+              <Text className="text-muted-foreground text-[13px] leading-[18px] text-center py-6">
+                That is every open job{filtered ? ' that matches' : ''}.
+              </Text>
+            ) : null
+          }
+        />
       )}
 
       <JobsFilterSheet

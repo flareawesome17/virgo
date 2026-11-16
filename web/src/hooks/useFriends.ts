@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { hasId, patchCachedRows, restoreCached, type CachedSnapshot } from './optimistic';
 import {
   useInfiniteQuery,
   useMutation,
@@ -155,6 +156,17 @@ export function useDeleteFriend() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => friendsApi.remove(id),
+    // Off your lists on the tap (a connection removed, a request withdrawn),
+    // back if the server refuses. Nearby and profiles follow with the read.
+    onMutate: async (id: string) => ({
+      before: await patchCachedRows(
+        queryClient,
+        queryKeys.friends.all,
+        (value: unknown): value is { id: string } => hasId(value) && 'friend_user_id' in value,
+        (row) => (row.id === id ? null : row),
+      ),
+    }),
+    onError: (_error, _id, context) => restoreCached(queryClient, context?.before),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
       // Nearby shows the same relationship: an ex-connection kept a Message
@@ -179,6 +191,43 @@ export function useSendFriendRequest() {
     // before, or a handle from a profile. Posted as given: the body for
     // { userId } and { email } is exactly what the older calls sent.
     mutationFn: (target: FriendRequestTarget) => friendsApi.request(target),
+    /*
+     * "Requested" on the tap. Wherever this person is cached with how you
+     * stand with them (Nearby, the people search, their profile) says so at
+     * once, and goes back if the server refuses. Each screen waited for the
+     * answer and then a refetch, with a spinner on the button in between.
+     *
+     * An address is nobody the cache can name, so that one still waits.
+     */
+    onMutate: async (target: FriendRequestTarget) => {
+      const userId = 'userId' in target ? target.userId : null;
+      const handle = 'handle' in target ? target.handle : null;
+      if (!userId && !handle) return undefined;
+      const before: CachedSnapshot = [];
+      if (userId) {
+        const isPerson = (value: unknown): value is { id: string; relationship: string } =>
+          hasId(value) && 'relationship' in value;
+        const asked = (row: { id: string; relationship: string }) =>
+          row.id === userId && row.relationship === 'none' ? { ...row, relationship: 'pending_out' } : row;
+        before.push(...(await patchCachedRows(queryClient, ['discover'], isPerson, asked)));
+        before.push(...(await patchCachedRows(queryClient, queryKeys.friends.all, isPerson, asked)));
+      }
+      if (handle) {
+        const isProfile = (
+          value: unknown,
+        ): value is { handle: string; viewer?: { connection?: string } } =>
+          !!value && typeof value === 'object' && 'handle' in value && 'viewer' in value;
+        before.push(
+          ...(await patchCachedRows(queryClient, queryKeys.publicProfiles.all, isProfile, (row) =>
+            row.handle === handle && row.viewer?.connection === 'none'
+              ? { ...row, viewer: { ...row.viewer, connection: 'pending_out' } }
+              : row,
+          )),
+        );
+      }
+      return { before };
+    },
+    onError: (_error, _target, context) => restoreCached(queryClient, context?.before),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
       // Nearby shows the same relationship as a chip (Add, Requested, Accept).

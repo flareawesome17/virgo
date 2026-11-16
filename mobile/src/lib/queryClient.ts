@@ -124,8 +124,13 @@ export const asyncStoragePersister = createAsyncStoragePersister({
   storage: AsyncStorage,
   // Key used to store the cache
   key: 'REACT_QUERY_OFFLINE_CACHE',
-  // Throttle writes to storage (prevents excessive writes)
-  throttleTime: 1000,
+  // How often, at most, the cache is written. Each write turns the whole
+  // cache into text on the thread that answers taps, and anything changing in
+  // any query asks for one. At a second apart, a busy screen on an older phone
+  // (an upload landing files in an album, the feed paging) was doing that
+  // back to back. What a longer gap costs is the last few seconds of cache if
+  // the app is killed, all of which is read again from the server on launch.
+  throttleTime: 5000,
   serialize: serializeForDisk,
   deserialize: (data) => JSON.parse(data),
 })

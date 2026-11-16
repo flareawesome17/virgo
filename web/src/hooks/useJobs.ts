@@ -196,12 +196,59 @@ export function useDeleteJob() {
   });
 }
 
+/** A job post wherever it is cached: on its own, in a list, or in a page of the board. */
+function mapJobPosts(data: unknown, change: (post: JobPost) => JobPost): unknown {
+  if (!data || typeof data !== 'object') return data;
+  const isPost = (value: unknown): value is JobPost =>
+    !!value && typeof value === 'object' && 'slug' in value && 'rolesWanted' in value;
+  if (isPost(data)) return change(data);
+  const list = (data as { data?: unknown }).data;
+  if (Array.isArray(list)) return { ...data, data: list.map((p) => (isPost(p) ? change(p) : p)) };
+  const pages = (data as { pages?: unknown }).pages;
+  if (Array.isArray(pages)) {
+    return { ...data, pages: pages.map((page) => mapJobPosts(page, change)) };
+  }
+  return data;
+}
+
+/**
+ * Applies for a job, on screen at once.
+ *
+ * The post says "You applied" on the tap, on its own screen and on the board,
+ * and goes back if the server refuses. It waited for the answer and then a
+ * refetch of everything under `jobs` before the button changed.
+ */
 export function useApplyToJob() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ slug, role }: { slug: string; role?: string | null }) =>
       jobsApi.apply(slug, role),
-    onSuccess: () => {
+    onMutate: async ({ slug, role }: { slug: string; role?: string | null }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.jobs.all });
+      const before = queryClient.getQueriesData<unknown>({ queryKey: queryKeys.jobs.all });
+      const mine = {
+        id: `applying-${Date.now()}`,
+        role: role ?? null,
+        status: 'new' as const,
+        createdAt: new Date().toISOString(),
+      };
+      queryClient.setQueriesData<unknown>({ queryKey: queryKeys.jobs.all }, (data: unknown) =>
+        mapJobPosts(data, (post) =>
+          post.slug === slug
+            ? {
+                ...post,
+                myApplications: [...(post.myApplications ?? []), mine],
+                applicantCount: post.applicantCount + 1,
+              }
+            : post,
+        ),
+      );
+      return { before };
+    },
+    onError: (_error, _input, context) => {
+      for (const [key, data] of context?.before ?? []) queryClient.setQueryData(key, data);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
     },
   });
