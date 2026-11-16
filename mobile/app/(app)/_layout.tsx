@@ -50,6 +50,7 @@ const CREATE_FORMS = [
   'money/packages/new',
   'money/savings/new',
   'money/pay-methods/edit',
+  'hire/[handle]',
 ] as const;
 
 const CREATE_FORM_OPTIONS = {

@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { BookmarkIcon, CheckIcon, GlobeIcon, LockIcon, PlusIcon } from 'lucide-react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { CheckIcon, GlobeIcon, LockIcon, PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { BottomSheet } from '@/components/BottomSheet';
+import { FormInput } from '@/components/Form';
 import { LoadFailed } from '@/components/LoadFailed';
-import { RemoteImage } from '@/components/RemoteImage';
+import { NewShelfForm } from '@/components/shelves/NewShelfForm';
+import { Radio, SheetButton } from '@/components/shelves/ShelfBits';
+import { ShelfMosaic, shelfCoverUrls } from '@/components/shelves/ShelfMosaic';
 import { useShelfActions, useShelves, useTheme } from '@/src/hooks';
 import type { FeedItem } from '@/src/api';
 import { profileActionMessage } from '@/src/lib/profile-media';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [BookmarkIcon, CheckIcon, GlobeIcon, LockIcon, PlusIcon]) {
+for (const Icon of [CheckIcon, GlobeIcon, LockIcon, PlusIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -25,12 +28,16 @@ for (const Icon of [BookmarkIcon, CheckIcon, GlobeIcon, LockIcon, PlusIcon]) {
  * are right to wonder what happens to their work when a stranger keeps it.
  *
  * It also takes things off again. The shelves come back saying which already
- * hold this showcase; tapping one of those asks, then removes it. Before, a
- * kept post offered "Change where" and could only be kept somewhere else.
+ * hold this showcase; those say "Kept here", and tapping one asks, then
+ * removes it, as does Take it off beside the title. Before, a kept post
+ * offered "Change where" and could only be kept somewhere else.
  *
  * And it moves them. Choosing another shelf for something already kept offers
  * Move here — kept there, taken off where it was — beside keeping it on both,
  * which was the only thing a second shelf could do before.
+ *
+ * A new shelf is made in the sheet, in place of the list, and comes back
+ * chosen: naming a shelf and keeping to it is one errand.
  */
 export function KeepSheet({
   item,
@@ -50,14 +57,16 @@ export function KeepSheet({
   });
   const { keep, unkeep, createShelf } = useShelfActions();
   const keptOn = shelves.filter((shelf) => shelf.holds);
+  const kept = keptOn.length > 0;
 
   const [chosen, setChosen] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [naming, setNaming] = useState(false);
-  const [newName, setNewName] = useState('');
   // Keeping to the new shelf and taking it off the old ones are separate
-  // requests, with a moment between them when neither is pending.
+  // requests, with a moment between them when neither is pending. So is
+  // taking it off several shelves at once.
   const [moving, setMoving] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   // Each showcase starts fresh: last time's shelf and last time's reason are
   // about the last photograph, not this one.
@@ -66,27 +75,19 @@ export function KeepSheet({
       setChosen(null);
       setNote('');
       setNaming(false);
-      setNewName('');
       setMoving(false);
+      setClearing(false);
     }
   }, [item?.id]);
 
-  // With the keyboard up the list has less room, and both fields sit at the
-  // end of it, so the end is what stays in sight while one is being typed in.
+  // With the keyboard up the list has less room, and the note sits at the
+  // end of it, so the end is what stays in sight while it is being typed in.
   const list = useRef<ScrollView>(null);
   const typing = useRef(false);
-  const typingProps = {
-    onFocus: () => {
-      typing.current = true;
-    },
-    onBlur: () => {
-      typing.current = false;
-    },
-  };
 
-  const busy = keep.isPending || createShelf.isPending || unkeep.isPending || moving;
+  const busy = keep.isPending || createShelf.isPending || unkeep.isPending || moving || clearing;
   /** Somewhere new chosen for something already kept: it can move there. */
-  const canMove = keptOn.length > 0 && chosen !== null && !keptOn.some((s) => s.id === chosen);
+  const canMove = kept && chosen !== null && !keptOn.some((s) => s.id === chosen);
 
   const takeOff = (shelfId: string, name: string) => {
     if (!item) return;
@@ -108,15 +109,50 @@ export function KeepSheet({
     ]);
   };
 
-  const addShelf = () => {
-    const name = newName.trim();
-    if (!name) return;
+  /** Take it off, beside the title: the one shelf it is on, or all of them. */
+  const takeOffAll = () => {
+    if (!item || !kept) return;
+    if (keptOn.length === 1) {
+      takeOff(keptOn[0].id, keptOn[0].name);
+      return;
+    }
+    const on = keptOn;
+    Alert.alert(
+      'Take it off your shelves?',
+      `It is on ${on.map((shelf) => shelf.name).join(', ')}. It stays in the feed and on their profile.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Take off',
+          style: 'destructive',
+          onPress: async () => {
+            setClearing(true);
+            try {
+              for (const [i, shelf] of on.entries()) {
+                await unkeep.mutateAsync({
+                  shelfId: shelf.id,
+                  showcaseId: item.id,
+                  // Only the last one off makes the card say it is not kept.
+                  stillKept: i < on.length - 1,
+                });
+              }
+            } catch (error) {
+              Alert.alert("Couldn't take it off", profileActionMessage(error, 'keep'));
+            } finally {
+              setClearing(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const addShelf = ({ name, isPublic }: { name: string; isPublic: boolean }) => {
     createShelf.mutate(
-      { name },
+      { name, isPublic },
       {
         onSuccess: (result) => {
           setNaming(false);
-          setNewName('');
           // Select what was just made, so naming a shelf and keeping to it is
           // one gesture rather than two.
           const made = result.data.find((s) => s.name.toLowerCase() === name.toLowerCase());
@@ -136,7 +172,7 @@ export function KeepSheet({
         shelfId: chosen,
         showcaseId: item.id,
         note: note.trim() || undefined,
-        alreadyKept: keptOn.length > 0,
+        alreadyKept: kept,
       },
       {
         onSuccess: () => {
@@ -175,222 +211,186 @@ export function KeepSheet({
   };
 
   return (
-    <BottomSheet
-      visible={item !== null}
-      onClose={() => !busy && onClose()}
-      dismissible={!busy}
-      surface="background"
-    >
-      <View className="px-5 pt-2">
-        <Text className="text-foreground text-[19px] font-semibold">Keep it on a shelf</Text>
-        <Text className="text-muted-foreground text-[12px] leading-[17px] mt-1">
-          What you keep is public and always credits{' '}
-          {item?.maker?.displayName ?? 'the maker'}. They can take the work down; it is
-          never copied out of their hands.
-        </Text>
-        {keptOn.length > 0 && (
-          <Text className="text-foreground text-[12px] leading-[17px] mt-2">
-            Kept on {keptOn.map((shelf) => shelf.name).join(', ')}. Tap a shelf with a
-            tick to take it off, or choose another to move it there.
-          </Text>
-        )}
-      </View>
-
-      <ScrollView
-        ref={list}
-        className="mt-3"
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 8 }}
-        onLayout={() => {
-          if (typing.current) list.current?.scrollToEnd({ animated: true });
-        }}
-      >
-        {isLoading ? (
-          <View className="py-8 items-center">
-            <ActivityIndicator color={palette.primary} />
-          </View>
-        ) : loadFailed && shelves.length === 0 ? (
-          // Not "no shelves": that offered only New shelf, and a second
-          // shelf of the same name is how a failed load turned into clutter.
-          <LoadFailed what="your shelves" onRetry={() => refetch()} compact />
-        ) : (
-          <View className="px-3">
-            {shelves.map((shelf) => {
-              const on = chosen === shelf.id;
-              const holds = Boolean(shelf.holds);
-              return (
+    <BottomSheet visible={item !== null} onClose={() => !busy && onClose()} dismissible={!busy}>
+      {naming ? (
+        <NewShelfForm
+          onCancel={() => setNaming(false)}
+          onSubmit={addShelf}
+          pending={createShelf.isPending}
+        />
+      ) : (
+        <>
+          <View className="px-5">
+            <View className="min-h-8 flex-row items-center justify-between">
+              <Text
+                accessibilityRole="header"
+                className="text-foreground text-[18px] leading-[26px] font-bold"
+              >
+                {/* Known to be kept before the shelves say where. */}
+                {kept || (isLoading && item?.keptByMe) ? 'Kept' : 'Keep it on a shelf'}
+              </Text>
+              {kept ? (
                 <Pressable
-                  key={shelf.id}
-                  onPress={() => (holds ? takeOff(shelf.id, shelf.name) : setChosen(shelf.id))}
+                  onPress={takeOffAll}
+                  disabled={busy}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  className="active:opacity-60"
+                  style={{ opacity: busy ? 0.5 : 1 }}
+                >
+                  <Text className="text-destructive text-[15px] font-semibold">Take it off</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <Text className="text-muted-foreground text-[13px] leading-[18px] mt-1">
+              {keptOn.length === 1
+                ? `It is on ${keptOn[0].name}. Choose another shelf to move it, or keep it on both.`
+                : kept
+                  ? `It is on ${keptOn.map((shelf) => shelf.name).join(', ')}. Choose another shelf to move it there, or tap one it is on to take it off.`
+                  : `What you keep always credits ${item?.maker?.displayName ?? 'the maker'}. They can take the work down; it is never copied out of their hands.`}
+            </Text>
+          </View>
+
+          <ScrollView
+            ref={list}
+            className="mt-3.5"
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingHorizontal: 20 }}
+            onLayout={() => {
+              if (typing.current) list.current?.scrollToEnd({ animated: true });
+            }}
+          >
+            {isLoading ? (
+              <View className="py-8 items-center">
+                <ActivityIndicator color={palette.primary} />
+              </View>
+            ) : loadFailed && shelves.length === 0 ? (
+              // Not "no shelves": that offered only New shelf, and a second
+              // shelf of the same name is how a failed load turned into clutter.
+              <LoadFailed what="your shelves" onRetry={() => refetch()} compact />
+            ) : (
+              <View className="rounded-[20px] border border-border/40 bg-card overflow-hidden">
+                {shelves.map((shelf, index) => {
+                  const on = chosen === shelf.id;
+                  const holds = Boolean(shelf.holds);
+                  return (
+                    <Pressable
+                      key={shelf.id}
+                      onPress={() => (holds ? takeOff(shelf.id, shelf.name) : setChosen(shelf.id))}
+                      disabled={busy}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on || holds }}
+                      accessibilityHint={holds ? 'Kept here. Double tap to take it off.' : undefined}
+                      className={`min-h-[68px] flex-row items-center gap-3 pl-2.5 pr-4 py-2 active:opacity-70 ${
+                        index === 0 ? '' : 'border-t border-border/40'
+                      }`}
+                    >
+                      <ShelfMosaic urls={shelfCoverUrls(shelf)} size={48} radius={12} />
+                      <View className="flex-1 min-w-0">
+                        <Text
+                          className="text-foreground text-[15px] leading-5 font-semibold"
+                          numberOfLines={1}
+                        >
+                          {shelf.name}
+                        </Text>
+                        <View className="flex-row items-center gap-[5px]">
+                          {shelf.isPublic ? (
+                            <GlobeIcon size={12} className="text-muted-foreground" />
+                          ) : (
+                            <LockIcon size={12} className="text-muted-foreground" />
+                          )}
+                          <Text className="text-muted-foreground text-[13px] leading-[18px]">
+                            {shelf.count} kept · {shelf.isPublic ? 'Public' : 'Private'}
+                          </Text>
+                        </View>
+                      </View>
+                      {holds ? (
+                        <View className="flex-row items-center gap-1">
+                          <CheckIcon size={14} strokeWidth={2.5} className="text-success" />
+                          <Text className="text-success text-[13px] leading-[18px] font-semibold">
+                            Kept here
+                          </Text>
+                        </View>
+                      ) : (
+                        <Radio on={on} />
+                      )}
+                    </Pressable>
+                  );
+                })}
+
+                <Pressable
+                  onPress={() => setNaming(true)}
                   disabled={busy}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: on || holds }}
-                  accessibilityHint={holds ? 'Kept here. Double tap to take it off.' : undefined}
-                  className={`min-h-16 flex-row items-center gap-3 rounded-2xl px-2.5 ${on ? 'bg-secondary' : ''}`}
+                  className={`min-h-[60px] flex-row items-center gap-3 pl-2.5 pr-4 py-1.5 active:opacity-70 ${
+                    shelves.length === 0 ? '' : 'border-t border-border/40'
+                  }`}
                 >
-                  {(shelf.coverUrls?.[0] ?? shelf.coverUrl) ? (
-                    <RemoteImage
-                      source={{ uri: shelf.coverUrls?.[0] ?? shelf.coverUrl }}
-                      style={{ width: 46, height: 46, borderRadius: 10 }}
-                    />
-                  ) : (
-                    <View className="w-[46px] h-[46px] rounded-[10px] bg-muted items-center justify-center">
-                      <BookmarkIcon size={17} className="text-muted-foreground" />
-                    </View>
-                  )}
-                  <View className="flex-1 min-w-0">
-                    <Text className="text-foreground text-[14px] font-bold" numberOfLines={1}>
-                      {shelf.name}
-                    </Text>
-                    <View className="flex-row items-center gap-1.5 mt-0.5">
-                      {shelf.isPublic ? (
-                        <GlobeIcon size={11} className="text-muted-foreground" />
-                      ) : (
-                        <LockIcon size={11} className="text-muted-foreground" />
-                      )}
-                      <Text className="text-muted-foreground text-[11px]">
-                        {holds ? 'Kept here · ' : ''}
-                        {shelf.count} kept · {shelf.isPublic ? 'Public' : 'Private'}
-                      </Text>
-                    </View>
+                  <View className="w-12 h-12 rounded-xl bg-muted items-center justify-center">
+                    <PlusIcon size={20} className="text-foreground" />
                   </View>
-                  {holds && !on && (
-                    <View className="w-6 h-6 rounded-full border border-primary items-center justify-center">
-                      <CheckIcon size={13} className="text-primary" />
-                    </View>
-                  )}
-                  {on && (
-                    <View className="w-6 h-6 rounded-full bg-action items-center justify-center">
-                      <CheckIcon size={13} className="text-action-foreground" />
-                    </View>
-                  )}
-                </Pressable>
-              );
-            })}
-
-            {naming ? (
-              <View className="px-2.5 pt-3">
-                <TextInput
-                  value={newName}
-                  onChangeText={setNewName}
-                  placeholder="Name it for what it teaches you"
-                  placeholderTextColor={palette.mutedForeground}
-                  autoFocus
-                  maxLength={60}
-                  returnKeyType="done"
-                  onSubmitEditing={addShelf}
-                  {...typingProps}
-                  className="bg-card rounded-xl px-4 min-h-12 text-foreground text-[14px]"
-                />
-                <View className="flex-row gap-2 mt-2">
-                  <Pressable
-                    onPress={() => setNaming(false)}
-                    accessibilityRole="button"
-                    className="min-h-11 px-4 rounded-xl border border-border items-center justify-center"
-                  >
-                    <Text className="text-foreground text-[13px] font-bold">Cancel</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={addShelf}
-                    disabled={!newName.trim() || createShelf.isPending}
-                    accessibilityRole="button"
-                    accessibilityState={{ busy: createShelf.isPending }}
-                    className="flex-1 min-h-11 rounded-xl bg-action items-center justify-center active:opacity-90"
-                    style={{ opacity: !newName.trim() || createShelf.isPending ? 0.5 : 1 }}
-                  >
-                    <Text className="text-action-foreground text-[13px] font-bold">
-                      {createShelf.isPending ? 'Adding…' : 'Add shelf'}
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : (
-              <Pressable
-                onPress={() => setNaming(true)}
-                accessibilityRole="button"
-                className="min-h-16 flex-row items-center gap-3 rounded-2xl px-2.5"
-              >
-                <View className="w-[46px] h-[46px] rounded-[10px] bg-muted items-center justify-center">
-                  <PlusIcon size={18} className="text-muted-foreground" />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-foreground text-[14px] font-bold">New shelf</Text>
-                  <Text className="text-muted-foreground text-[11px] mt-0.5">
-                    Group it with the rest of what you keep
+                  <Text className="text-foreground text-[15px] leading-5 font-semibold">
+                    New shelf
                   </Text>
-                </View>
-              </Pressable>
+                </Pressable>
+              </View>
+            )}
+
+            {chosen && (
+              <View className="pt-4 gap-2">
+                <Text className="text-foreground text-[15px] leading-5 font-semibold">
+                  Why this one{' '}
+                  <Text className="text-muted-foreground font-normal">
+                    optional, shown on your shelf
+                  </Text>
+                </Text>
+                <FormInput
+                  value={note}
+                  onChangeText={setNote}
+                  maxLength={200}
+                  accessibilityLabel="Why this one. Optional, and shown on your shelf"
+                  onFocus={() => {
+                    typing.current = true;
+                  }}
+                  onBlur={() => {
+                    typing.current = false;
+                  }}
+                />
+              </View>
+            )}
+          </ScrollView>
+
+          <View className="px-5 pt-5 pb-3 flex-row gap-2">
+            {kept ? (
+              <>
+                <SheetButton
+                  // "Both" is two; a third shelf is another.
+                  label={keptOn.length === 1 ? 'Keep on both' : 'Keep here too'}
+                  onPress={confirm}
+                  disabled={!canMove || busy}
+                  busy={keep.isPending && !moving}
+                  accessibilityHint="Keeps it on this shelf as well as where it is now"
+                />
+                <SheetButton
+                  label={moving ? 'Moving…' : 'Move here'}
+                  onPress={() => void move()}
+                  filled
+                  disabled={!canMove || busy}
+                  busy={moving}
+                />
+              </>
+            ) : (
+              <SheetButton
+                label={keep.isPending ? 'Keeping…' : 'Keep it'}
+                onPress={confirm}
+                filled
+                disabled={!chosen || busy}
+                busy={keep.isPending}
+              />
             )}
           </View>
-        )}
-
-        {chosen && (
-          <View className="px-5 pt-3">
-            <Text className="text-primary text-[10px] font-bold tracking-[1.5px]">
-              WHY THIS ONE
-            </Text>
-            <TextInput
-              value={note}
-              onChangeText={setNote}
-              placeholder="Optional, and shown on your shelf"
-              placeholderTextColor={palette.mutedForeground}
-              maxLength={200}
-              {...typingProps}
-              className="bg-card rounded-xl px-4 min-h-12 mt-2 text-foreground text-[13px]"
-            />
-          </View>
-        )}
-      </ScrollView>
-
-      <View className="px-4 pt-3 pb-3 flex-row gap-2.5">
-        {canMove ? (
-          <Pressable
-            onPress={confirm}
-            disabled={busy}
-            accessibilityRole="button"
-            accessibilityHint="Keeps it on this shelf as well as where it is now"
-            className="min-h-12 px-4 rounded-xl border border-border items-center justify-center"
-            style={{ opacity: busy ? 0.5 : 1 }}
-          >
-            <Text className="text-foreground text-[13px] font-bold">Keep on both</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={() => !busy && onClose()}
-            accessibilityRole="button"
-            className="min-h-12 px-5 rounded-xl border border-border items-center justify-center"
-          >
-            <Text className="text-foreground text-[13px] font-bold">Cancel</Text>
-          </Pressable>
-        )}
-        {canMove ? (
-          <Pressable
-            onPress={() => void move()}
-            disabled={busy}
-            accessibilityRole="button"
-            accessibilityState={{ busy: moving }}
-            className="flex-1 min-h-12 rounded-xl bg-action items-center justify-center active:opacity-90"
-            style={{ opacity: busy ? 0.5 : 1 }}
-          >
-            <Text className="text-action-foreground text-[13px] font-bold">
-              {moving ? 'Moving…' : 'Move here'}
-            </Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={confirm}
-            disabled={!chosen || busy}
-            accessibilityRole="button"
-            accessibilityState={{ busy: keep.isPending, disabled: !chosen }}
-            className="flex-1 min-h-12 rounded-xl bg-action items-center justify-center active:opacity-90"
-            style={{ opacity: !chosen || busy ? 0.5 : 1 }}
-          >
-            <Text className="text-action-foreground text-[13px] font-bold">
-              {keep.isPending ? 'Keeping…' : 'Keep it'}
-            </Text>
-          </Pressable>
-        )}
-      </View>
+        </>
+      )}
     </BottomSheet>
   );
 }

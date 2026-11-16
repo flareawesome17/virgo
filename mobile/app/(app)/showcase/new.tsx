@@ -1,52 +1,55 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  FlatList,
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
-  Switch,
   Text,
-  TextInput,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { goToTab } from '@/src/lib/navigation';
 import { InsetFrame } from '@/components/InsetFrame';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import {
-  AlertCircleIcon,
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  CheckIcon,
-  GlobeIcon,
-  LockIcon,
-  PlayIcon,
-  PlusIcon,
-  StarIcon,
-  Trash2Icon,
-  XIcon,
-} from 'lucide-react-native';
-import { BottomSheet } from '@/components/BottomSheet';
-import { FormHeader } from '@/components/FormHeader';
+import { MapPinIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { FormHeader } from '@/components/FormHeader';
+import {
+  ChoiceChip,
+  ChoiceChips,
+  FormCard,
+  FormField,
+  FormFooter,
+  FormHint,
+  FormInput,
+  FormLabel,
+  FormSection,
+  FormSwitchRow,
+} from '@/components/Form';
 import { RemoteImage } from '@/components/RemoteImage';
 import { VideoThumbnail } from '@/components/VideoThumbnail';
-import { LoadFailed } from '@/components/LoadFailed';
 import { DetailFallback } from '@/components/DetailFallback';
+import { ArrangeSheet } from '@/components/showcase-form/ArrangeSheet';
+import { AudienceCard, type Audience } from '@/components/showcase-form/AudienceCard';
+import { ChosenStrip } from '@/components/showcase-form/ChosenStrip';
+import { Count, CraftSection } from '@/components/showcase-form/CraftSection';
+import { WorkPicker } from '@/components/showcase-form/WorkPicker';
+import {
+  NoticeText,
+  PickerNotice,
+  type PieceAbout,
+  type PieceKind,
+} from '@/components/showcase-form/parts';
 import {
   albumFilesQueryKey,
   kindOf,
   useAlbums,
   useShowcase,
   useShowcaseActions,
-  useTheme,
 } from '@/src/hooks';
-import { clock } from '@/src/lib/media-grid';
 import {
   MAX_CRAFT_TAGS,
   ApiError,
@@ -55,17 +58,10 @@ import {
   showcaseStatus,
   storageApi,
   type Showcase,
-  type StoredFile,
 } from '@/src/api';
 import { faultyPiece, profileActionMessage } from '@/src/lib/profile-media';
-import { PALETTES } from '@/theme';
 
-for (const Icon of [
-  AlertCircleIcon, ArrowLeftIcon, ArrowRightIcon, CheckIcon, GlobeIcon, LockIcon, PlayIcon, PlusIcon,
-  StarIcon, Trash2Icon, XIcon,
-]) {
-  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-}
+cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /** A profile photo is never a piece of work; the server refuses them too. */
 const PROFILE_PICTURE_KEY = /^users\/[^/]+\/(avatars|covers)\//;
@@ -82,22 +78,16 @@ const TAG_SUGGESTIONS = [
 const FILM_TAG_SUGGESTIONS = ['Gimbal', 'Handheld', 'Drone', 'Slow motion', '24fps', 'Log', 'Same-day edit'];
 /** The server's own limit on one tag. */
 const MAX_TAG_LENGTH = 32;
-const GRID_GAP = 6;
+
+/**
+ * What kind of work it is. One at most, and none is fine. The API keeps it as
+ * the words themselves, which is what a card prints.
+ */
+const CATEGORIES = ['Wedding', 'Prenup', 'Debut', 'Portrait', 'Event', 'Commercial'];
 
 /** Said when a film and photographs meet, by the grid and by a refused post. */
 const FILM_ALONE = 'A film is posted on its own.';
 const NO_MIXING = "Photos and a film can't share a post.";
-
-type Kind = 'image' | 'video';
-
-/**
- * Who sees a post. Public is the feed, the profile and the link; Private is
- * the author alone — a post saved and not published, or one taken down.
- * Connections-only was a third choice on the API that the phone never
- * offered; an older post that has it is left with it until its author
- * chooses one of these.
- */
-type Visibility = 'public' | 'private';
 
 /**
  * Posting a showcase, or — with `?edit=<id>` — changing one.
@@ -128,27 +118,27 @@ export default function NewShowcaseScreen() {
 }
 
 /**
- * The craft note has its own place rather than being folded into the caption,
- * because it is the thing the feed exists for: a caption says what this is, and
- * the note says what somebody else could do with it.
+ * The form, in two steps on the one screen: the work, then the words.
  *
- * The library is a three-column list of thumbnails, virtualised. It was every
- * file drawn at once, from its full-size original.
+ * It was one long page with the library in the middle of it, so the caption
+ * was a scroll past every photograph you own. Choosing is its own step now,
+ * and the words have a page to themselves. An edit opens on the words, which
+ * is what an edit is nearly always for; the work is one tap back.
  */
 function ShowcaseForm({ existing }: { existing?: Showcase }) {
-  const { isDark } = useTheme();
-  const palette = isDark ? PALETTES.dark : PALETTES.light;
-  const { width } = useWindowDimensions();
   const { create, update, setPublished } = useShowcaseActions();
   const editing = Boolean(existing);
   const busy = create.isPending || update.isPending || setPublished.isPending;
   const status = existing ? showcaseStatus(existing) : null;
 
+  const [step, setStep] = useState<1 | 2>(editing ? 2 : 1);
   const [picked, setPicked] = useState<string[]>(
     () => existing?.pieces.map((piece) => piece.fileKey) ?? [],
   );
   const [title, setTitle] = useState(existing?.title ?? '');
   const [caption, setCaption] = useState(existing?.caption ?? '');
+  const [category, setCategory] = useState(existing?.category ?? '');
+  const [location, setLocation] = useState(existing?.location ?? '');
   const [craftNote, setCraftNote] = useState(existing?.craftNote ?? '');
   const [tags, setTags] = useState<string[]>(existing?.craftTags ?? []);
   const [tagDraft, setTagDraft] = useState('');
@@ -164,7 +154,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
    * film goes alone. Kept per key, like the stills, because the grid only
    * holds the album on screen.
    */
-  const [kinds, setKinds] = useState<Record<string, Kind>>(() =>
+  const [kinds, setKinds] = useState<Record<string, PieceKind>>(() =>
     Object.fromEntries(existing?.pieces.map((piece) => [piece.fileKey, piece.kind]) ?? []),
   );
   /**
@@ -177,21 +167,28 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     swap?: { label: string; key: string };
   } | null>(null);
   /*
-   * Public for a new post. An existing one starts where it is: private if it
-   * is not out, public if it is out to everyone — and unchosen if it is out
-   * to connections only, so saving an edit never quietly widens or narrows
-   * who sees it. One Virgo took down has no choice to make.
+   * Everyone for a new post. An existing one starts where it is: only you if
+   * it is not out, and otherwise whoever it is out to, so saving an edit never
+   * quietly widens or narrows who sees it. One Virgo took down has no choice
+   * to make.
    */
-  const [visibility, setVisibility] = useState<Visibility | null>(() => {
+  const [visibility, setVisibility] = useState<Audience | null>(() => {
     if (!existing) return 'public';
     if (status === 'removed') return null;
-    if (status === 'live') return existing.visibility === 'public' ? 'public' : null;
+    if (status === 'live') return existing.visibility === 'connections' ? 'connections' : 'public';
     return 'private';
   });
   // A still for everything chosen, whichever album it was picked from — the
   // grid only holds the album on screen.
   const [stills, setStills] = useState<Record<string, string>>(() =>
     Object.fromEntries(existing?.pieces.map((piece) => [piece.fileKey, piece.url]) ?? []),
+  );
+  // And its name, album and length, for the same reason. A piece that came
+  // with the post has only its length: a showcase does not carry file names.
+  const [about, setAbout] = useState<Record<string, PieceAbout>>(() =>
+    Object.fromEntries(
+      existing?.pieces.map((piece) => [piece.fileKey, { durationMs: piece.durationMs }]) ?? [],
+    ),
   );
 
   /*
@@ -206,6 +203,8 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     picked,
     title,
     caption,
+    category,
+    location,
     craftNote,
     tags,
     allowComments,
@@ -219,6 +218,19 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
+
+  /*
+   * Android's back button on the words goes back to the work, as the X does,
+   * rather than out of the form with both steps' worth of typing.
+   */
+  useEffect(() => {
+    if (step !== 2) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setStep(1);
+      return true;
+    });
+    return () => sub.remove();
+  }, [step]);
 
   /**
    * What can go in: photographs, and films the media worker has finished with.
@@ -239,11 +251,6 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     [files.data],
   );
 
-  /** A tile's still: the thumbnail, never the original. None for a film with no poster. */
-  const stillOf = (file: StoredFile): string | undefined =>
-    (kindOf(file.contentType) === 'video' ? file.posterUrl : (file.thumbnailUrl ?? file.url)) ??
-    undefined;
-
   const pickedKinds = picked.map((key) => kinds[key] ?? 'image');
   const hasFilm = pickedKinds.includes('video');
 
@@ -253,9 +260,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
    * happened, with the swap offered — what is already chosen is never thrown
    * away by a tap meant to add to it.
    */
-  const toggle = (key: string, still?: string, kind?: Kind) => {
+  const toggle = (key: string, still?: string, kind?: PieceKind, known?: PieceAbout) => {
     if (still) setStills((current) => ({ ...current, [key]: still }));
     if (kind) setKinds((current) => (current[key] === kind ? current : { ...current, [key]: kind }));
+    if (known) setAbout((current) => ({ ...current, [key]: known }));
     if (faulty?.key === key) setFaulty(null);
     if (picked.includes(key)) {
       setNotice(null);
@@ -321,6 +329,9 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
    * A refusal about one piece points at it and says what to do — take it
    * out, or wait for a film to be ready — rather than "Try again", which for
    * a photograph that can never be posted would never come true.
+   *
+   * Both of those are said beside the work, which is the first step, so the
+   * form goes back there: the button that was refused is on the second.
    */
   const failed = (error: unknown, action: 'showcase' | 'editShowcase') => {
     const message = profileActionMessage(error, action);
@@ -330,11 +341,13 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
       (error.body as { code?: unknown } | undefined)?.code === 'SHOWCASE_FILM_ALONE'
     ) {
       setNotice({ message: `${NO_MIXING} ${FILM_ALONE}` });
+      setStep(1);
       return;
     }
     const key = faultyPiece(error);
     if (key && picked.includes(key)) {
       setFaulty({ key, message });
+      setStep(1);
       return;
     }
     Alert.alert(action === 'showcase' ? "Couldn't post that" : "Couldn't save that", message);
@@ -349,19 +362,23 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         fileKeys: picked,
         title: title.trim() || undefined,
         caption: caption.trim() || undefined,
+        category: category || undefined,
+        location: location.trim() || undefined,
         craftNote: craftNote.trim() || undefined,
         craftTags: tags.length > 0 ? tags : undefined,
         allowComments,
         showHire,
-        // Private is saved and not posted: only its author sees it, and it
-        // goes out when they make it public.
+        // Everyone is what the server assumes when nothing is said.
+        ...(visibility === 'connections' ? { visibility: 'connections' as const } : {}),
+        // Only you is saved and not posted: only its author sees it, and it
+        // goes out when they choose who to.
         publish: visibility !== 'private',
       },
       {
         // Back to where it now lives: the Feed, at the top, where a new post
         // of yours comes first — there is no post screen to land on any more.
-        // A private one is in no feed, so it goes to your profile instead:
-        // the Work tab of the Dashboard.
+        // One only you can see is in no feed, so it goes to your profile
+        // instead: the Work tab of the Dashboard.
         onSuccess: () => {
           allowLeave();
           if (visibility === 'private') goToTab('/?tab=work');
@@ -388,14 +405,17 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           // to clear a field.
           title: title.trim(),
           caption: caption.trim(),
+          category,
+          location: location.trim(),
           craftNote: craftNote.trim(),
           craftTags: tags,
           allowComments,
           showHire,
-          // Only when Public was chosen for a post that was not out to
-          // everyone: an untouched choice sends nothing.
-          ...(visibility === 'public' && existing.visibility !== 'public'
-            ? { visibility: 'public' as const }
+          // Only when the audience chosen is not the one the post has: an
+          // untouched choice sends nothing. Only you is not an audience the
+          // API knows; that is the request after this one.
+          ...(visibility && visibility !== 'private' && existing.visibility !== visibility
+            ? { visibility }
             : {}),
         },
       })
@@ -406,7 +426,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           try {
             if (visibility === 'private' && wasLive) {
               await setPublished.mutateAsync({ id: existing.id, published: false });
-            } else if (visibility === 'public' && (status === 'draft' || status === 'down')) {
+            } else if (
+              (visibility === 'public' || visibility === 'connections') &&
+              (status === 'draft' || status === 'down')
+            ) {
               await setPublished.mutateAsync({ id: existing.id, published: true });
             }
           } catch (error) {
@@ -436,610 +459,315 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   // they can be taken off.
   const suggestions = [...TAG_SUGGESTIONS, ...FILM_TAG_SUGGESTIONS];
   const tagChoices = [...tags.filter((tag) => !suggestions.includes(tag)), ...suggestions];
-  const tile = Math.floor((width - 40 - GRID_GAP * 2) / 3);
+  // The same for a kind of work chosen somewhere that offers others.
+  const categoryChoices =
+    category && !CATEGORIES.includes(category) ? [category, ...CATEGORIES] : CATEGORIES;
 
-  const header = (
+  const filmAlone = hasFilm && picked.length === 1;
+  const cover = picked[0];
+  const arrangingKey = arranging !== null ? picked[arranging] : undefined;
+  // Only you is saved, not posted, and the button says so.
+  const saves = editing || visibility === 'private';
+
+  /* Step 1, above the grid: what is chosen, and anything to say about it. */
+  const chosen = (
     <>
-      <View className="px-5 pt-4">
-        <Text className="text-primary text-[11px] font-bold tracking-[1.5px]">THE WORK</Text>
-        <Text className="text-muted-foreground text-[12px] mt-1">
-          {hasFilm && picked.length === 1
-            ? 'A film, posted on its own.'
-            : `${picked.length}/${MAX_SHOWCASE_ITEMS} chosen`}
-          {picked.length > 1 ? ' · the first is the cover. Tap one to move it.' : ''}
-        </Text>
-        {picked.length === 0 ? (
-          <Text className="text-muted-foreground text-[12px]">
-            Up to {MAX_SHOWCASE_ITEMS} photographs, or one film on its own.
-          </Text>
-        ) : null}
-      </View>
-
-      {/* What is chosen, in order — including anything picked in another
-          album, which the grid below no longer shows. Tap one to make it the
-          cover, move it, or take it out: changing the cover meant taking
-          everything out and picking again in a new order. */}
-      {picked.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingTop: 10 }}
-        >
-          {picked.map((key, i) => {
-            const bad = faulty?.key === key;
-            return (
-              <Pressable
-                key={key}
-                onPress={() => setArranging(i)}
-                accessibilityRole="button"
-                accessibilityLabel={`Chosen, number ${i + 1}${i === 0 ? ', the cover' : ''}${bad ? ', cannot be posted' : ''}. Arrange.`}
-                className="bg-muted active:opacity-80"
-                style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 10,
-                  overflow: 'hidden',
-                  borderWidth: 2,
-                  borderColor: bad ? palette.destructive : 'transparent',
-                }}
-              >
-                {stills[key] ? (
-                  <RemoteImage source={{ uri: stills[key] }} style={{ flex: 1 }} />
-                ) : kinds[key] === 'video' ? (
-                  <View className="flex-1 items-center justify-center bg-secondary">
-                    <VideoThumbnail size={38} />
-                  </View>
-                ) : null}
-                <View className="absolute right-1 top-1 w-5 h-5 rounded-full bg-action items-center justify-center">
-                  <Text className="text-action-foreground text-[10px] font-bold">{i + 1}</Text>
-                </View>
-                {bad && (
-                  <View className="absolute left-1 top-1 w-5 h-5 rounded-full bg-destructive items-center justify-center">
-                    <AlertCircleIcon size={12} color="#FFFFFF" />
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
+      <ChosenStrip
+        picked={picked}
+        stills={stills}
+        kinds={kinds}
+        about={about}
+        faultyKey={faulty?.key}
+        onArrange={setArranging}
+      />
 
       {notice && (
-        <View className="mx-5 mt-3 rounded-xl bg-warning/10 p-3 flex-row items-start gap-2.5">
-          <AlertCircleIcon size={16} className="text-warning" />
-          <View className="flex-1">
-            <Text className="text-foreground text-[13px] leading-5">{notice.message}</Text>
-            {notice.swap ? (
-              <Pressable
-                onPress={() => notice.swap && swapTo(notice.swap.key)}
-                accessibilityRole="button"
-                hitSlop={{ top: 8, bottom: 8 }}
-                className="self-start mt-1.5 active:opacity-60"
-              >
-                <Text className="text-primary text-[13px] font-bold">{notice.swap.label}</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <Pressable
-            onPress={() => setNotice(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss"
-            className="w-8 h-8 -mr-1 -mt-1 items-center justify-center active:opacity-60"
-          >
-            <XIcon size={15} className="text-muted-foreground" />
-          </Pressable>
-        </View>
+        <PickerNotice tone="warning" onDismiss={() => setNotice(null)}>
+          <NoticeText>{notice.message}</NoticeText>
+          {notice.swap ? (
+            <Pressable
+              onPress={() => notice.swap && swapTo(notice.swap.key)}
+              accessibilityRole="button"
+              hitSlop={{ top: 8, bottom: 8 }}
+              className="self-start mt-1 active:opacity-60"
+            >
+              <Text className="text-foreground text-[14px] leading-5 font-semibold underline">
+                {notice.swap.label}
+              </Text>
+            </Pressable>
+          ) : null}
+        </PickerNotice>
       )}
 
       {legacyMix && (
-        <Text className="text-muted-foreground text-[12px] leading-[17px] px-5 pt-3">
-          This post mixes photographs and a film, which a post can no longer do. You can
-          still change the words; to change the pieces, keep the photographs or one film.
-        </Text>
+        <PickerNotice>
+          <NoticeText>
+            This post mixes photographs and a film, which a post can no longer do. You can
+            still change the words; to change the pieces, keep the photographs or one film.
+          </NoticeText>
+        </PickerNotice>
       )}
 
       {faulty && (
-        <View className="mx-5 mt-3 rounded-xl bg-destructive/10 p-3 flex-row items-start gap-2.5">
-          <AlertCircleIcon size={16} className="text-destructive" />
-          <Text className="flex-1 text-foreground text-[13px] leading-5">{faulty.message}</Text>
-          <Pressable
-            onPress={() => toggle(faulty.key)}
-            accessibilityRole="button"
-            className="min-h-[36px] px-3 rounded-lg bg-destructive items-center justify-center active:opacity-80"
-          >
-            <Text className="text-[12px] font-bold" style={{ color: '#FFFFFF' }}>Take it out</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {/* Where to look. What is chosen stays chosen across albums. */}
-      {albums.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingTop: 12 }}
+        <PickerNotice
+          tone="wrong"
+          trailing={
+            <Pressable
+              onPress={() => toggle(faulty.key)}
+              accessibilityRole="button"
+              className="h-9 px-3 rounded-[10px] bg-destructive items-center justify-center active:opacity-80"
+            >
+              <Text className="text-[13px] font-semibold" style={{ color: '#FFFFFF' }}>Take it out</Text>
+            </Pressable>
+          }
         >
-          {[{ id: undefined, name: 'All uploads' }, ...albums].map((album) => {
-            const on = album.id === albumId;
-            return (
-              <Pressable
-                key={album.id ?? 'all'}
-                onPress={() => setAlbumId(album.id)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                hitSlop={{ top: 4, bottom: 4 }}
-                className={`min-h-9 px-3.5 rounded-full items-center justify-center ${on ? 'bg-action' : 'bg-secondary'}`}
-              >
-                <Text
-                  numberOfLines={1}
-                  className={`text-[12px] font-bold ${on ? 'text-action-foreground' : 'text-secondary-foreground'}`}
-                  style={{ maxWidth: 160 }}
-                >
-                  {album.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+          <NoticeText>{faulty.message}</NoticeText>
+        </PickerNotice>
       )}
 
       {full && (
-        <Text className="text-warning text-[12px] px-5 pt-2">
-          That is all {MAX_SHOWCASE_ITEMS}. Take one out to swap it.
-        </Text>
+        <PickerNotice>
+          <NoticeText>That is all {MAX_SHOWCASE_ITEMS}. Take one out to swap it.</NoticeText>
+        </PickerNotice>
       )}
-      <View style={{ height: 12 }} />
     </>
   );
-
-  const footer = (
-    <>
-      {files.hasNextPage && (
-        <Pressable
-          onPress={() => void files.fetchNextPage()}
-          disabled={files.isFetchingNextPage}
-          accessibilityRole="button"
-          className="mx-5 mt-3 min-h-11 rounded-xl bg-secondary items-center justify-center active:opacity-80"
-        >
-          {files.isFetchingNextPage ? (
-            <ActivityIndicator color={palette.primary} />
-          ) : (
-            <Text className="text-secondary-foreground text-[13px] font-bold">Show more</Text>
-          )}
-        </Pressable>
-      )}
-
-      <View className="px-5 pt-6">
-        <Text className="text-primary text-[11px] font-bold tracking-[1.5px]">TITLE</Text>
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Ten minutes before the rain"
-          placeholderTextColor={palette.mutedForeground}
-          maxLength={120}
-          accessibilityLabel="Title"
-          className="bg-card rounded-xl px-4 min-h-12 mt-2 text-foreground text-[14px] font-semibold"
-        />
-
-        <Text className="text-primary text-[11px] font-bold tracking-[1.5px] mt-5">CAPTION</Text>
-        <TextInput
-          value={caption}
-          onChangeText={setCaption}
-          placeholder="Where it was, who it was for"
-          placeholderTextColor={palette.mutedForeground}
-          multiline
-          maxLength={2200}
-          accessibilityLabel="Caption"
-          className="bg-card rounded-xl px-4 py-3 min-h-20 mt-2 text-foreground text-[13.5px] leading-5"
-          style={{ textAlignVertical: 'top' }}
-        />
-      </View>
-
-      {/* The field the whole feed is for. */}
-      <View className="mx-5 mt-6 rounded-2xl border border-primary/40 bg-primary/5 p-4">
-        <Text className="text-primary text-[11px] font-bold tracking-[1.5px]">HOW IT WAS MADE</Text>
-        <Text className="text-muted-foreground text-[12px] leading-4 mt-1.5">
-          One thing another photographer could use. This is what turns a scroll into
-          something worth keeping.
-        </Text>
-        <TextInput
-          value={craftNote}
-          onChangeText={setCraftNote}
-          placeholder="Backlit into the storm front so the rain read as light, not weather."
-          placeholderTextColor={palette.mutedForeground}
-          multiline
-          maxLength={600}
-          accessibilityLabel="How it was made"
-          className="bg-card rounded-xl px-4 py-3 min-h-20 mt-3 text-foreground text-[13.5px] leading-5"
-          style={{ textAlignVertical: 'top' }}
-        />
-
-        <Text className="text-muted-foreground text-[12px] mt-3">
-          Tags · {tags.length}/{MAX_CRAFT_TAGS}
-        </Text>
-        <View className="flex-row flex-wrap gap-1.5 mt-2">
-          {tagChoices.map((tag) => {
-            const on = tags.includes(tag);
-            return (
-              <Pressable
-                key={tag}
-                onPress={() => toggleTag(tag)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                hitSlop={{ top: 4, bottom: 4 }}
-                className={`min-h-9 px-3 rounded-full items-center justify-center flex-row gap-1.5 ${on ? 'bg-action' : 'bg-card border border-border'}`}
-              >
-                {on && <CheckIcon size={11} className="text-action-foreground" />}
-                <Text
-                  className={`text-[12px] font-semibold ${on ? 'text-action-foreground' : 'text-secondary-foreground'}`}
-                >
-                  {tag}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {/* Your own, for what none of the suggestions say. */}
-        <View className="flex-row items-center gap-2 mt-3">
-          <TextInput
-            value={tagDraft}
-            onChangeText={setTagDraft}
-            placeholder="Add your own tag"
-            placeholderTextColor={palette.mutedForeground}
-            maxLength={MAX_TAG_LENGTH}
-            returnKeyType="done"
-            onSubmitEditing={addTypedTag}
-            editable={tags.length < MAX_CRAFT_TAGS}
-            accessibilityLabel="Add your own tag"
-            className="flex-1 bg-card rounded-xl px-4 min-h-11 text-foreground text-[13px]"
-          />
-          <Pressable
-            onPress={addTypedTag}
-            disabled={!tagDraft.trim() || tags.length >= MAX_CRAFT_TAGS}
-            accessibilityRole="button"
-            accessibilityLabel="Add this tag"
-            className="w-11 h-11 rounded-xl bg-action items-center justify-center active:opacity-80"
-            style={{ opacity: !tagDraft.trim() || tags.length >= MAX_CRAFT_TAGS ? 0.45 : 1 }}
-          >
-            <PlusIcon size={18} className="text-action-foreground" />
-          </Pressable>
-        </View>
-
-        <Text className="text-muted-foreground text-[11px] leading-[15px] mt-3">
-          Typed by you, never read off the file — what your camera recorded about where
-          you were stays private.
-        </Text>
-      </View>
-
-      <View className="mx-5 mt-6">
-        <Text className="text-primary text-[11px] font-bold tracking-[1.5px]">WHO SEES IT</Text>
-        {status === 'removed' ? (
-          <Text className="text-muted-foreground text-[12px] leading-[17px] mt-2">
-            Virgo took this post down, so only you can see it. Contact support if you think
-            that was a mistake.
-          </Text>
-        ) : (
-          <View
-            accessibilityRole="radiogroup"
-            className="mt-2 rounded-2xl border border-border overflow-hidden"
-          >
-            <VisibilityRow
-              icon={GlobeIcon}
-              label="Public"
-              detail="In the feed and on your profile, and anyone you send the link to can see it."
-              on={visibility === 'public'}
-              onPress={() => setVisibility('public')}
-            />
-            <VisibilityRow
-              icon={LockIcon}
-              label="Private"
-              detail="Only you. It waits on your profile until you make it public."
-              on={visibility === 'private'}
-              onPress={() => setVisibility('private')}
-              divided
-            />
-          </View>
-        )}
-        {visibility === null && existing?.visibility === 'connections' && status === 'live' ? (
-          <Text className="text-muted-foreground text-[12px] leading-[17px] mt-2">
-            Right now only your connections see it. That stays as it is unless you choose.
-          </Text>
-        ) : null}
-      </View>
-
-      <View className="mx-5 mt-5 mb-2 rounded-2xl border border-border overflow-hidden">
-        {/* allow_comments has been a column since showcases shipped with
-            nothing able to set it. This is the switch it was describing. */}
-        <View className="min-h-[52px] flex-row items-center gap-3 px-4 py-2.5 border-b border-border">
-          <View className="flex-1">
-            <Text className="text-foreground text-[14px] font-semibold">Comments</Text>
-            <Text className="text-muted-foreground text-[12px] leading-4 mt-0.5">
-              You can turn them off later. Nothing said is deleted — it stops being
-              shown, and comes back if you turn them on again.
-            </Text>
-          </View>
-          <Switch
-            value={allowComments}
-            onValueChange={setAllowComments}
-            accessibilityLabel="Allow comments on this showcase"
-          />
-        </View>
-        <View className="min-h-[52px] flex-row items-center gap-3 px-4 py-2.5">
-          <View className="flex-1">
-            <Text className="text-foreground text-[14px] font-semibold">Show Hire</Text>
-            <Text className="text-muted-foreground text-[12px] leading-4 mt-0.5">
-              A Hire button on this post, for people who want to book you.
-            </Text>
-          </View>
-          <Switch
-            value={showHire}
-            onValueChange={setShowHire}
-            accessibilityLabel="Show a Hire button on this showcase"
-          />
-        </View>
-      </View>
-      <View style={{ height: 40 }} />
-    </>
-  );
-
-  const arrangingKey = arranging !== null ? picked[arranging] : undefined;
 
   return (
     <InsetFrame>
       <FormHeader
         title={editing ? 'Edit showcase' : 'New showcase'}
-        action={{
-          // Private is saved, not posted, and the button says so.
-          label: editing || visibility === 'private'
-            ? busy ? 'Saving…' : 'Save'
-            : busy ? 'Posting…' : 'Post',
-          onPress: editing ? save : post,
-          disabled: editing ? !canSave : !canPostTogether(pickedKinds),
-          busy,
-        }}
+        subtitle={step === 1 ? 'Step 1 of 2 · the work' : 'Step 2 of 2 · the words'}
+        // From the words the X goes back to the work; from the work it
+        // leaves, and the discard guard asks first.
+        onClose={step === 2 ? () => setStep(1) : undefined}
       />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
-        <FlatList
-          data={files.isLoading || files.isError || files.isPaused ? [] : available}
-          keyExtractor={(file) => file.key}
-          numColumns={3}
-          columnWrapperStyle={{ gap: GRID_GAP, paddingHorizontal: 20 }}
-          contentContainerStyle={{ gap: GRID_GAP }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={false}
-          initialNumToRender={18}
-          windowSize={7}
-          ListHeaderComponent={header}
-          ListFooterComponent={footer}
-          ListEmptyComponent={
-            files.isLoading ? (
-              <View className="py-10 items-center">
-                <ActivityIndicator color={palette.primary} />
-              </View>
-            ) : files.isError || files.isPaused ? (
-              <View className="px-5">
-                <LoadFailed what="your work" onRetry={() => files.refetch()} compact />
-              </View>
-            ) : albumId ? (
-              <Text className="px-8 pt-4 text-muted-foreground text-[13px] text-center leading-5">
-                Nothing in this album can be posted yet. Photographs show here once they are
-                uploaded, and films once their preview is ready.
-              </Text>
-            ) : (
-              <View className="px-8 pt-4 items-center gap-4">
-                <Text className="text-muted-foreground text-[13px] text-center leading-5">
-                  Your photographs and films live in albums, and there are none here yet.
-                  Upload some first and they will show up here.
-                </Text>
+        {step === 1 ? (
+          <>
+            <WorkPicker
+              header={chosen}
+              albums={albums}
+              albumId={albumId}
+              onAlbum={setAlbumId}
+              files={available}
+              state={files.isLoading ? 'loading' : files.isError || files.isPaused ? 'failed' : 'ready'}
+              hasMore={Boolean(files.hasNextPage)}
+              loadingMore={files.isFetchingNextPage}
+              onMore={() => void files.fetchNextPage()}
+              onRetry={() => files.refetch()}
+              onUpload={() => router.push('/albums/upload')}
+              picked={picked}
+              hasFilm={hasFilm}
+              filmAlone={FILM_ALONE}
+              noMixing={NO_MIXING}
+              onToggle={(file, still, kind) =>
+                toggle(file.key, still, kind, {
+                  name: file.mediaTitle || file.originalName || undefined,
+                  album: albums.find((album) => album.id === file.albumId)?.name,
+                  durationMs: file.durationMs,
+                })
+              }
+            />
+            <FormFooter
+              label="Next"
+              onPress={() => setStep(2)}
+              disabled={picked.length === 0}
+              note={
+                picked.length === 0
+                  ? `Up to ${MAX_SHOWCASE_ITEMS} photographs, or one film on its own`
+                  : undefined
+              }
+            />
+          </>
+        ) : (
+          <>
+            <ScrollView
+              className="flex-1"
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 24 }}
+            >
+              {/* The work, in one row, and the way back to it. */}
+              <View className="flex-row items-center gap-3 p-2.5 rounded-[20px] border border-border/40 bg-card">
+                <View className="bg-muted" style={{ width: 56, height: 56, borderRadius: 12, overflow: 'hidden' }}>
+                  {cover && stills[cover] ? (
+                    <RemoteImage source={{ uri: stills[cover] }} style={{ flex: 1 }} />
+                  ) : cover && kinds[cover] === 'video' ? (
+                    <View className="flex-1 items-center justify-center bg-secondary">
+                      <VideoThumbnail size={34} />
+                    </View>
+                  ) : null}
+                </View>
+                <View className="flex-1 min-w-0">
+                  <Text className="text-foreground text-[15px] leading-5 font-semibold">
+                    {filmAlone
+                      ? 'One film'
+                      : hasFilm
+                        ? `${picked.length} pieces`
+                        : picked.length === 1
+                          ? '1 photograph'
+                          : `${picked.length} photographs`}
+                  </Text>
+                  {filmAlone ? null : (
+                    <Text className="text-muted-foreground text-[13px] leading-[18px]">
+                      The cover is number 1
+                    </Text>
+                  )}
+                </View>
                 <Pressable
-                  onPress={() => router.push('/albums/upload')}
+                  onPress={() => setStep(1)}
                   accessibilityRole="button"
-                  className="min-h-11 bg-action rounded-xl px-5 items-center justify-center"
+                  accessibilityLabel="Change the work"
+                  hitSlop={10}
+                  className="px-2 active:opacity-60"
                 >
-                  <Text className="text-action-foreground text-[13px] font-bold">Upload</Text>
+                  <Text className="text-primary text-[15px] font-semibold">Change</Text>
                 </Pressable>
               </View>
-            )
-          }
-          renderItem={({ item: file }) => {
-            const at = picked.indexOf(file.key);
-            const on = at >= 0;
-            const film = kindOf(file.contentType) === 'video';
-            const still = stillOf(file);
-            // Dimmed rather than hidden: still tappable, to say why and offer
-            // the swap.
-            const blocked = !on && (film ? picked.length > 0 : hasFilm);
-            return (
-              <Pressable
-                onPress={() => toggle(file.key, still, film ? 'video' : 'image')}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={
-                  on
-                    ? `Chosen, number ${at + 1}. Remove.`
-                    : film
-                      ? `Choose this film${blocked ? `. ${FILM_ALONE}` : ''}`
-                      : `Choose this photograph${blocked ? `. ${NO_MIXING}` : ''}`
-                }
-                style={{
-                  width: tile,
-                  height: tile,
-                  borderRadius: 10,
-                  overflow: 'hidden',
-                  borderWidth: 2,
-                  borderColor: on ? palette.primary : 'transparent',
-                  opacity: blocked ? 0.45 : 1,
-                }}
-                className="bg-muted active:opacity-80"
-              >
-                {still ? (
-                  <RemoteImage source={{ uri: still }} style={{ flex: 1 }} recyclingKey={file.key} />
-                ) : film ? (
-                  <View className="flex-1 items-center justify-center bg-secondary">
-                    <VideoThumbnail size={Math.round(tile * 0.5)} />
-                  </View>
-                ) : null}
-                {film && (
-                  <>
-                    {/* The icon has a play button of its own. */}
-                    {still ? (
-                      <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
-                        <View
-                          className="w-9 h-9 rounded-full items-center justify-center"
-                          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-                        >
-                          <PlayIcon size={15} color="#fff" fill="#fff" />
-                        </View>
-                      </View>
-                    ) : null}
-                    {file.durationMs ? (
-                      <View
-                        className="absolute right-1.5 bottom-1.5 rounded-full px-1.5 py-0.5"
-                        style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
-                      >
-                        <Text className="text-[10px] font-bold" style={{ color: '#FFFFFF' }}>
-                          {clock(file.durationMs / 1000)}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </>
+
+              <FormField label="Title">
+                <FormInput
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder="Ten minutes before the rain"
+                  maxLength={120}
+                  accessibilityLabel="Title"
+                />
+              </FormField>
+
+              <View className="gap-2">
+                <View className="flex-row items-baseline justify-between">
+                  <FormLabel optional>Caption</FormLabel>
+                  <Count used={caption.length} of="2,200" />
+                </View>
+                <FormInput
+                  value={caption}
+                  onChangeText={setCaption}
+                  placeholder="Where it was, who it was for"
+                  multiline
+                  minHeight={118}
+                  maxLength={2200}
+                  accessibilityLabel="Caption"
+                />
+              </View>
+
+              <View className="gap-2">
+                <FormLabel optional>What kind of work</FormLabel>
+                <ChoiceChips>
+                  {categoryChoices.map((kind) => (
+                    <ChoiceChip
+                      key={kind}
+                      label={kind}
+                      selected={category === kind}
+                      // The chosen one again takes it off: it is optional.
+                      onPress={() => setCategory(category === kind ? '' : kind)}
+                    />
+                  ))}
+                </ChoiceChips>
+              </View>
+
+              <FormField label="Where" optional>
+                <FormInput
+                  value={location}
+                  onChangeText={setLocation}
+                  placeholder="Sirao Garden, Cebu"
+                  maxLength={120}
+                  accessibilityLabel="Where"
+                  lead={<MapPinIcon size={18} className="text-muted-foreground" />}
+                />
+              </FormField>
+
+              <CraftSection
+                note={craftNote}
+                onNote={setCraftNote}
+                tags={tags}
+                choices={tagChoices}
+                maxTags={MAX_CRAFT_TAGS}
+                maxTagLength={MAX_TAG_LENGTH}
+                onToggleTag={toggleTag}
+                draft={tagDraft}
+                onDraft={setTagDraft}
+                onAddDraft={addTypedTag}
+              />
+
+              <FormSection title="Who sees it">
+                {status === 'removed' ? (
+                  <FormHint>
+                    Virgo took this post down, so only you can see it. Contact support if you
+                    think that was a mistake.
+                  </FormHint>
+                ) : (
+                  <AudienceCard value={visibility} onChange={setVisibility} />
                 )}
-                {on && (
-                  <View className="absolute right-1.5 top-1.5 w-6 h-6 rounded-full bg-action items-center justify-center">
-                    <Text className="text-action-foreground text-[11px] font-bold">{at + 1}</Text>
-                  </View>
-                )}
-                {at === 0 && (
-                  <View className="absolute left-1.5 bottom-1.5 rounded-full bg-action px-2 py-0.5">
-                    <Text className="text-action-foreground text-[10px] font-bold">Cover</Text>
-                  </View>
-                )}
-              </Pressable>
-            );
-          }}
-        />
+              </FormSection>
+
+              <FormSection title="On the post">
+                <FormCard>
+                  {/* allow_comments has been a column since showcases shipped
+                      with nothing able to set it. This is the switch it was
+                      describing. */}
+                  <FormSwitchRow
+                    label="Comments"
+                    value={allowComments}
+                    onValueChange={setAllowComments}
+                    first
+                  />
+                  <FormSwitchRow label="Hire button" value={showHire} onValueChange={setShowHire} />
+                </FormCard>
+                <FormHint>
+                  You can turn comments off later. Nothing said is deleted. The Hire button is
+                  for people who want to book you.
+                </FormHint>
+              </FormSection>
+            </ScrollView>
+
+            <FormFooter
+              label={saves ? (busy ? 'Saving…' : 'Save') : busy ? 'Posting…' : 'Post'}
+              onPress={editing ? save : post}
+              disabled={editing ? !canSave : !canPostTogether(pickedKinds)}
+              busy={busy}
+              note={
+                !editing && visibility === 'public'
+                  ? 'It goes into the feed and onto your profile'
+                  : undefined
+              }
+            />
+          </>
+        )}
       </KeyboardAvoidingView>
 
-      {/* Arranging one chosen piece. A sheet, not an alert: Android shows an
-          alert's first three buttons and drops the rest. */}
-      <BottomSheet visible={arranging !== null} onClose={() => setArranging(null)}>
-        <View className="px-5 pt-2 pb-5">
-          <Text className="text-foreground text-[17px] font-semibold mb-2">
-            {arranging === 0 ? 'The cover' : `Number ${(arranging ?? 0) + 1}`}
-          </Text>
-          {arranging !== null && arranging > 0 && (
-            <ArrangeRow
-              icon={StarIcon}
-              label="Make it the cover"
-              onPress={() => {
-                move(arranging, 0);
-                setArranging(null);
-              }}
-            />
-          )}
-          {arranging !== null && arranging > 0 && (
-            <ArrangeRow
-              icon={ArrowLeftIcon}
-              label="Move earlier"
-              onPress={() => {
-                move(arranging, arranging - 1);
-                setArranging(arranging - 1);
-              }}
-            />
-          )}
-          {arranging !== null && arranging < picked.length - 1 && (
-            <ArrangeRow
-              icon={ArrowRightIcon}
-              label="Move later"
-              onPress={() => {
-                move(arranging, arranging + 1);
-                setArranging(arranging + 1);
-              }}
-            />
-          )}
-          <ArrangeRow
-            icon={Trash2Icon}
-            label="Take it out"
-            destructive
-            onPress={() => {
-              if (arrangingKey) toggle(arrangingKey);
-              setArranging(null);
-            }}
-          />
-          <Pressable
-            onPress={() => setArranging(null)}
-            accessibilityRole="button"
-            className="mt-3 bg-muted rounded-2xl min-h-[48px] items-center justify-center active:scale-[0.98]"
-          >
-            <Text className="text-foreground text-base font-semibold">Done</Text>
-          </Pressable>
-        </View>
-      </BottomSheet>
+      <ArrangeSheet
+        index={arranging}
+        count={picked.length}
+        still={arrangingKey ? stills[arrangingKey] : undefined}
+        kind={arrangingKey ? kinds[arrangingKey] : undefined}
+        about={arrangingKey ? about[arrangingKey] : undefined}
+        onCover={() => {
+          if (arranging !== null) move(arranging, 0);
+          setArranging(null);
+        }}
+        onEarlier={() => {
+          if (arranging === null) return;
+          move(arranging, arranging - 1);
+          setArranging(arranging - 1);
+        }}
+        onLater={() => {
+          if (arranging === null) return;
+          move(arranging, arranging + 1);
+          setArranging(arranging + 1);
+        }}
+        onRemove={() => {
+          if (arrangingKey) toggle(arrangingKey);
+          setArranging(null);
+        }}
+        onClose={() => setArranging(null)}
+      />
     </InsetFrame>
-  );
-}
-
-function VisibilityRow({
-  icon: Icon,
-  label,
-  detail,
-  on,
-  onPress,
-  divided,
-}: {
-  icon: typeof GlobeIcon;
-  label: string;
-  detail: string;
-  on: boolean;
-  onPress: () => void;
-  divided?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="radio"
-      accessibilityState={{ checked: on }}
-      accessibilityLabel={`${label}. ${detail}`}
-      className={`min-h-[56px] flex-row items-center gap-3 px-4 py-2.5 active:opacity-70 ${divided ? 'border-t border-border' : ''} ${on ? 'bg-secondary' : ''}`}
-    >
-      <Icon size={18} className={on ? 'text-primary' : 'text-muted-foreground'} />
-      <View className="flex-1">
-        <Text className="text-foreground text-[14px] font-semibold">{label}</Text>
-        <Text className="text-muted-foreground text-[12px] leading-4 mt-0.5">{detail}</Text>
-      </View>
-      <View
-        className={`w-5 h-5 rounded-full items-center justify-center ${on ? 'bg-action' : 'border border-border'}`}
-      >
-        {on ? <CheckIcon size={12} className="text-action-foreground" /> : null}
-      </View>
-    </Pressable>
-  );
-}
-
-function ArrangeRow({
-  icon: Icon,
-  label,
-  onPress,
-  destructive,
-}: {
-  icon: typeof StarIcon;
-  label: string;
-  onPress: () => void;
-  destructive?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      className="min-h-[52px] flex-row items-center gap-3 border-b border-border active:opacity-60"
-    >
-      <Icon size={18} className={destructive ? 'text-destructive' : 'text-foreground'} />
-      <Text className={`text-base ${destructive ? 'text-destructive' : 'text-foreground'}`}>{label}</Text>
-    </Pressable>
   );
 }

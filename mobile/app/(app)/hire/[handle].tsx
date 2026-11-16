@@ -3,37 +3,83 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { useHireEnquiries, usePublicProfile, useSendEnquiry, useTheme } from '@/src/hooks';
-import {
-  ArrowLeftIcon, ClockIcon, MapPinIcon, SendIcon, UserSearchIcon,
-} from 'lucide-react-native';
+import { UserSearchIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { LoadFailed } from '@/components/LoadFailed';
 import { DateTimeField } from '@/components/DateTimeField';
+import {
+  ChoiceChip,
+  ChoiceChips,
+  FormCard,
+  FormField,
+  FormFooter,
+  FormHint,
+  FormInput,
+  FormLabel,
+  usePlaceholderColor,
+} from '@/components/Form';
+import { FormHeader } from '@/components/FormHeader';
+import { InsetFrame } from '@/components/InsetFrame';
+import { goBackOr } from '@/components/ScreenHeader';
 import { dateToKey, parseDateKey } from '@/src/lib/calendar';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, ClockIcon, MapPinIcon, SendIcon, UserSearchIcon]) {
-  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+cssInterop(UserSearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+
+/** "a photographer", "an editor". */
+const article = (word: string) => (/^[aeiou]/i.test(word) ? 'an' : 'a');
+
+/**
+ * Who the enquiry is going to, at the top of the form and of the "already
+ * asked" page alike.
+ */
+function PersonCard({
+  avatarUrl,
+  name,
+  about,
+}: {
+  avatarUrl: string | null | undefined;
+  name: string;
+  /** Their title or roles, then where they are. */
+  about: string;
+}) {
+  return (
+    <View className="flex-row items-center gap-3 p-3 rounded-[20px] border border-border/40 bg-card">
+      <RemoteImage
+        source={{ uri: avatarUrl ?? PLACEHOLDER_IMAGE }}
+        style={{ width: 48, height: 48, borderRadius: 24 }}
+      />
+      <View className="flex-1 min-w-0">
+        <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>
+          {name}
+        </Text>
+        {about ? (
+          <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+            {about}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
 }
 
 /**
  * Sending a hire enquiry.
  *
- * Reached from Nearby and from a `virgo.ph/@handle` deep link. Sending needs an
- * account, which is why this lives inside the authenticated stack rather than
- * on the public page.
+ * Reached from a post's Hire, from Nearby and from a `virgo.ph/@handle` deep
+ * link. Sending needs an account, which is why this lives inside the
+ * authenticated stack rather than on the public page.
  */
 export default function HireScreen() {
-  const insets = useSafeAreaInsets();
   const { handle } = useLocalSearchParams<{ handle: string }>();
   const send = useSendEnquiry();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
+  const placeholder = usePlaceholderColor();
 
   // The same query, and so the same cache entry, as the profile this is
   // opened from: arriving here from it costs no second fetch.
@@ -49,9 +95,12 @@ export default function HireScreen() {
 
   if (profile.isLoading) {
     return (
-      <SafeAreaView className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color={palette.primary} />
-      </SafeAreaView>
+      <InsetFrame edges={['top']}>
+        <FormHeader title="Send an enquiry" />
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={palette.primary} />
+        </View>
+      </InsetFrame>
     );
   }
 
@@ -59,40 +108,38 @@ export default function HireScreen() {
   // on a bad connection sends them away from a person who is right there.
   if (!profile.notFound && profile.loadFailed) {
     return (
-      <SafeAreaView className="flex-1 bg-background" edges={['top']}>
-        <View className="flex-row items-center gap-3 px-5 py-3">
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-          >
-            <ArrowLeftIcon size={20} className="text-foreground" />
-          </Pressable>
-          <Text className="text-foreground text-lg font-bold">Send an enquiry</Text>
-        </View>
+      <InsetFrame edges={['top']}>
+        <FormHeader title="Send an enquiry" />
         <LoadFailed what="this profile" onRetry={() => profile.refetch()} />
-      </SafeAreaView>
+      </InsetFrame>
     );
   }
 
   if (profile.notFound || !profile.profile) {
     return (
-      <SafeAreaView className="flex-1 bg-background items-center justify-center px-10">
-        <UserSearchIcon size={30} className="text-muted-foreground" />
-        <Text className="text-foreground text-[15px] font-bold mt-3">Profile not found</Text>
-        <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
-          This profile is private, or the handle has changed.
-        </Text>
-        <Pressable className="mt-5" onPress={() => router.back()}>
-          <Text className="text-primary text-[13px] font-bold">Go back</Text>
-        </Pressable>
-      </SafeAreaView>
+      <InsetFrame edges={['top']}>
+        <FormHeader title="Send an enquiry" />
+        <View className="flex-1 items-center justify-center px-10">
+          <UserSearchIcon size={30} className="text-muted-foreground" />
+          <Text className="text-foreground text-[17px] leading-6 font-bold mt-3">Profile not found</Text>
+          <Text className="text-muted-foreground text-[15px] leading-[22px] text-center mt-1.5">
+            This profile is private, or the handle has changed.
+          </Text>
+          <Pressable
+            onPress={() => goBackOr()}
+            accessibilityRole="button"
+            className="mt-5 h-11 px-5 rounded-[14px] bg-secondary items-center justify-center active:opacity-70"
+          >
+            <Text className="text-foreground text-[15px] font-semibold">Go back</Text>
+          </Pressable>
+        </View>
+      </InsetFrame>
     );
   }
 
   const person = profile.profile;
   const firstName = person.displayName.split(' ')[0];
+  const about = [person.title || person.roles.join(', '), person.location].filter(Boolean).join(' · ');
   const tooShort = message.trim().length < 10;
   /*
    * One you sent that they have not answered. The form never knew, so a
@@ -105,7 +152,6 @@ export default function HireScreen() {
       !!e.personHandle &&
       e.personHandle.toLowerCase() === String(handle).replace(/^@/, '').toLowerCase(),
   );
-
 
   const onSubmit = () => {
     send.mutate(
@@ -129,203 +175,163 @@ export default function HireScreen() {
     );
   };
 
-  return (
-    <SafeAreaView className="flex-1 bg-background" edges={['top']}>
-      <View className="flex-row items-center gap-1 px-2 py-1">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={() => router.back()}
-          className="w-11 h-11 items-center justify-center active:opacity-60"
+  if (waiting && !askAgain) {
+    return (
+      <InsetFrame edges={['top']}>
+        <FormHeader title="Send an enquiry" />
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 16 }}
         >
-          <ArrowLeftIcon size={20} className="text-foreground" />
-        </Pressable>
-        <Text accessibilityRole="header" className="text-foreground text-lg font-bold">Send an enquiry</Text>
-      </View>
+          <PersonCard avatarUrl={person.avatarUrl} name={person.displayName} about={about} />
 
-      {waiting && !askAgain ? (
-        <ScrollView keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 16 }}>
-          <View className="flex-row items-center gap-3.5">
-            <RemoteImage
-              source={{ uri: person.avatarUrl ?? PLACEHOLDER_IMAGE }}
-              style={{ width: 54, height: 54, borderRadius: 27 }}
-            />
-            <View className="flex-1 min-w-0">
-              <Text className="text-foreground text-[17px] font-bold" numberOfLines={1}>
-                {person.displayName}
-              </Text>
-              <Text className="text-muted-foreground text-[13px]" numberOfLines={1}>
-                {person.title || person.roles.join(', ')}
-              </Text>
-            </View>
-          </View>
-          <View className="bg-card rounded-2xl p-4 gap-2">
-            <View className="flex-row items-center gap-2">
-              <ClockIcon size={16} className="text-primary" />
-              <Text className="text-foreground text-[15px] font-bold flex-1">
-                You’ve already asked {firstName}
-              </Text>
-            </View>
-            <Text className="text-muted-foreground text-[13px] leading-5">
-              Sent {new Date(waiting.createdAt).toLocaleDateString()}
-              {waiting.roleWanted ? ` for ${waiting.roleWanted}` : ''}. They haven’t answered yet —
-              you’ll hear when they do, and a chat opens if they accept.
+          {/* The one dark card on the page: it is the answer to "did it send?". */}
+          <View className="rounded-[20px] bg-foreground p-4 gap-1.5">
+            <Text className="text-background text-[13px] leading-[18px] font-semibold" style={{ opacity: 0.7 }}>
+              Sent{' '}
+              {new Date(waiting.createdAt).toLocaleDateString(undefined, {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })}
+              {waiting.roleWanted ? `, for ${article(waiting.roleWanted)} ${waiting.roleWanted}` : ''}
             </Text>
-            <Text className="text-foreground text-[13px] leading-5 mt-1" numberOfLines={4}>
-              “{waiting.message}”
+            <Text className="text-background text-[17px] leading-6 font-bold tracking-[-0.2px]">
+              You’ve already asked {firstName}
+            </Text>
+            <Text className="text-background text-[15px] leading-[22px]" style={{ opacity: 0.9 }}>
+              They haven’t answered yet. You’ll hear when they do, and a chat opens if they accept.
             </Text>
           </View>
-          <Pressable
-            onPress={() => router.replace('/friends/enquiries')}
-            accessibilityRole="button"
-            className="rounded-2xl min-h-[52px] items-center justify-center bg-action active:opacity-85"
-          >
-            <Text className="text-action-foreground text-[15px] font-bold">See your enquiries</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setAskAgain(true)}
-            accessibilityRole="button"
-            className="min-h-[44px] items-center justify-center active:opacity-60"
-          >
-            <Text className="text-primary text-[14px] font-semibold">Ask about a different job</Text>
-          </Pressable>
+
+          <View className="rounded-2xl bg-muted p-3.5 gap-1">
+            <Text className="text-muted-foreground text-[13px] leading-[18px] font-semibold">
+              What you sent
+            </Text>
+            <Text
+              className="text-secondary-foreground text-[15px] leading-[22px] italic"
+              numberOfLines={4}
+            >
+              {waiting.message}
+            </Text>
+          </View>
+
+          <View className="gap-2 mt-1">
+            <Pressable
+              onPress={() => router.replace('/friends/enquiries')}
+              accessibilityRole="button"
+              className="h-11 rounded-[14px] items-center justify-center bg-action active:opacity-85"
+            >
+              <Text className="text-action-foreground text-[15px] font-semibold">See your enquiries</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setAskAgain(true)}
+              accessibilityRole="button"
+              className="h-11 rounded-[14px] items-center justify-center bg-muted active:opacity-70"
+            >
+              <Text className="text-foreground text-[15px] font-semibold">Ask about a different job</Text>
+            </Pressable>
+          </View>
         </ScrollView>
-      ) : (
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={8}
-      >
-        <ScrollView keyboardDismissMode="on-drag"
-          contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 20 }}
+      </InsetFrame>
+    );
+  }
+
+  return (
+    <InsetFrame edges={['top']}>
+      <FormHeader title="Send an enquiry" />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+        <ScrollView
+          keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          className="flex-1"
+          contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 24 }}
         >
-          <View className="flex-row items-center gap-3.5">
-            <RemoteImage
-              source={{ uri: person.avatarUrl ?? PLACEHOLDER_IMAGE }}
-              style={{ width: 54, height: 54, borderRadius: 27 }}
-            />
-            <View className="flex-1 min-w-0">
-              <Text className="text-foreground text-[17px] font-bold" numberOfLines={1}>
-                {person.displayName}
-              </Text>
-              <Text className="text-muted-foreground text-[13px]" numberOfLines={1}>
-                {person.title || person.roles.join(', ')}
-              </Text>
-              {person.location && (
-                <View className="flex-row items-center gap-1 mt-0.5">
-                  <MapPinIcon size={11} className="text-muted-foreground" />
-                  <Text className="text-muted-foreground text-[11px]">{person.location}</Text>
-                </View>
-              )}
-            </View>
-          </View>
+          <PersonCard avatarUrl={person.avatarUrl} name={person.displayName} about={about} />
 
           {person.roles.length > 0 && (
-            <View className="gap-2">
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
-                What do you need?
-              </Text>
-              <View className="flex-row flex-wrap gap-2">
+            <FormField label="What do you need?">
+              <ChoiceChips>
                 {person.roles.map((role) => {
                   const isOn = roleWanted === role;
                   return (
-                    <Pressable
+                    <ChoiceChip
                       key={role}
+                      label={role}
+                      selected={isOn}
+                      // A second tap takes it back: naming a role is optional.
                       onPress={() => setRoleWanted(isOn ? null : role)}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: isOn, checked: isOn }}
-                      className={`rounded-full px-4 min-h-[44px] justify-center border ${
-                        isOn ? 'bg-primary border-primary' : 'border-primary/30'
-                      }`}
-                    >
-                      <Text
-                        className={`text-[12px] font-semibold ${
-                          isOn ? 'text-primary-foreground' : 'text-primary'
-                        }`}
-                      >
-                        {role}
-                      </Text>
-                    </Pressable>
+                    />
                   );
                 })}
-              </View>
-            </View>
+              </ChoiceChips>
+            </FormField>
           )}
 
-          <View className="flex-row gap-3">
+          <FormCard>
             {/* The picker, not typed text: an impossible date reached the
                 server as a 500, and one already gone by was accepted. */}
-            <View className="flex-1">
-              <DateTimeField
-                label="Date"
-                mode="date"
-                value={eventDate ? parseDateKey(eventDate) : null}
-                minimumDate={new Date()}
-                emptyLabel="Optional"
-                clearable
-                onChange={(picked) => setEventDate(picked ? dateToKey(picked) : '')}
-              />
-            </View>
-            <View className="flex-1 gap-2">
-              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
-                Budget
-              </Text>
+            <DateTimeField
+              row
+              first
+              label="When"
+              mode="date"
+              value={eventDate ? parseDateKey(eventDate) : null}
+              minimumDate={new Date()}
+              emptyLabel="Optional"
+              clearable
+              onChange={(picked) => setEventDate(picked ? dateToKey(picked) : '')}
+            />
+            <View className="min-h-[52px] flex-row items-center gap-3 px-4 border-t border-border/40">
+              <Text className="w-[19px] text-center text-muted-foreground text-[16px] font-semibold">₱</Text>
+              <Text className="text-foreground text-[15px] font-medium">Budget</Text>
               <TextInput
                 value={budget}
                 onChangeText={setBudget}
-                placeholder="₱25,000"
-                placeholderTextColor={palette.mutedForeground}
+                placeholder="25,000"
+                placeholderTextColor={placeholder}
                 maxLength={60}
-                className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
+                returnKeyType="done"
+                accessibilityLabel="Budget in pesos, optional"
+                className="flex-1 min-w-0 text-right text-foreground text-[15px] font-semibold"
+                style={{ minHeight: 50, paddingVertical: 0 }}
               />
             </View>
-          </View>
+          </FormCard>
+
           <View className="gap-2">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
-              The brief
-            </Text>
-            <TextInput
+            <View className="flex-row items-baseline justify-between">
+              <FormLabel>The brief</FormLabel>
+              {!tooShort ? (
+                <Text className="text-muted-foreground text-[12px] leading-4">
+                  {message.length.toLocaleString('en-US')} of 2,000
+                </Text>
+              ) : null}
+            </View>
+            <FormInput
               value={message}
               onChangeText={setMessage}
               placeholder={`Hi ${firstName} — tell them what the job is, where it is, and roughly how long you need them for.`}
-              placeholderTextColor={palette.mutedForeground}
               multiline
-              numberOfLines={6}
+              minHeight={118}
               maxLength={2000}
-              textAlignVertical="top"
-              className="bg-card rounded-xl px-3.5 py-3 text-foreground text-sm"
-              style={{ minHeight: 130 }}
+              accessibilityLabel="The brief"
             />
-            <Text className="text-muted-foreground text-[11px]">
-              {tooShort
-                ? 'A sentence or two at least — a blank enquiry rarely gets a reply.'
-                : `${message.length} / 2000`}
-            </Text>
+            {tooShort ? (
+              <FormHint>A sentence or two at least — a blank enquiry rarely gets a reply.</FormHint>
+            ) : null}
           </View>
-
-          <Pressable
-            className="rounded-2xl min-h-[52px] flex-row items-center justify-center gap-2 bg-action"
-            style={{
-              opacity: tooShort || send.isPending ? 0.45 : 1,
-            }}
-            disabled={tooShort || send.isPending}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: tooShort || send.isPending, busy: send.isPending }}
-            onPress={onSubmit}
-          >
-            {send.isPending
-              ? <ActivityIndicator size="small" color={palette.actionForeground} />
-              : <SendIcon size={16} className="text-action-foreground" />}
-            <Text className="text-action-foreground text-[15px] font-bold">Send enquiry</Text>
-          </Pressable>
-
-          <Text className="text-muted-foreground text-[12px] text-center">
-            Accepting connects you both and opens a chat.
-          </Text>
         </ScrollView>
+
+        <FormFooter
+          label="Send enquiry"
+          onPress={onSubmit}
+          disabled={tooShort}
+          busy={send.isPending}
+          note="Accepting connects you both and opens a chat"
+        />
       </KeyboardAvoidingView>
-      )}
-    </SafeAreaView>
+    </InsetFrame>
   );
 }

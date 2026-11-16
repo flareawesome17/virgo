@@ -1,7 +1,16 @@
 import { useRef } from 'react';
-import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { XIcon } from 'lucide-react-native';
+import { cssInterop } from 'nativewind';
 import { BottomSheet } from '@/components/BottomSheet';
-import { CommentComposer, CommentList } from '@/components/CommentThread';
+import {
+  CommentComposer,
+  CommentList,
+  CommentsOffNotice,
+  useCommentCount,
+} from '@/components/CommentThread';
+
+cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /**
  * A post's thread, over the feed rather than on a screen of its own: the
@@ -18,12 +27,18 @@ import { CommentComposer, CommentList } from '@/components/CommentThread';
 export function CommentsSheet({
   showcaseId,
   isOwner,
+  makerId,
+  total,
   onClose,
   onOpenProfile,
 }: {
   /** The post whose thread is open, or null for none. */
   showcaseId: string | null;
   isOwner: boolean;
+  /** Who made the post, so their own comments can say "Maker". */
+  makerId?: string | null;
+  /** How many comments the post says it has, for beside the title. */
+  total?: number;
   onClose: () => void;
   onOpenProfile: (handle: string) => void;
 }) {
@@ -33,6 +48,7 @@ export function CommentsSheet({
   // let go of once somebody asks for earlier comments, which arrive above.
   const stickToEnd = useRef(true);
   const after = useRef<(() => void) | null>(null);
+  const count = useCommentCount(showcaseId ?? undefined, total);
 
   return (
     <BottomSheet
@@ -49,19 +65,44 @@ export function CommentsSheet({
       {/* Tall whatever the thread's length, the way every feed's comment
           sheet is, and shrinking only for a small screen or the keyboard. */}
       <View style={{ height: Math.round(windowHeight * 0.72), flexShrink: 1 }}>
-        <Text
-          accessibilityRole="header"
-          className="text-foreground text-[15px] font-bold text-center pt-1 pb-2"
-        >
-          Comments
-        </Text>
-        <View className="h-px bg-border" />
+        <View className="flex-row items-center justify-between pl-5 pr-4 pb-1.5">
+          <Text
+            accessibilityRole="header"
+            accessibilityLabel={
+              count === 1 ? '1 comment' : count > 0 ? `${count} comments` : 'Comments'
+            }
+            className="text-foreground text-[18px] leading-[26px] font-bold"
+          >
+            Comments
+            {count > 0 ? (
+              <Text className="text-muted-foreground font-medium">{` ${count}`}</Text>
+            ) : null}
+          </Text>
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close the comments"
+            hitSlop={4}
+            className="w-9 h-9 rounded-full bg-muted items-center justify-center active:opacity-70"
+          >
+            <XIcon size={16} className="text-foreground" />
+          </Pressable>
+        </View>
         {showcaseId ? (
           <>
+            {/* Above what scrolls: the list keeps to its newest end, which
+                would carry this out of sight as the sheet opened. */}
+            <CommentsOffNotice
+              showcaseId={showcaseId}
+              isOwner={isOwner}
+              className="mx-5 mt-1.5 mb-1.5"
+            />
             <ScrollView
               ref={list}
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 16 }}
+              // Grows to the sheet's height, so "Nothing said yet" sits in
+              // the middle of it rather than under the title.
+              contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20, paddingBottom: 12 }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
               onContentSizeChange={() => {
@@ -74,6 +115,8 @@ export function CommentsSheet({
               <CommentList
                 showcaseId={showcaseId}
                 isOwner={isOwner}
+                makerId={makerId}
+                hideOffNotice
                 onEarlier={() => {
                   stickToEnd.current = false;
                 }}
@@ -85,7 +128,7 @@ export function CommentsSheet({
             </ScrollView>
             <CommentComposer
               showcaseId={showcaseId}
-              className="px-4 pt-2 border-t border-border"
+              className="pl-4 pr-3 pt-2.5 pb-0.5 border-t border-border/60"
               onSent={() => {
                 stickToEnd.current = true;
                 setTimeout(() => list.current?.scrollToEnd({ animated: true }), 50);

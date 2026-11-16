@@ -4,15 +4,13 @@ import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { BookmarkIcon } from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
 import { KeepSheet } from '@/components/KeepSheet';
 import { useTabObstruction } from '@/components/TabScreen';
-import { useAuth, useShelfActions } from '@/src/hooks';
+import { useAuth, useShelfActions, useTheme } from '@/src/hooks';
 import { ApiError, type FeedItem } from '@/src/api';
 import { clearLastShelf, getLastShelf, setLastShelf } from '@/src/lib/last-shelf';
 import { profileActionMessage } from '@/src/lib/profile-media';
-
-cssInterop(BookmarkIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+import { PALETTES } from '@/theme';
 
 /** How long "Kept to …" stays up. Long enough to read and reach Change. */
 const TOAST_MS = 4000;
@@ -107,38 +105,53 @@ export function useKeepFlow() {
   return { onKeep, choose, element };
 }
 
+/**
+ * Where it went, said over the foot of the screen: a dark bar with the shelf's
+ * name in bold, and Change inside it for anybody who meant another shelf.
+ */
 function KeptToast({ name, onChange }: { name: string; onChange: () => void }) {
   const insets = useSafeAreaInsets();
   const obstruction = useTabObstruction();
+  const { isDark } = useTheme();
+  // The bar is the page's ink, so what is drawn on it is the page's paper.
+  const paper = (isDark ? PALETTES.dark : PALETTES.light).background;
   return (
     <Animated.View
       entering={FadeInDown.duration(180)}
       exiting={FadeOutDown.duration(140)}
-      className="absolute left-4 right-4"
-      style={{ bottom: (obstruction || insets.bottom) + 12 }}
+      // All in style: on the web a className beside a style here is dropped.
+      style={{
+        position: 'absolute',
+        left: 16,
+        right: 16,
+        bottom: (obstruction || insets.bottom) + 12,
+      }}
       accessibilityLiveRegion="polite"
     >
       <View
-        className="flex-row items-center rounded-2xl bg-foreground pl-4 pr-1.5 min-h-[52px]"
+        className="flex-row items-center gap-2.5 rounded-2xl bg-foreground pl-4 pr-2 min-h-[52px]"
         style={{
           shadowColor: '#000',
-          shadowOpacity: 0.18,
+          shadowOpacity: 0.25,
           shadowRadius: 12,
-          shadowOffset: { width: 0, height: 4 },
+          shadowOffset: { width: 0, height: 8 },
           elevation: 6,
         }}
       >
-        <BookmarkIcon size={16} className="text-background" />
-        <Text className="flex-1 ml-2.5 text-background text-[13px] font-semibold" numberOfLines={1}>
-          Kept to {name}
+        {/* Filled with a literal colour: currentColor draws hollow on a phone. */}
+        <BookmarkIcon size={18} color={paper} fill={paper} />
+        <Text className="flex-1 text-background/70 text-[15px] leading-5" numberOfLines={1}>
+          Kept to <Text className="text-background font-bold">{name}</Text>
         </Text>
         <Pressable
           onPress={onChange}
+          // 36 high as drawn, 44 to the finger.
+          hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
           accessibilityRole="button"
           accessibilityLabel={`Kept to ${name}. Change where`}
-          className="min-h-[44px] px-3.5 rounded-xl items-center justify-center active:opacity-70"
+          className="h-9 px-3 rounded-[10px] bg-background/15 items-center justify-center active:opacity-70"
         >
-          <Text className="text-background text-[13px] font-bold">Change</Text>
+          <Text className="text-background text-[14px] font-semibold">Change</Text>
         </Pressable>
       </View>
     </Animated.View>

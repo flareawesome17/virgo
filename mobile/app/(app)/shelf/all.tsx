@@ -1,18 +1,16 @@
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftIcon, BookmarkIcon } from 'lucide-react-native';
+import { BookmarkIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { KeptGrid } from '@/components/KeptGrid';
 import { LoadFailed } from '@/components/LoadFailed';
+import { ShelfBar, ShelfHeading } from '@/components/shelves/ShelfHeading';
 import { useAllKept, useShelfActions, useTheme } from '@/src/hooks';
 import { queryKeys, shelvesApi } from '@/src/api';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [ArrowLeftIcon, BookmarkIcon]) {
-  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-}
+cssInterop(BookmarkIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 /**
  * Everything you have kept, whichever shelf it is on, newest first and once
@@ -47,27 +45,20 @@ export default function AllKeptScreen() {
     }
   };
 
+  // Drawn as a shelf is: a plain bar, then the name and who sees it.
+  const heading = (
+    <ShelfHeading
+      name="All kept"
+      isPublic={false}
+      meta={`${total > 0 ? `${total} ${total === 1 ? 'piece' : 'pieces'} · ` : ''}only you see this list`}
+    />
+  );
+
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <View className="flex-row items-center pl-1 pr-3 border-b border-border">
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          className="w-11 h-11 items-center justify-center"
-        >
-          <ArrowLeftIcon size={20} className="text-foreground" />
-        </Pressable>
-        <View className="flex-1 min-w-0 py-1">
-          <Text accessibilityRole="header" className="text-foreground text-[15px] font-bold" numberOfLines={1}>
-            All kept
-          </Text>
-          <Text className="text-muted-foreground text-[11px]">
-            {total > 0 ? `${total} kept · ` : ''}Private · only you see it
-          </Text>
-        </View>
-      </View>
+      <ShelfBar title="Kept" />
+      {/* On the grid it is the list's header, and scrolls with it. */}
+      {entries.length === 0 ? heading : null}
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">
@@ -76,7 +67,7 @@ export default function AllKeptScreen() {
       ) : loadFailed && entries.length === 0 ? (
         <LoadFailed what="what you have kept" onRetry={() => refetch()} />
       ) : entries.length === 0 ? (
-        <View className="items-center px-10 mt-20">
+        <View className="items-center px-10 mt-12">
           <View className="w-16 h-16 rounded-full bg-primary/10 items-center justify-center mb-4">
             <BookmarkIcon size={24} className="text-primary" />
           </View>
@@ -89,7 +80,10 @@ export default function AllKeptScreen() {
       ) : (
         <KeptGrid
           entries={entries}
+          header={heading}
           onRemove={removeEverywhere}
+          postTitle="From your shelves"
+          noteLabel="Why you kept it"
           removeLabel="Remove from your shelves"
           onRefresh={() => refetch()}
         />

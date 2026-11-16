@@ -21,6 +21,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { XIcon } from 'lucide-react-native';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseFilm } from '@/components/ShowcaseFilm';
@@ -168,17 +169,31 @@ function ZoomablePiece({
 /**
  * A showcase's pieces, full screen: swipe between them, pinch to look closer,
  * drag down or tap the cross to go back.
+ *
+ * Whoever opens it may say what the post is (its title, who made it, how it
+ * was made) and that is written along the bottom. Without them the photograph
+ * has the bottom to itself. There is no heart, thread or bookmark in here:
+ * those belong to the card, and the viewer is only handed the pieces.
  */
 export function ShowcaseViewer({
   pieces,
   startIndex,
   visible,
   onClose,
+  title,
+  makerName,
+  craftTags,
 }: {
   pieces: ShowcasePiece[];
   startIndex: number;
   visible: boolean;
   onClose: () => void;
+  /** The post's title, along the bottom. */
+  title?: string | null;
+  /** Who made it, under the title. */
+  makerName?: string | null;
+  /** How it was made. The first three are shown, after the maker's name. */
+  craftTags?: string[] | null;
 }) {
   const { width, height } = useWindowDimensions();
   // The window's: this covers the banners, which zero the top inset.
@@ -206,6 +221,15 @@ export function ShowcaseViewer({
       setIndex(Math.round(e.nativeEvent.contentOffset.x / width)),
     [width],
   );
+
+  const many = pieces.length > 1;
+  const credit = [makerName, ...(craftTags ?? []).slice(0, 3)].filter(Boolean).join(' · ');
+  const words = Boolean(title || credit);
+  // A magnified photograph is being looked at closely, so everything written
+  // over it steps aside. The cross stays: it is the way out. A film has its
+  // own controls along the bottom, and nothing is laid over those either.
+  const chrome = !zoomed;
+  const bottom = chrome && pieces[index]?.kind !== 'video' && (words || many);
 
   return (
     <Modal
@@ -259,28 +283,97 @@ export function ShowcaseViewer({
           }}
         />
 
-        <View
-          className="absolute left-0 right-0 flex-row items-center justify-between px-2"
-          style={{ top: insets.top + 4 }}
-          pointerEvents="box-none"
-        >
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            className="w-11 h-11 rounded-full items-center justify-center active:opacity-70"
-            style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+        {chrome ? (
+          <LinearGradient
+            colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0)']}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 76 }}
+            pointerEvents="none"
+          />
+        ) : null}
+
+        {chrome && many ? (
+          <View
+            className="absolute left-0 right-0 h-10 items-center justify-center"
+            style={{ top: insets.top + 4 }}
+            pointerEvents="none"
           >
-            <XIcon size={20} color="#FFFFFF" />
-          </Pressable>
-          {pieces.length > 1 && (
-            <View className="rounded-full px-3 py-1.5 mr-1" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
-              <Text className="text-[12px] font-bold" style={{ color: '#FFFFFF' }}>
-                {index + 1} of {pieces.length}
-              </Text>
-            </View>
-          )}
-        </View>
+            <Text className="text-[15px] leading-5 font-semibold" style={{ color: '#FFFFFF' }}>
+              {index + 1} of {pieces.length}
+            </Text>
+          </View>
+        ) : null}
+
+        <Pressable
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          // A 40 pt disc in a 44 pt target.
+          hitSlop={4}
+          className="absolute w-10 h-10 rounded-full items-center justify-center active:opacity-70"
+          style={{ top: insets.top + 4, left: 12, backgroundColor: 'rgba(20,16,13,0.55)' }}
+        >
+          <XIcon size={20} color="#FFFFFF" />
+        </Pressable>
+
+        {bottom ? (
+          <LinearGradient
+            colors={
+              words
+                ? ['rgba(0,0,0,0)', 'rgba(0,0,0,0.8)', 'rgba(0,0,0,0.8)']
+                : ['rgba(0,0,0,0)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.5)']
+            }
+            locations={[0, 0.45, 1]}
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              paddingTop: 60,
+              paddingHorizontal: 20,
+              paddingBottom: Math.max(insets.bottom, 12) + 12,
+              gap: 12,
+            }}
+            pointerEvents="none"
+          >
+            {words ? (
+              <View>
+                {title ? (
+                  <Text
+                    className="text-[15px] leading-5 font-semibold"
+                    style={{ color: '#FFFFFF' }}
+                    numberOfLines={2}
+                  >
+                    {title}
+                  </Text>
+                ) : null}
+                {credit ? (
+                  <Text
+                    className="text-[13px] leading-[18px]"
+                    style={{ color: 'rgba(255,255,255,0.7)' }}
+                    numberOfLines={1}
+                  >
+                    {credit}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+            {many ? (
+              <View className="flex-row justify-center" style={{ gap: 5 }}>
+                {pieces.map((piece, i) => (
+                  <View
+                    key={piece.fileKey}
+                    style={{
+                      width: i === index ? 16 : 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: i === index ? '#FFFFFF' : 'rgba(255,255,255,0.45)',
+                    }}
+                  />
+                ))}
+              </View>
+            ) : null}
+          </LinearGradient>
+        ) : null}
       </GestureHandlerRootView>
     </Modal>
   );

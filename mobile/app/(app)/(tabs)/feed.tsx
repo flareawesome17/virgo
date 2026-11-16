@@ -11,10 +11,11 @@ import {
 import Animated from 'react-native-reanimated';
 import { router, useNavigation } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
-import { ImageIcon } from 'lucide-react-native';
+import { CheckIcon, ImageIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { EmptyState, FeedSkeleton, TabScreen, useTabBottomInset } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
+import { RemoteImage } from '@/components/RemoteImage';
 import { ShowcaseCard, type ShowcaseCardActions } from '@/components/ShowcaseCard';
 import { useShowcaseCardHost } from '@/components/ShowcaseCardHost';
 import { useAuth, useFeed, useTheme } from '@/src/hooks';
@@ -23,7 +24,9 @@ import type { FeedItem } from '@/src/api';
 import { createFilmTurn } from '@/src/lib/film-turn';
 import { PALETTES } from '@/theme';
 
-cssInterop(ImageIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+for (const Icon of [CheckIcon, ImageIcon]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 /**
  * The feed.
@@ -79,12 +82,14 @@ function FeedList({
 }) {
   const onScroll = useChromeScroll();
   const bottomInset = useTabBottomInset();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const userId = user?.id;
+  const { reveal } = useChrome();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
   const filmTurn = useRef(createFilmTurn()).current;
+  const list = useRef<FlatList<FeedItem> | null>(null);
 
   const {
     items,
@@ -143,7 +148,10 @@ function FeedList({
 
   return (
     <Animated.FlatList
-      ref={listRef as never}
+      ref={((next: FlatList<FeedItem> | null) => {
+        list.current = next;
+        listRef(next);
+      }) as never}
       onScroll={onScroll}
       scrollEventThrottle={16}
       data={items}
@@ -164,6 +172,12 @@ function FeedList({
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
       }
+      // Posting is offered where the feed is read, not only behind the plus.
+      ListHeaderComponent={
+        items.length > 0 ? (
+          <PostPrompt name={profile?.displayName ?? null} avatarUrl={profile?.avatarUrl ?? null} />
+        ) : null
+      }
       ListEmptyComponent={<EmptyFeed />}
       ListFooterComponent={
         isFetchingNextPage ? (
@@ -174,19 +188,22 @@ function FeedList({
           // A failed page looked like the end of the feed, with nothing to
           // try again with.
           <View className="py-5 items-center">
-            <Text className="text-muted-foreground text-[13px]">{"Couldn't load more."}</Text>
+            <Text className="text-muted-foreground text-[13px] leading-[18px]">{"Couldn't load more."}</Text>
             <Pressable
               onPress={() => void fetchNextPage()}
               accessibilityRole="button"
-              className="mt-2 min-h-[44px] px-5 rounded-xl bg-secondary items-center justify-center active:opacity-80"
+              className="mt-2 h-11 px-5 rounded-[14px] bg-secondary items-center justify-center active:opacity-80"
             >
-              <Text className="text-foreground text-[13px] font-bold">Try again</Text>
+              <Text className="text-foreground text-[15px] font-semibold">Try again</Text>
             </Pressable>
           </View>
         ) : items.length > 0 && !hasNextPage ? (
-          <Text className="text-muted-foreground text-[12px] text-center py-6">
-            {"You're all caught up."}
-          </Text>
+          <FeedEnd
+            onTop={() => {
+              list.current?.scrollToOffset({ offset: 0, animated: true });
+              reveal();
+            }}
+          />
         ) : null
       }
     />
@@ -202,6 +219,71 @@ function EmptyFeed() {
         body="Be the first. Post a piece of work and say how you made it — that is what other people come here to read."
         action={{ label: 'Post a showcase', onPress: () => router.push('/showcase/new') }}
       />
+    </View>
+  );
+}
+
+/**
+ * "Show a piece of your work": the way to post, at the head of the feed.
+ *
+ * The plus in the header does the same. This is for whoever is reading the
+ * feed and has not thought to look there.
+ */
+function PostPrompt({ name, avatarUrl }: { name: string | null; avatarUrl: string | null }) {
+  return (
+    <Pressable
+      onPress={() => router.push('/showcase/new')}
+      accessibilityRole="button"
+      accessibilityLabel="Post a showcase"
+      className="mx-5 mt-2 mb-3 h-[52px] rounded-2xl border border-border/40 bg-card flex-row items-center gap-3 pl-2.5 pr-2 active:opacity-80"
+    >
+      <View className="w-8 h-8 rounded-full overflow-hidden bg-muted items-center justify-center">
+        {avatarUrl ? (
+          <RemoteImage source={{ uri: avatarUrl }} style={{ width: 32, height: 32 }} />
+        ) : (
+          <Text className="text-foreground text-[13px] font-bold">{(name ?? '').charAt(0).toUpperCase()}</Text>
+        )}
+      </View>
+      <Text className="flex-1 text-muted-foreground text-[15px]" numberOfLines={1}>
+        Show a piece of your work
+      </Text>
+      <View className="h-9 px-3.5 rounded-xl bg-muted flex-row items-center gap-1.5">
+        <ImageIcon size={16} className="text-foreground" />
+        <Text className="text-foreground text-[14px] font-semibold">Post</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/** The end of the feed: said plainly, with the two things left to do. */
+function FeedEnd({ onTop }: { onTop: () => void }) {
+  return (
+    <View className="mx-5 mt-1 mb-6 rounded-[20px] border border-border/40 bg-card px-5 py-6 items-center">
+      <View className="w-12 h-12 rounded-2xl bg-muted items-center justify-center mb-3">
+        <CheckIcon size={22} className="text-secondary-foreground" strokeWidth={2.4} />
+      </View>
+      <Text className="text-foreground text-[17px] leading-6 font-bold text-center" accessibilityRole="header">
+        You have seen it all
+      </Text>
+      <Text className="text-muted-foreground text-[15px] leading-[22px] text-center mt-1.5">
+        That is every piece of work on the feed. Add yours, and say how you made it.
+      </Text>
+      <View className="flex-row gap-2 self-stretch mt-4">
+        <Pressable
+          onPress={() => router.push('/showcase/new')}
+          accessibilityRole="button"
+          className="flex-1 h-11 rounded-[14px] bg-action items-center justify-center active:opacity-85"
+        >
+          <Text className="text-action-foreground text-[15px] font-semibold">Post your work</Text>
+        </Pressable>
+        <Pressable
+          onPress={onTop}
+          accessibilityRole="button"
+          className="flex-1 h-11 rounded-[14px] bg-secondary items-center justify-center active:opacity-80"
+        >
+          <Text className="text-foreground text-[15px] font-semibold">Back to the top</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
