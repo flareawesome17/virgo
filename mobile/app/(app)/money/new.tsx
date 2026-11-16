@@ -322,15 +322,31 @@ export default function MoneyEntryScreen() {
       }
     };
 
-    // Repeating needs the saved entry to exist first, so that one waits.
+    // Repeating needs the saved entry to exist first. The form does not wait
+    // for either: the entry is on the list on the tap like any other, and the
+    // repeat is set up behind it once the save has landed. What comes of that
+    // is said when it is known, as it was.
     if (repeat) {
-      create.mutate(input, {
-        onSuccess: () => {
-          offerSetAside();
-          saved();
-        },
-        onError: failed,
-      });
+      create
+        .mutateAsync(input)
+        .then(() =>
+          repeatEntry.mutateAsync(id).then(
+            (result) => Alert.alert('Repeats every month', result.note),
+            (error: unknown) =>
+              Alert.alert(
+                "Saved, but it won't repeat yet",
+                error instanceof ApiError && error.status !== 0
+                  ? error.message
+                  : 'Open the entry again and turn on Repeat when you have a connection.',
+              ),
+          ),
+        )
+        .catch((error: unknown) => {
+          // Offline was ruled out above, so this is the server saying no.
+          queueMoneyEntry(input, error instanceof ApiError ? error.message : 'It could not be saved.');
+        });
+      offerSetAside();
+      leave();
       return;
     }
 

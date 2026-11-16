@@ -1,3 +1,4 @@
+import { hasId, patchCachedRows, restoreCached } from './optimistic';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   queryKeys,
@@ -84,11 +85,18 @@ export function useUpdateReminder() {
   });
 }
 
+/** Deletes a reminder: gone on the tap, back if the server refuses. */
 export function useDeleteReminder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => remindersApi.remove(id),
-    onSuccess: () => {
+    onMutate: async (id: string) => ({
+      before: await patchCachedRows(queryClient, queryKeys.reminders.all, hasId, (row) =>
+        row.id === id ? null : row,
+      ),
+    }),
+    onError: (_error, _id, context) => restoreCached(queryClient, context?.before),
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reminders.all });
     },
   });

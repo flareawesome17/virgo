@@ -1,3 +1,4 @@
+import { hasId, patchCachedRows, restoreCached } from './optimistic';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   queryKeys,
@@ -92,11 +93,20 @@ export function useUpdateScheduleEvent() {
   });
 }
 
+/** Deletes an event: off the schedule on the tap, back if the server refuses. */
 export function useDeleteScheduleEvent() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => scheduleEventsApi.remove(id),
-    onSuccess: () => {
+    onMutate: async (id: string) => ({
+      // An invitation is a row under the same key with an id of its own, and
+      // its event's id beside it; neither is this event's row.
+      before: await patchCachedRows(queryClient, queryKeys.scheduleEvents.all, hasId, (row) =>
+        row.id === id && !('event_id' in row) ? null : row,
+      ),
+    }),
+    onError: (_error, _id, context) => restoreCached(queryClient, context?.before),
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.scheduleEvents.all });
       // reminders.schedule_event_id is ON DELETE SET NULL, so attached
       // reminders survive but their linkage changes.
@@ -168,12 +178,27 @@ export function useUninviteFromEvent() {
  * Invalidates every schedule key, not just the invitation list: accepting puts
  * the event on the calendar, so the range queries behind it are stale too.
  */
+/**
+ * Answers an invitation: it leaves the waiting list on the tap, and comes
+ * back if the server refuses. An accepted event reaches the schedule with the
+ * read that follows.
+ */
 export function useRespondToEventInvitation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ eventId, accept }: { eventId: string; accept: boolean }) =>
       scheduleEventsApi.respondToInvitation(eventId, accept),
-    onSuccess: () => {
+    onMutate: async ({ eventId }: { eventId: string; accept: boolean }) => ({
+      before: await patchCachedRows(
+        queryClient,
+        queryKeys.scheduleEvents.invitations,
+        (value: unknown): value is { event_id: string } =>
+          !!value && typeof value === 'object' && 'event_id' in value,
+        (row) => (row.event_id === eventId ? null : row),
+      ),
+    }),
+    onError: (_error, _input, context) => restoreCached(queryClient, context?.before),
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.scheduleEvents.all });
     },
   });

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { storageApi, type FileOrder, type StoredFile, type StoredMediaKind } from '@/api';
 
@@ -107,17 +108,26 @@ export function useAlbumFiles(
     },
   });
 
-  const files: StoredFile[] = query.data?.pages.flatMap((page) => page.data) ?? [];
+  // The same arrays until the data changes. They were rebuilt on every
+  // render, so everything a screen derived from them (the grid's sections, the
+  // pager's pages) was new every render as well, and an album of hundreds of
+  // files redrew every row for a menu opening or one tile being ticked.
+  const lists = useMemo(() => {
+    const files: StoredFile[] = query.data?.pages.flatMap((page) => page.data) ?? [];
+    return {
+      files,
+      images: files.filter((f) => kindOf(f.contentType) === 'image'),
+      videos: files.filter((f) => kindOf(f.contentType) === 'video'),
+      audio: files.filter((f) => kindOf(f.contentType) === 'audio'),
+    };
+  }, [query.data]);
   const first = query.data?.pages[0];
 
   return {
     ...query,
     /** Failed *or* paused — an offline device never reaches `isError`. */
     loadFailed: query.isError || query.isPaused,
-    files,
-    images: files.filter((f) => kindOf(f.contentType) === 'image'),
-    videos: files.filter((f) => kindOf(f.contentType) === 'video'),
-    audio: files.filter((f) => kindOf(f.contentType) === 'audio'),
+    ...lists,
     total: first?.total ?? 0,
     counts: first?.counts ?? { image: 0, video: 0, audio: 0, other: 0 },
   };

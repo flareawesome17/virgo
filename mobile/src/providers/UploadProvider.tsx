@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -13,6 +14,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
 import { storageApi } from '@/src/api';
+import { MULTIPART_MIN_BYTES } from '@/src/api/endpoints/storage';
 import { withConfirmRetry } from '@/src/api/confirm-retry';
 import { useAuth, usageQueryKey } from '@/src/hooks';
 import { MAX_RESUME_AGE_MS, type MultipartSession } from '@/src/lib/multipart-resume';
@@ -108,8 +110,32 @@ const FALLBACK: UploadContextValue = {
 
 const UploadContext = createContext<UploadContextValue>(FALLBACK);
 
+/**
+ * What the queue can be asked to do, apart from where it has got to.
+ *
+ * These four never change. Kept in a context of their own so that a screen
+ * which only adds files does not hear about progress: the album asked for
+ * `enqueue` from the one context there was, and so redrew itself, all of it,
+ * for every percent of every file it was uploading.
+ */
+type UploadActions = Pick<UploadContextValue, 'enqueue' | 'retry' | 'remove' | 'clearFinished'>;
+const UploadActionsContext = createContext<UploadActions>(FALLBACK);
+
 /** How often, at most, an album is read again while files are landing in it. */
 const ALBUM_REFRESH_EVERY_MS = 2500;
+
+/**
+ * How many files are sent at once after the app has left the screen.
+ *
+ * In front, one at a time: side by side they share one uplink and every bar
+ * crawls. Behind, there is no bar to watch and no JavaScript to start the
+ * next file when one ends, so whatever is going to be sent has to be started
+ * before iOS suspends the app. The system queues them itself, a few
+ * connections at a time. A ticket is good for fifteen minutes, which is what
+ * keeps this a handful and not the whole queue: one started too far back in
+ * the line would reach its turn with a dead ticket and be sent again later.
+ */
+const BACKGROUND_BURST = 8;
 
 /** Only rewrite the drawer when the number visibly moved. */
 const NOTIFY_EVERY_PERCENT = 5;
@@ -186,10 +212,15 @@ export function UploadProvider({ children }: { children: ReactNode }) {
    */
   const [owner, setOwner] = useState<string | null>(null);
 
-  // The loop reads these without re-subscribing. `running` is a ref rather
-  // than state because two renders in the same tick must not both start an
-  // upload — state would still read `false` in the second.
-  const running = useRef(false);
+  // The loop reads these without re-subscribing. The files in flight are a
+  // ref rather than state because two renders in the same tick must not both
+  // start the same upload — state would still read as it was in the second.
+  const inFlight = useRef(new Set<string>());
+  /**
+   * Set while the app is off screen on iOS: the runner then starts several
+   * files instead of one (see BACKGROUND_BURST).
+   */
+  const burst = useRef(false);
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const lastNotifiedPercent = useRef(-1);
 
@@ -226,26 +257,48 @@ export function UploadProvider({ children }: { children: ReactNode }) {
    * one render per callback a large file would spend the upload janking. One
    * per percent is all the bar can draw anyway.
    */
-  const lastPatchedPercent = useRef(-1);
-
-  // Read by the listener below, which is set up once.
-  const waitingRef = useRef(0);
+  const lastPatchedPercent = useRef(new Map<string, number>());
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       const was = appState.current;
       appState.current = next;
+      if (Platform.OS !== 'ios') return;
+
+      if (next === 'active') {
+        burst.current = false;
+        return;
+      }
+      if (next !== 'background' || was === 'background') return;
+
       /*
-       * Said, since it cannot yet be helped. iOS suspends this queue in the
-       * background: the file in flight finishes in its own session, and the
-       * rest wait for the app to come back. A batch left to "carry on" was
-       * found an hour later exactly where it was, with nothing to say why.
+       * Leaving. iOS suspends JavaScript within seconds, and with it the loop
+       * that starts each next file; a transfer already handed to the system
+       * carries on in its own session. So the next few are handed over now.
+       *
+       * Only files sent in one piece: one sent in parts needs JavaScript
+       * between the parts, and stops where it is until the app is back.
        */
-      const waiting = waitingRef.current - 1;
-      if (Platform.OS === 'ios' && was === 'active' && next === 'background' && waiting > 0) {
+      const queued = tasksRef.current.filter(
+        (task) => task.status === 'queued' && !inFlight.current.has(task.id),
+      );
+      const handed = Math.min(
+        Math.max(0, BACKGROUND_BURST - inFlight.current.size),
+        queued.filter((task) => task.sizeBytes < MULTIPART_MIN_BYTES).length,
+      );
+      const waiting = queued.length - handed;
+      burst.current = true;
+      if (handed > 0) setTasks((prev) => [...prev]);
+
+      // Said, since it cannot all be helped: a batch left to "carry on" was
+      // found an hour later exactly where it was, with nothing to say why.
+      if (waiting > 0) {
+        const going = handed + inFlight.current.size;
         void showUploadFinished(
-          'Uploads paused',
-          `${waiting} ${waiting === 1 ? 'file is' : 'files are'} waiting. They carry on when you open Virgo again.`,
+          going > 0 ? 'Some uploads are waiting' : 'Uploads paused',
+          `${going > 0 ? `${going} ${going === 1 ? 'file is' : 'files are'} still uploading. ` : ''}${waiting} ${
+            waiting === 1 ? 'waits' : 'wait'
+          } until you open Virgo again.`,
         );
       }
     });
@@ -516,10 +569,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   );
 
   const remove = useCallback((id: string) => {
-    const running = controllers.current.get(id);
-    if (running) {
+    const controller = controllers.current.get(id);
+    if (controller) {
       // The upload releases its own parts once it sees the cancellation.
-      running.abort();
+      controller.abort();
     } else {
       // Kept for a resume that is now not coming.
       releaseMultipart(tasksRef.current.find((task) => task.id === id)?.multipart);
@@ -532,152 +585,169 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  // The runner. One at a time: several large videos at once compete for the
-  // same uplink and make every bar crawl, which reads as broken rather than
-  // busy.
+  /** Sends one file, start to finish, and says how it went. */
+  const run = useCallback(
+    (next: UploadTask) => {
+      const controller = new AbortController();
+      controllers.current.set(next.id, controller);
+      inFlight.current.add(next.id);
+
+      void (async () => {
+        lastPatchedPercent.current.delete(next.id);
+        patch(next.id, { status: 'uploading', progress: 0, error: undefined });
+        try {
+          // A key from an earlier attempt means bytes may already be in the
+          // bucket: the native transfer can finish after the attempt that
+          // started it gave up, a large file may have been assembled with only
+          // the reply lost, or the bytes landed and only the confirm timed out.
+          // Asked first — on a tap on Retry as much as after a restart — so a
+          // file that arrived is not sent, and stored, twice. A failure to ask
+          // is handled like any other failure below.
+          if (next.key) {
+            const stat = await withConfirmRetry(
+              () => storageApi.confirm(next.key as string, next.albumId, next.name),
+              { signal: controller.signal },
+            );
+            if (stat.exists) {
+              if (mounted.current) {
+                patch(next.id, {
+                  status: 'done',
+                  progress: 1,
+                  multipart: undefined,
+                  retryAt: undefined,
+                  networkFailures: 0,
+                });
+              }
+              refreshAlbumSoon(next.albumId);
+              return;
+            }
+          }
+
+          await storageApi.uploadFile(next.uri, {
+            contentType: next.mimeType,
+            scope: 'albums',
+            originalName: next.name,
+            // Without this the object is stored but attached to nothing, so it
+            // uploads "successfully" and then appears in no album at all.
+            albumId: next.albumId,
+            // Recorded before the first byte goes out, and not guarded by
+            // `mounted`: if this process is about to end, the key is the only
+            // thing that makes the upload findable afterwards, so it has to be
+            // written even on the way out.
+            onTicket: (key) => patch(next.id, { key }),
+            onProgress: (fraction) => {
+              if (!mounted.current) return;
+              const percent = Math.round(fraction * 100);
+              if (percent === lastPatchedPercent.current.get(next.id)) return;
+              lastPatchedPercent.current.set(next.id, percent);
+              patch(next.id, { progress: fraction });
+            },
+            signal: controller.signal,
+            // A large file carries on from the part an earlier attempt reached.
+            resume: next.multipart,
+            // Written on every acknowledged part, and like onTicket not guarded
+            // by `mounted`: it is what a relaunch resumes from.
+            onSession: (multipart) => patch(next.id, { multipart }),
+          });
+          if (mounted.current) {
+            patch(next.id, {
+              status: 'done',
+              progress: 1,
+              multipart: undefined,
+              retryAt: undefined,
+              networkFailures: 0,
+            });
+          }
+
+          // As they land, not all at the end; but gathered, so a run of small
+          // files is not a run of whole-album refreshes (see refreshAlbumSoon).
+          refreshAlbumSoon(next.albumId);
+        } catch (error) {
+          const cancelled = controller.signal.aborted;
+          // Removed while running: the row is already gone.
+          if (!mounted.current || cancelled) return;
+
+          // Nothing answered. Queued again rather than failed: the file did
+          // nothing wrong, and on a phone the network comes back. It waits for
+          // NetInfo to say so, then a growing delay, in case it only says so.
+          // Not if the file itself has gone, which no amount of waiting fixes.
+          if (isConnectivityFailure(error, cancelled)) {
+            const info = await FileSystem.getInfoAsync(next.uri).catch(() => null);
+            if (info?.exists && mounted.current) {
+              const failures = (next.networkFailures ?? 0) + 1;
+              patch(next.id, {
+                status: 'queued',
+                progress: 0,
+                error: WAITING_FOR_CONNECTION,
+                networkFailures: failures,
+                retryAt: Date.now() + connectivityRetryDelayMs(failures),
+              });
+              return;
+            }
+          }
+
+          if (mounted.current) {
+            patch(next.id, {
+              status: 'failed',
+              error: error instanceof Error ? error.message : 'Upload failed',
+            });
+          }
+        } finally {
+          controllers.current.delete(next.id);
+          inFlight.current.delete(next.id);
+          lastPatchedPercent.current.delete(next.id);
+          // Nudges the runner to look for the next one. Without it the queue
+          // stops after the first file, because nothing else changes `tasks`
+          // once the last patch has landed.
+          if (mounted.current) setTasks((prev) => [...prev]);
+        }
+      })();
+    },
+    [patch, refreshAlbumSoon],
+  );
+
+  // The runner. One at a time while the app is in front: several large videos
+  // at once compete for the same uplink and make every bar crawl, which reads
+  // as broken rather than busy. Off screen on iOS, a handful at once (see
+  // BACKGROUND_BURST).
   useEffect(() => {
     // Not before the previous launch has been settled, or a file already in
     // the bucket gets sent again. And only for the account signed in now.
     if (!hydrated || !owner || owner !== userId) return;
-    if (running.current) return;
+
+    const limit = burst.current ? BACKGROUND_BURST : 1;
+    if (wakeTimer.current) {
+      clearTimeout(wakeTimer.current);
+      wakeTimer.current = null;
+    }
 
     // Offline, nothing starts; the NetInfo listener re-runs this on return.
     // A file still waiting out its delay is passed over, and the runner is
     // woken when the earliest delay ends.
     const now = Date.now();
-    const { task: next, wakeAt } = nextRunnable(tasks, now, online);
-    if (wakeTimer.current) {
-      clearTimeout(wakeTimer.current);
-      wakeTimer.current = null;
-    }
-    if (!next) {
-      if (wakeAt !== undefined) {
-        wakeTimer.current = setTimeout(() => {
-          wakeTimer.current = null;
-          if (mounted.current) setTasks((prev) => [...prev]);
-        }, Math.max(0, wakeAt - now));
+    let candidates = tasks.filter((task) => !inFlight.current.has(task.id));
+    while (inFlight.current.size < limit) {
+      const { task: next, wakeAt } = nextRunnable(candidates, now, online);
+      if (!next) {
+        if (wakeAt !== undefined && inFlight.current.size === 0) {
+          wakeTimer.current = setTimeout(() => {
+            wakeTimer.current = null;
+            if (mounted.current) setTasks((prev) => [...prev]);
+          }, Math.max(0, wakeAt - now));
+        }
+        break;
       }
-      return;
+      candidates = candidates.filter((task) => task.id !== next.id);
+      // Beside another file, only one that is sent in one piece: a file in
+      // parts needs this thread between its parts, and off screen has none.
+      if (inFlight.current.size > 0 && next.sizeBytes >= MULTIPART_MIN_BYTES) continue;
+      run(next);
     }
-
-    running.current = true;
-    const controller = new AbortController();
-    controllers.current.set(next.id, controller);
-
-    (async () => {
-      lastPatchedPercent.current = -1;
-      patch(next.id, { status: 'uploading', progress: 0, error: undefined });
-      try {
-        // A key from an earlier attempt means bytes may already be in the
-        // bucket: the native transfer can finish after the attempt that
-        // started it gave up, a large file may have been assembled with only
-        // the reply lost, or the bytes landed and only the confirm timed out.
-        // Asked first — on a tap on Retry as much as after a restart — so a
-        // file that arrived is not sent, and stored, twice. A failure to ask
-        // is handled like any other failure below.
-        if (next.key) {
-          const stat = await withConfirmRetry(
-            () => storageApi.confirm(next.key, next.albumId, next.name),
-            { signal: controller.signal },
-          );
-          if (stat.exists) {
-            if (mounted.current) {
-              patch(next.id, {
-                status: 'done',
-                progress: 1,
-                multipart: undefined,
-                retryAt: undefined,
-                networkFailures: 0,
-              });
-            }
-            refreshAlbumSoon(next.albumId);
-            return;
-          }
-        }
-
-        await storageApi.uploadFile(next.uri, {
-          contentType: next.mimeType,
-          scope: 'albums',
-          originalName: next.name,
-          // Without this the object is stored but attached to nothing, so it
-          // uploads "successfully" and then appears in no album at all.
-          albumId: next.albumId,
-          // Recorded before the first byte goes out, and not guarded by
-          // `cancelled`: if this process is about to end, the key is the only
-          // thing that makes the upload findable afterwards, so it has to be
-          // written even on the way out.
-          onTicket: (key) => patch(next.id, { key }),
-          onProgress: (fraction) => {
-            if (!mounted.current) return;
-            const percent = Math.round(fraction * 100);
-            if (percent === lastPatchedPercent.current) return;
-            lastPatchedPercent.current = percent;
-            patch(next.id, { progress: fraction });
-          },
-          signal: controller.signal,
-          // A large file carries on from the part an earlier attempt reached.
-          resume: next.multipart,
-          // Written on every acknowledged part, and like onTicket not guarded
-          // by `mounted`: it is what a relaunch resumes from.
-          onSession: (multipart) => patch(next.id, { multipart }),
-        });
-        if (mounted.current) {
-          patch(next.id, {
-            status: 'done',
-            progress: 1,
-            multipart: undefined,
-            retryAt: undefined,
-            networkFailures: 0,
-          });
-        }
-
-        // As they land, not all at the end; but gathered, so a run of small
-        // files is not a run of whole-album refreshes (see refreshAlbumSoon).
-        refreshAlbumSoon(next.albumId);
-      } catch (error) {
-        const cancelled = controller.signal.aborted;
-        // Removed while running: the row is already gone.
-        if (!mounted.current || cancelled) return;
-
-        // Nothing answered. Queued again rather than failed: the file did
-        // nothing wrong, and on a phone the network comes back. It waits for
-        // NetInfo to say so, then a growing delay, in case it only says so.
-        // Not if the file itself has gone, which no amount of waiting fixes.
-        if (isConnectivityFailure(error, cancelled)) {
-          const info = await FileSystem.getInfoAsync(next.uri).catch(() => null);
-          if (info?.exists && mounted.current) {
-            const failures = (next.networkFailures ?? 0) + 1;
-            patch(next.id, {
-              status: 'queued',
-              progress: 0,
-              error: WAITING_FOR_CONNECTION,
-              networkFailures: failures,
-              retryAt: Date.now() + connectivityRetryDelayMs(failures),
-            });
-            return;
-          }
-        }
-
-        if (mounted.current) {
-          patch(next.id, {
-            status: 'failed',
-            error: error instanceof Error ? error.message : 'Upload failed',
-          });
-        }
-      } finally {
-        controllers.current.delete(next.id);
-        running.current = false;
-        // Nudges this effect to look for the next one. Without it the queue
-        // stops after the first file, because nothing else changes `tasks`
-        // once the last patch has landed.
-        setTasks((prev) => [...prev]);
-      }
-    })();
 
     // No cleanup. This effect re-runs constantly — every progress patch writes
-    // to `tasks`, which is a dependency — and a cleanup that stopped the
-    // running upload would therefore stop it immediately. `running` guards
-    // against a second one starting; `mounted` guards against writing state
+    // to `tasks`, which is a dependency — and a cleanup that stopped a
+    // running upload would therefore stop it immediately. `inFlight` guards
+    // against a second copy starting; `mounted` guards against writing state
     // after teardown. Neither belongs in a cleanup here.
     //
     // `hydrated` belongs in the deps as well as in the guard above: it flips false to
@@ -686,7 +756,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // there until something else changed `tasks`. `online` likewise: coming
     // back online is what starts a queue that was held. `owner` and `userId`
     // because the runner only works the signed-in account's own queue.
-  }, [tasks, patch, queryClient, hydrated, online, owner, userId, refreshAlbumSoon]);
+  }, [tasks, run, hydrated, online, owner, userId]);
 
   const pending = tasks.filter((task) => task.status !== 'done');
   const active = pending.some(
@@ -714,7 +784,6 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         ? batch.reduce((sum, task) => sum + task.progress, 0) / batch.length
         : 0;
   const remaining = pending.filter((task) => task.status !== 'failed').length;
-  waitingRef.current = remaining;
 
   // The drawer. Only while the app is off screen: a banner over the app saying
   // what the app is already showing is noise, and on iOS every one of these
@@ -776,24 +845,37 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     }
   }, [active, tasks, queryClient]);
 
+  const actions = useMemo(
+    () => ({ enqueue, retry, remove, clearFinished }),
+    [enqueue, retry, remove, clearFinished],
+  );
+
   return (
-    <UploadContext.Provider
-      value={{
-        tasks,
-        active,
-        overall,
-        remaining,
-        enqueue,
-        retry,
-        remove,
-        clearFinished,
-      }}
-    >
-      {children}
-    </UploadContext.Provider>
+    <UploadActionsContext.Provider value={actions}>
+      <UploadContext.Provider
+        value={{
+          tasks,
+          active,
+          overall,
+          remaining,
+          enqueue,
+          retry,
+          remove,
+          clearFinished,
+        }}
+      >
+        {children}
+      </UploadContext.Provider>
+    </UploadActionsContext.Provider>
   );
 }
 
+/** The queue and its progress. Re-renders whoever reads it as files move. */
 export function useUploadQueue(): UploadContextValue {
   return useContext(UploadContext);
+}
+
+/** Adding to the queue and tidying it, with no progress attached. */
+export function useUploadActions(): UploadActions {
+  return useContext(UploadActionsContext);
 }
