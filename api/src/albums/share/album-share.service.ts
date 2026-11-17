@@ -714,6 +714,67 @@ export class AlbumShareService {
     return link;
   }
 
+  /**
+   * What a chat shows for a client link someone pasted or sent: the name,
+   * how many files, and up to four thumbnails. No authentication beyond the
+   * token, like the page itself, and nothing the page would not show.
+   *
+   * Deliberately not `resolve()` with a small limit. That starts building a
+   * film's ladder, which is what opening a gallery pays for; a preview drawn
+   * in somebody's chat is not someone opening it. Only thumbnails and poster
+   * frames are signed — never an original, never a download.
+   */
+  async preview(token: string): Promise<{
+    title: string;
+    part: 'album' | 'section' | 'files';
+    total: number;
+    counts: { image: number; video: number; audio: number };
+    thumbs: string[];
+  }> {
+    const link = await this.linkFor(token);
+    const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
+    const part = this.partSql(link, 'f', params);
+
+    const [summary, firsts] = await Promise.all([
+      this.db.queryOne<{ total: string; image: string; video: string; audio: string }>(
+        `select count(*)::text as total,
+                count(*) filter (where f.content_type like 'image/%')::text as image,
+                count(*) filter (where f.content_type like 'video/%')::text as video,
+                count(*) filter (where f.content_type like 'audio/%')::text as audio
+           from user_files f
+          where f.user_id = $1 and f.album_id = $2
+            and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])${part}`,
+        params,
+      ),
+      this.db.query<{ thumb_key: string | null; poster_key: string | null }>(
+        `select f.thumb_key, f.poster_key
+           from user_files f
+          where f.user_id = $1 and f.album_id = $2
+            and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])${part}
+            and coalesce(f.thumb_key, f.poster_key) is not null
+          order by ${SORT_AT_SQL}, f.key
+          limit 4`,
+        params,
+      ),
+    ]);
+
+    const thumbs = await this.storage.mediaUrls(
+      firsts.map((f) => f.thumb_key ?? f.poster_key),
+      PUBLISHED_URL_TTL_SECONDS,
+    );
+    return {
+      title: this.titleOf(link),
+      part: link.scope,
+      total: Number(summary?.total ?? 0),
+      counts: {
+        image: Number(summary?.image ?? 0),
+        video: Number(summary?.video ?? 0),
+        audio: Number(summary?.audio ?? 0),
+      },
+      thumbs: thumbs.filter((u): u is string => !!u),
+    };
+  }
+
   async resolve(
     token: string,
     filter: {

@@ -7,214 +7,38 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ArchiveIcon,
   MessageCircleIcon,
-  UsersIcon,
   SquarePenIcon,
   SearchIcon,
   XIcon,
-  BellOffIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useConversations, useTheme } from '@/src/hooks';
 import { LoadFailed } from '@/components/LoadFailed';
 import { CardListSkeleton } from '@/components/Skeleton';
-import { PresenceDot } from '@/components';
 import { useTabBottomInset } from '@/components/TabScreen';
-import { typingLabel, useTypingIn } from '@/src/lib/presence-store';
+import { useChatRowMenu } from '@/components/chat/ChatRowMenu';
+import { useChatToast } from '@/components/chat/ChatToast';
+import { ConversationRow } from '@/components/chat/ConversationRow';
 import type { Conversation } from '@/src/api';
 import { PALETTES } from '@/theme';
 
-/**
- * A row's second line: who is typing, or the last message.
- *
- * Its own component so a keystroke re-renders one line rather than the list.
- *
- * No `meId` is needed: the server relays a typing frame to the *others* in a
- * conversation, never back to its sender, so you can never appear in your own
- * typing list.
- */
-function TypingOrPreview({ conversation }: { conversation: Conversation }) {
-  const names = useTypingIn(conversation.id);
-
-  if (names.length > 0) {
-    return (
-      <Text className="text-primary text-[14px] leading-5 font-medium flex-1" numberOfLines={1}>
-        {conversation.isGroup ? typingLabel(names) : 'typing…'}
-      </Text>
-    );
-  }
-
-  return (
-    <Text
-      className={`text-[14px] leading-5 flex-1 ${
-        conversation.unread > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'
-      }`}
-      numberOfLines={1}
-    >
-      {conversation.lastMessage
-        ? // Naming the sender only matters in a group; in a direct chat the
-          // other name is already the title.
-          conversation.isGroup && conversation.lastSender
-          ? `${conversation.lastSender}: ${conversation.lastMessage}`
-          : conversation.lastMessage
-        : 'No messages yet'}
-    </Text>
-  );
+for (const Icon of [ArchiveIcon, MessageCircleIcon, SquarePenIcon, SearchIcon, XIcon]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
-
-cssInterop(MessageCircleIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(UsersIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(SquarePenIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(SearchIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(XIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-cssInterop(BellOffIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-
-/** "now" / "14:05" / "Mon" / "3 Aug" — how recent decides the format. */
-function whenLabel(iso: string | null): string {
-  if (!iso) return '';
-  const then = new Date(iso);
-  const now = new Date();
-  const mins = (now.getTime() - then.getTime()) / 60000;
-
-  if (mins < 1) return 'now';
-  if (then.toDateString() === now.toDateString()) {
-    return then.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  }
-  if (mins < 60 * 24 * 7) {
-    return then.toLocaleDateString('en-US', { weekday: 'short' });
-  }
-  return then.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-}
-
-/**
- * One conversation in the list.
- *
- * Its own memoised component. The row was drawn inline by the list, so every
- * keystroke in the search box, and every message arriving for any chat, drew
- * every row on screen again, each with its picture. Now a row draws when its
- * own conversation changes.
- */
-const ConversationRow = memo(function ConversationRow({ item }: { item: Conversation }) {
-  const { isDark } = useTheme();
-  const palette = isDark ? PALETTES.dark : PALETTES.light;
-  return (
-          <Pressable
-            onPress={() => router.push(`/chat/${item.id}`)}
-            accessibilityRole="button"
-            accessibilityLabel={[
-              item.title,
-              item.isGroup ? 'group' : null,
-              item.unread > 0 ? `${item.unread} unread` : null,
-              item.muted ? 'muted' : null,
-              item.lastMessage
-                ? `${item.isGroup && item.lastSender ? `${item.lastSender}: ` : ''}${item.lastMessage}`
-                : 'No messages yet',
-              whenLabel(item.lastAt) || null,
-            ]
-              .filter(Boolean)
-              .join(', ')}
-            className="min-h-[72px] px-5 py-2.5 flex-row items-center gap-3 active:bg-muted/40"
-          >
-            {item.isGroup ? (
-              <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
-                <UsersIcon size={20} className="text-secondary-foreground" />
-              </View>
-            ) : (
-              // Wrapped so the presence dot has something to anchor to.
-              <View style={{ position: 'relative' }}>
-                {item.avatarUrl ? (
-                  <RemoteImage
-                    source={{ uri: item.avatarUrl }}
-                    style={{ width: 48, height: 48, borderRadius: 24 }}
-                  />
-                ) : (
-                  <View
-                    className="w-12 h-12 rounded-full items-center justify-center"
-                    style={{ backgroundColor: `${palette.primary}18` }}
-                  >
-                    <Text style={{ color: palette.primary, fontWeight: '700', fontSize: 17 }}>
-                      {item.title.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-                <PresenceDot userId={item.otherUserId} />
-              </View>
-            )}
-
-            <View className="flex-1 min-w-0">
-              <View className="flex-row items-center gap-2">
-                <Text
-                  // Unread is the only thing in the list that gets weight.
-                  className={`text-foreground text-[16px] leading-[22px] ${item.unread > 0 ? 'font-bold' : 'font-medium'}`}
-                  numberOfLines={1}
-                  style={{ flexShrink: 1 }}
-                >
-                  {item.title}
-                </Text>
-                {item.muted && <BellOffIcon size={13} className="text-muted-foreground" />}
-                <View className="flex-1" />
-                <Text
-                  className={`text-[12px] ${
-                    item.unread > 0 && !item.muted ? 'text-primary font-semibold' : 'text-muted-foreground'
-                  }`}
-                >
-                  {whenLabel(item.lastAt)}
-                </Text>
-              </View>
-              <View className="flex-row items-center gap-2 mt-0.5">
-                {/* One or the other, never both: two lines would make every
-                    row taller the moment somebody touched a key. */}
-                <TypingOrPreview conversation={item} />
-                {/* Nothing when there is nothing unread. A double tick stood in
-                    for "caught up" here, and read as a read receipt on a
-                    message somebody else had sent. A muted chat's count is
-                    greyed: it waits for you without calling for you. */}
-                {item.unread > 0 ? (
-                  <View
-                    className={`rounded-full px-1.5 h-5 min-w-[20px] items-center justify-center ${
-                      item.muted ? 'bg-muted' : 'bg-action'
-                    }`}
-                  >
-                    <Text
-                      allowFontScaling={false}
-                      className={`text-[12px] font-bold ${
-                        item.muted ? 'text-muted-foreground' : 'text-action-foreground'
-                      }`}
-                    >
-                      {item.unread > 99 ? '99+' : item.unread}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
-              {/* Why this row is a search result, when the hit was buried in
-                  the thread rather than in its name. */}
-              {item.matchSnippet && (
-                <View className="flex-row items-center gap-1.5 mt-1">
-                  <SearchIcon size={12} className="text-primary" />
-                  <Text className="text-primary text-[13px] flex-1" numberOfLines={1}>
-                    {item.matchSnippet}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </Pressable>
-  );
-});
-
-const renderConversation = ({ item }: { item: Conversation }) => <ConversationRow item={item} />;
 
 /**
  * Conversations, direct and group.
  *
- * Polled rather than pushed: there is no websocket, so the list refreshes on an
- * interval and on pull. A new message still arrives immediately as a push
- * notification.
+ * Pinned chats come first, from the server, with a rule under them; archived
+ * ones wait behind the Archived row at the top. Holding a row lifts it with
+ * its menu — there are no swipe actions, which would stop the list scrolling
+ * on an iPhone.
  */
 export default function ChatScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const bottomInset = useTabBottomInset();
@@ -240,8 +64,30 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
+    archivedCount,
   } = useConversations(term);
   const searching = term.length > 0;
+
+  const toast = useChatToast(bottomInset + 12);
+  const pinnedCount = useMemo(() => conversations.filter((c) => c.pinned).length, [conversations]);
+  const rowMenu = useChatRowMenu({ pinnedCount, onNotice: toast.show });
+  const hold = rowMenu.hold;
+
+  // The rule goes under the last pinned chat, when anything follows it. Not
+  // in search results, which are not the list's order.
+  const lastPinnedId = useMemo(() => {
+    if (searching) return null;
+    let last = -1;
+    for (const [i, c] of conversations.entries()) if (c.pinned) last = i;
+    return last >= 0 && last < conversations.length - 1 ? conversations[last].id : null;
+  }, [conversations, searching]);
+
+  const renderConversation = useCallback(
+    ({ item }: { item: Conversation }) => (
+      <ConversationRow item={item} onHold={hold} dividerAfter={item.id === lastPinnedId} />
+    ),
+    [hold, lastPinnedId],
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -314,6 +160,23 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
       <FlatList
         data={conversations}
         keyExtractor={(c) => c.id}
+        // Archived chats wait here, and come back when someone writes.
+        ListHeaderComponent={
+          !searching && archivedCount > 0 ? (
+            <Pressable
+              onPress={() => router.push('/chat/archived')}
+              accessibilityRole="button"
+              accessibilityLabel={`Archived, ${archivedCount} chat${archivedCount === 1 ? '' : 's'}`}
+              className="h-[52px] px-5 flex-row items-center gap-3 active:bg-muted/40"
+            >
+              <View className="w-12 items-center">
+                <ArchiveIcon size={20} className="text-secondary-foreground" />
+              </View>
+              <Text className="flex-1 text-foreground text-[15px] font-semibold">Archived</Text>
+              <Text className="text-muted-foreground text-[13px]">{archivedCount}</Text>
+            </Pressable>
+          ) : null
+        }
         contentContainerStyle={{ paddingBottom: bottomInset }}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -375,6 +238,8 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
           )
         }
       />
+      {rowMenu.element}
+      {toast.element}
     </SafeAreaView>
   );
 }

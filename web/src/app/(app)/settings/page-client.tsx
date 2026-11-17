@@ -7,6 +7,7 @@ import {
   Bell,
   BellOff,
   Eye,
+  ImageDown,
   Volume2,
   VolumeX,
   Loader2,
@@ -24,6 +25,9 @@ import { SettingRow } from '@/components/settings/setting-row';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useMediaAutoLoad } from '@/components/chat/connection';
+import { MEDIA_AUTO_LOAD_LABEL, type MediaAutoLoad } from '@/api';
 import { playAlert, setSoundEnabled, soundEnabled, subscribeToSoundEnabled } from '@/lib/sounds';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -113,6 +117,16 @@ export default function SettingsPage() {
   // exist during the server render, and reading it inline would mismatch on
   // hydration.
   const sound = useSyncExternalStore(subscribeToSoundEnabled, soundEnabled, soundOnServer);
+  // Per browser, like the sound: a data plan belongs to a device.
+  const media = useMediaAutoLoad();
+  const mediaDetail =
+    media.setting === 'always'
+      ? 'Pictures in chats load on any connection. Saved in this browser.'
+      : media.setting === 'tap'
+        ? 'Pictures in chats wait until you click them. Saved in this browser.'
+        : media.quality === 'slow'
+          ? "You're on a slow or data-saving connection, so pictures wait for a click."
+          : 'On a slow or data-saving connection, pictures wait for a click. Saved in this browser.';
 
   const discoverable = profile?.discoverable ?? true;
 
@@ -297,6 +311,34 @@ export default function SettingsPage() {
                 }}
                 aria-label="Notification sound"
               />
+            </SettingRow>
+
+            {/* For a weak or metered line: what chats download without being
+                asked. Link pictures follow it today, and photos, films and
+                voice notes in chat will. */}
+            <SettingRow
+              icon={ImageDown}
+              title="Load photos, films and voice notes automatically"
+              detail={hydrated ? mediaDetail : 'Saved in this browser.'}
+            >
+              <Select
+                value={media.setting}
+                onValueChange={(value) => media.setSetting(value as MediaAutoLoad)}
+              >
+                <SelectTrigger
+                  className="w-48"
+                  aria-label="Load photos, films and voice notes automatically"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(MEDIA_AUTO_LOAD_LABEL) as MediaAutoLoad[]).map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {MEDIA_AUTO_LOAD_LABEL[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </SettingRow>
 
             {/* Everything above is this device; this is the account — which

@@ -3,6 +3,7 @@ import {
   Text,
   FlatList,
   Pressable,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Alert,
@@ -12,7 +13,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BottomSheet } from '@/components/BottomSheet';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,7 +24,9 @@ import {
   ArrowLeftIcon,
   UsersIcon,
   ReplyIcon,
+  ForwardIcon,
   CopyIcon,
+  PencilIcon,
   Trash2Icon,
   InfoIcon,
   BellOffIcon,
@@ -41,7 +44,16 @@ import {
   useThread,
   useUnblock,
 } from '@/src/hooks';
-import { flushOutbox, retryOutboxItem, useOpenConversation } from '@/src/hooks/useChat';
+import {
+  flushOutbox,
+  retryOutboxItem,
+  useEditFailures,
+  useEditMessage,
+  useOpenConversation,
+  usePendingEdits,
+  useReactToMessage,
+} from '@/src/hooks/useChat';
+import { useMediaAutoLoad } from '@/src/hooks/useConnectionQuality';
 import { PresenceLine, TypingIndicator } from '@/components';
 import { askToUnblock, safetyError } from '@/components/PersonSafetySheet';
 import { buzzForMessage } from '@/src/lib/notifications';
@@ -53,9 +65,24 @@ import {
   useOutbox,
   type OutboxItem,
 } from '@/src/lib/outbox';
-import { ApiError, type ConversationMessage } from '@/src/api';
+import {
+  ApiError,
+  canEditMessage,
+  EDIT_WINDOW_MINUTES,
+  myReaction,
+  type ConversationMessage,
+  type ReactionKey,
+} from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
-import { Composer, useKeyboardUp } from '@/components/chat/Composer';
+import { Composer, useKeyboardUp, type ComposerHandle } from '@/components/chat/Composer';
+import { chatError, editMinutesLeft, firstNameOf } from '@/components/chat/chat-words';
+import { useChatToast } from '@/components/chat/ChatToast';
+import { ForwardSheet } from '@/components/chat/ForwardSheet';
+import type { HeldRect, HoldMenuEntry } from '@/components/chat/HoldOverlay';
+import { MessageHold, type HeldMessage } from '@/components/chat/MessageHold';
+import { ReactionsSheet } from '@/components/chat/ReactionsSheet';
+import { SavedRepliesSheet } from '@/components/chat/SavedRepliesSheet';
+import { SeenBySheet } from '@/components/chat/SeenBySheet';
 import {
   buildThreadRows,
   DaySeparator,
@@ -68,8 +95,8 @@ import {
 } from '@/components/chat/ThreadRows';
 
 for (const Icon of [
-  ArrowDownIcon, ArrowLeftIcon, UsersIcon, ReplyIcon, CopyIcon, Trash2Icon,
-  InfoIcon, BellOffIcon, WifiOffIcon,
+  ArrowDownIcon, ArrowLeftIcon, UsersIcon, ReplyIcon, ForwardIcon, CopyIcon, PencilIcon,
+  Trash2Icon, InfoIcon, BellOffIcon, WifiOffIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -155,8 +182,29 @@ export default function ConversationScreen() {
   const markRead = useMarkThreadRead();
   const unblock = useUnblock();
 
+  const { mutate: reactTo } = useReactToMessage(id, user?.id);
+  const { mutate: editMessage } = useEditMessage(id);
+  /** Changes still on this phone, drawn as "Waiting for a connection". */
+  const pendingEdits = usePendingEdits(id);
+  // Link pictures load by themselves only on a good line, or as set.
+  const { autoLoad } = useMediaAutoLoad();
+
   const [replyTo, setReplyTo] = useState<ConversationMessage | null>(null);
-  const [acting, setActing] = useState<ConversationMessage | null>(null);
+  /** The message held, lifted with its reactions and menu. */
+  const [held, setHeld] = useState<HeldMessage | null>(null);
+  /** What to do once the hold has gone: a sheet or an alert cannot open over it. */
+  const afterHold = useRef<(() => void) | null>(null);
+  const [editing, setEditing] = useState<ConversationMessage | null>(null);
+  const [reactionsFor, setReactionsFor] = useState<string | null>(null);
+  const [seenByFor, setSeenByFor] = useState<string | null>(null);
+  const [forwarding, setForwarding] = useState<ConversationMessage | null>(null);
+  const [savedOpen, setSavedOpen] = useState(false);
+  /** Set when a saved reply was picked, so the box takes focus once the sheet has gone. */
+  const pickedReply = useRef(false);
+  const composerRef = useRef<ComposerHandle>(null);
+  // Just above the composer, inside the thread.
+  const toast = useChatToast(12);
+  const showToast = toast.show;
 
   // The alert watchers' "this one is on screen" — while it has focus, not
   // merely while it is mounted under another screen.
@@ -396,10 +444,107 @@ export default function ConversationScreen() {
 
   const cancelReply = useCallback(() => setReplyTo(null), []);
 
+  // ── Holding a message ─────────────────────────────────────────────────────
+
+  /** Every loaded message by id, so a sheet reads the latest of the one it is about. */
+  const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+
+  const onHold = useCallback(
+    (message: ConversationMessage, rect: HeldRect) => {
+      // The keyboard would sit over the menu: the hold is a modal, and the
+      // keyboard draws above every window.
+      Keyboard.dismiss();
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      }
+      setHeld({ message, rect, mine: message.sender_id === user?.id });
+    },
+    [user?.id],
+  );
+  const closeHold = useCallback(() => setHeld(null), []);
+  const closeHoldThen = useCallback((action: () => void) => {
+    afterHold.current = action;
+    setHeld(null);
+  }, []);
+  const onHoldClosed = useCallback(() => {
+    const action = afterHold.current;
+    afterHold.current = null;
+    action?.();
+  }, []);
+
+  /** Your reaction of this kind: taken back if it is yours, given if not. */
+  const toggleReaction = useCallback(
+    (message: ConversationMessage, reaction: ReactionKey) => {
+      const current = myReaction(message.reactions, user?.id);
+      reactTo(
+        { messageId: message.id, reaction: current === reaction ? null : reaction },
+        { onError: (err) => Alert.alert("Couldn't react", chatError(err)) },
+      );
+    },
+    [reactTo, user?.id],
+  );
+  const showReactions = useCallback((message: ConversationMessage) => {
+    setReactionsFor(message.id);
+  }, []);
+  const showSeenByFor = useCallback((message: ConversationMessage) => {
+    setSeenByFor(message.id);
+  }, []);
+
+  // ── Editing ───────────────────────────────────────────────────────────────
+
+  const editNote = isGroup
+    ? 'Everyone here will see it marked Edited'
+    : `${firstNameOf(others[0]?.name ?? title)} will see it marked Edited`;
+
+  const cancelEdit = useCallback(() => setEditing(null), []);
+  const editExpired = useCallback(() => {
+    setEditing(null);
+    showToast('Time is up for editing that one. Your words are still in the box to send as new.');
+  }, [showToast]);
+  const saveEdit = useCallback(
+    ({ message, body, mentionIds }: { message: ConversationMessage; body: string; mentionIds: string[] }) => {
+      setEditing(null);
+      editMessage(
+        { messageId: message.id, body, mentionIds: isGroup ? mentionIds : undefined },
+        {
+          onError: (err) => {
+            // Put back where they were typed, so nothing written is lost.
+            composerRef.current?.insert(body);
+            Alert.alert("Couldn't save the change", `${chatError(err)} Your words are back in the box.`);
+          },
+        },
+      );
+    },
+    [editMessage, isGroup],
+  );
+
+  // A change made offline that the server turned down once it could be sent
+  // — the fifteen minutes ran out meanwhile. The words are offered back.
+  useEditFailures(id, ({ body, error }) => {
+    Alert.alert("Your change wasn't saved", chatError(error), [
+      { text: 'OK', style: 'cancel' },
+      { text: 'Put it in the box', onPress: () => composerRef.current?.insert(body) },
+    ]);
+  });
+
+  // The message being changed went — deleted here or for everyone — or the
+  // thread froze. The words stay in the box.
+  useEffect(() => {
+    if (!editing) return;
+    const now = byId.get(editing.id);
+    if (!canSend) {
+      setEditing(null);
+      return;
+    }
+    if (threadReady && (!now || now.deleted_at)) {
+      setEditing(null);
+      showToast('That message was deleted. Your words are still in the box.');
+    }
+  }, [editing, byId, canSend, threadReady, showToast]);
+
   const confirmDelete = (message: ConversationMessage) => {
     const mine = message.sender_id === user?.id;
-    const onError = (err: unknown) =>
-      Alert.alert('Could not delete', err instanceof Error ? err.message : 'Please try again.');
+    const onError = (err: unknown) => Alert.alert('Could not delete', chatError(err));
     const options: Parameters<typeof Alert.alert>[2] = [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -428,6 +573,96 @@ export default function ConversationScreen() {
 
   const border = isDark ? '#2A2522' : '#F0E8E2';
   const showSeenBy = isGroup && others.length > 1;
+
+  /*
+   * What holding this message offers. A deleted one can only be deleted (for
+   * you). A frozen thread keeps Copy and Delete. A card can be replied to and
+   * reacted to, not forwarded or edited, and only your own typed message,
+   * within the window, can be edited.
+   */
+  const heldMessage = held ? (byId.get(held.message.id) ?? held.message) : null;
+  const heldDeleted = !!heldMessage?.deleted_at;
+  const canReactHeld = canSend && !heldDeleted;
+  const holdEntries: HoldMenuEntry[] = [];
+  if (heldMessage) {
+    const m = heldMessage;
+    const card = m.kind === 'job-accepted';
+    if (!heldDeleted && canSend) {
+      holdEntries.push({
+        key: 'reply',
+        label: 'Reply',
+        Icon: ReplyIcon,
+        onPress: () => {
+          setReplyTo(m);
+          closeHold();
+        },
+      });
+    }
+    if (!heldDeleted && canSend && !card) {
+      holdEntries.push({
+        key: 'forward',
+        label: 'Forward',
+        Icon: ForwardIcon,
+        onPress: () => closeHoldThen(() => setForwarding(m)),
+      });
+    }
+    if (!heldDeleted) {
+      holdEntries.push({
+        key: 'copy',
+        label: 'Copy',
+        Icon: CopyIcon,
+        onPress: () => {
+          closeHold();
+          void Clipboard.setStringAsync(m.body).then(() => showToast('Copied'));
+        },
+      });
+    }
+    if (!heldDeleted && canSend && canEditMessage(m, user?.id)) {
+      const minutes = editMinutesLeft(m.created_at, EDIT_WINDOW_MINUTES);
+      holdEntries.push({
+        key: 'edit',
+        label: 'Edit',
+        hint: `For ${minutes} more minute${minutes === 1 ? '' : 's'}`,
+        Icon: PencilIcon,
+        onPress: () => {
+          closeHold();
+          setEditing(m);
+        },
+      });
+    }
+    holdEntries.push({
+      key: 'delete',
+      label: 'Delete',
+      Icon: Trash2Icon,
+      destructive: true,
+      onPress: () => closeHoldThen(() => confirmDelete(m)),
+    });
+  }
+  const heldReaction = heldMessage ? myReaction(heldMessage.reactions, user?.id) : null;
+  const reactFromHold = (reaction: ReactionKey) => {
+    const m = heldMessage;
+    closeHold();
+    if (m) toggleReaction(m, reaction);
+  };
+
+  // ── Saved replies ─────────────────────────────────────────────────────────
+
+  const openSaved = useCallback(() => {
+    Keyboard.dismiss();
+    setSavedOpen(true);
+  }, []);
+  const pickSaved = useCallback((body: string) => {
+    pickedReply.current = true;
+    composerRef.current?.insert(body);
+    setSavedOpen(false);
+  }, []);
+  const savedClosed = useCallback(() => {
+    if (!pickedReply.current) return;
+    pickedReply.current = false;
+    composerRef.current?.focus();
+  }, []);
+
+  const editingId = editing?.id ?? null;
 
   const renderItem = useCallback(
     ({ item }: { item: ThreadRow }) => {
@@ -460,13 +695,25 @@ export default function ConversationScreen() {
               showSeenBy={showSeenBy}
               matcher={matcher}
               isDark={isDark}
-              onLongPress={setActing}
+              onLongPress={onHold}
+              myId={user?.id}
+              canReact={canSend}
+              onToggleReaction={toggleReaction}
+              onShowReactions={showReactions}
+              onShowSeenBy={showSeenByFor}
+              beingEdited={item.message.id === editingId}
+              waiting={pendingEdits.has(item.message.id)}
+              autoLoadMedia={autoLoad}
             />
           );
         }
       }
     },
-    [user?.id, deliveryOf, showSeenBy, matcher, isDark, isOffline, retry, unsentActions],
+    [
+      user?.id, deliveryOf, showSeenBy, matcher, isDark, isOffline, retry, unsentActions,
+      onHold, canSend, toggleReaction, showReactions, showSeenByFor, editingId, pendingEdits,
+      autoLoad,
+    ],
   );
 
   return (
@@ -645,6 +892,7 @@ export default function ConversationScreen() {
                 <ArrowDownIcon size={18} className="text-foreground" />
               </Pressable>
             )}
+            {toast.element}
           </View>
         )}
 
@@ -653,12 +901,19 @@ export default function ConversationScreen() {
             send is worse than a plain line saying so. */}
         {canSend && id ? (
           <Composer
+            ref={composerRef}
             conversationId={id}
             isGroup={isGroup}
             others={others}
             replyTo={replyTo}
             onCancelReply={cancelReply}
             onSend={send}
+            editing={editing}
+            editNote={editNote}
+            onCancelEdit={cancelEdit}
+            onSaveEdit={saveEdit}
+            onEditExpired={editExpired}
+            onPlus={openSaved}
           />
         ) : !threadReady ? null : (
           <View
@@ -699,67 +954,54 @@ export default function ConversationScreen() {
         )}
       </KeyboardAvoidingView>
 
-      {/* Long-press actions */}
-      <BottomSheet visible={!!acting} onClose={() => setActing(null)}>
-        <View className="px-5 pt-2 pb-5">
-          <Text className="text-muted-foreground text-xs mb-3" numberOfLines={2}>
-            {acting?.deleted_at ? 'Deleted message' : acting?.body}
-          </Text>
+      {/* Holding a message: reactions above it, what can be done below. */}
+      <MessageHold
+        // The latest of it: a reaction can land while it is held.
+        held={held && heldMessage ? { ...held, message: heldMessage } : null}
+        canReact={canReactHeld}
+        myReaction={heldReaction}
+        entries={holdEntries}
+        matcher={matcher}
+        onReact={reactFromHold}
+        onClose={closeHold}
+        onClosed={onHoldClosed}
+      />
 
-          {/* A reply needs somewhere to be sent, and something to quote. */}
-          {canSend && !acting?.deleted_at && (
-            <Pressable
-              onPress={() => {
-                setReplyTo(acting);
-                setActing(null);
-              }}
-              accessibilityRole="button"
-              className="py-3.5 min-h-[48px] flex-row items-center gap-3 active:opacity-60"
-              style={{ borderTopWidth: 1, borderTopColor: border }}
-            >
-              <ReplyIcon size={17} className="text-foreground" />
-              <Text className="text-foreground text-base">Reply</Text>
-            </Pressable>
-          )}
+      <ReactionsSheet
+        message={reactionsFor ? (byId.get(reactionsFor) ?? null) : null}
+        participants={participants}
+        myId={user?.id}
+        onClose={() => setReactionsFor(null)}
+      />
 
-          {!acting?.deleted_at && (
-            <Pressable
-              onPress={async () => {
-                if (acting) await Clipboard.setStringAsync(acting.body);
-                setActing(null);
-              }}
-              accessibilityRole="button"
-              className="py-3.5 min-h-[48px] flex-row items-center gap-3 active:opacity-60"
-              style={{ borderTopWidth: 1, borderTopColor: border }}
-            >
-              <CopyIcon size={17} className="text-foreground" />
-              <Text className="text-foreground text-base">Copy</Text>
-            </Pressable>
-          )}
+      <SeenBySheet
+        message={seenByFor ? (byId.get(seenByFor) ?? null) : null}
+        others={others}
+        onClose={() => setSeenByFor(null)}
+      />
 
-          <Pressable
-            onPress={() => {
-              const target = acting;
-              setActing(null);
-              if (target) confirmDelete(target);
-            }}
-            accessibilityRole="button"
-            className="py-3.5 min-h-[48px] flex-row items-center gap-3 active:opacity-60"
-            style={{ borderTopWidth: 1, borderTopColor: border }}
-          >
-            <Trash2Icon size={17} className="text-destructive" />
-            <Text className="text-destructive text-base">Delete</Text>
-          </Pressable>
+      {id ? (
+        <ForwardSheet
+          message={forwarding}
+          conversationId={id}
+          onClose={() => setForwarding(null)}
+          onSent={(sent, skipped) => {
+            setForwarding(null);
+            showToast(
+              skipped > 0
+                ? `Forwarded to ${sent} of ${sent + skipped} chats. The others can't take messages right now.`
+                : `Forwarded to ${sent} chat${sent === 1 ? '' : 's'}`,
+            );
+          }}
+        />
+      ) : null}
 
-          <Pressable
-            onPress={() => setActing(null)}
-            accessibilityRole="button"
-            className="mt-3 bg-muted rounded-2xl py-3.5 items-center active:scale-[0.97]"
-          >
-            <Text className="text-foreground text-base font-semibold">Cancel</Text>
-          </Pressable>
-        </View>
-      </BottomSheet>
+      <SavedRepliesSheet
+        visible={savedOpen}
+        onClose={() => setSavedOpen(false)}
+        onClosed={savedClosed}
+        onPick={pickSaved}
+      />
     </SafeAreaView>
   );
 }

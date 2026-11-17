@@ -173,7 +173,9 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // placed them; both would show for a moment on the first launch after.
 // v14: Nearby names the town, not only the province, and says how closely it
 // knows where you are. A saved list showed "about 1 km" for a whole province.
-const CACHE_VERSION = 'v14-nearby-towns'
+// v15: messages carry edits, reactions and Forwarded; chats carry pinned,
+// archived and marked unread, and the list a count of what is archived.
+const CACHE_VERSION = 'v15-chat-basics'
 
 /**
  * Never written to disk, whatever their staleTime says.

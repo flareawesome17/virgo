@@ -90,7 +90,11 @@ export const queryClient = new QueryClient({
 // placed them; both would show for a moment on the first launch after.
 // v12: Nearby names the town, not only the province, and says how closely it
 // knows where you are. A saved list showed "about 1 km" for a whole province.
-const CACHE_VERSION = 'v12-nearby-towns';
+// v13: chat messages carry reactions, an edited time and a forwarded mark; the
+// list's rows say pinned, archived and marked unread, and its first page how
+// many are archived. A saved list would draw no Pinned section and no
+// Archived row until its first refetch.
+const CACHE_VERSION = 'v13-chat-basics';
 
 /**
  * Queries never written to disk, whatever their staleTime says.
