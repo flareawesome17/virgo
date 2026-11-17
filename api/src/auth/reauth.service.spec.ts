@@ -4,7 +4,8 @@ import type { TwoFactorService } from './two-factor.service';
 import type { UserRow, UsersRepository } from './users.repository';
 
 /**
- * The question asked before a workspace or an album is deleted.
+ * The question asked before a workspace or an album is deleted, and before
+ * a way clients pay is added, changed or removed.
  *
  * A session alone was enough on 2026-10-25, and the session was a stranger's.
  * Every refusal is a 403 with a code the apps can act on; an app from before
@@ -20,7 +21,7 @@ function reauthFor(user: Partial<UserRow> | null) {
       user ? ({ id: 'user-1', password_hash: HASH, two_factor_enabled_at: null, ...user } as UserRow) : null,
     ),
   };
-  const twoFactor = { confirmDelete: jest.fn(async () => undefined) };
+  const twoFactor = { confirmAction: jest.fn(async () => undefined) };
   const reauth = new ReauthService(
     users as unknown as UsersRepository,
     twoFactor as unknown as TwoFactorService,
@@ -66,11 +67,11 @@ describe('ReauthService.confirmDelete', () => {
     expect(await refusalCode(reauth.confirmDelete('user-1', { password: PASSWORD }))).toBe(
       'TWO_FACTOR_REQUIRED',
     );
-    expect(twoFactor.confirmDelete).not.toHaveBeenCalled();
+    expect(twoFactor.confirmAction).not.toHaveBeenCalled();
 
     const token = 'c'.repeat(43);
     await reauth.confirmDelete('user-1', { challengeToken: token, code: '123456' });
-    expect(twoFactor.confirmDelete).toHaveBeenCalledWith('user-1', token, '123456');
+    expect(twoFactor.confirmAction).toHaveBeenCalledWith('user-1', token, '123456', 'delete');
   });
 
   it('asks for the password when an app sends a code for an account without two-factor', async () => {
@@ -78,6 +79,28 @@ describe('ReauthService.confirmDelete', () => {
     expect(
       await refusalCode(reauth.confirmDelete('user-1', { challengeToken: 'c'.repeat(43), code: '123456' })),
     ).toBe('PASSWORD_REQUIRED');
-    expect(twoFactor.confirmDelete).not.toHaveBeenCalled();
+    expect(twoFactor.confirmAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReauthService.confirm for a way to pay', () => {
+  it('asks in its own words, and spends a pay-details code, not a delete code', async () => {
+    const { reauth, twoFactor } = reauthFor({ two_factor_enabled_at: new Date() });
+    const err = await reauth.confirm('user-1', {}, 'pay_details').catch((e: unknown) => e);
+    expect((err as { getResponse: () => { code: string; message: string } }).getResponse()).toEqual(
+      expect.objectContaining({ code: 'REAUTH_REQUIRED', message: expect.stringMatching(/how clients pay you/) }),
+    );
+
+    const token = 'c'.repeat(43);
+    await reauth.confirm('user-1', { challengeToken: token, code: '123456' }, 'pay_details');
+    expect(twoFactor.confirmAction).toHaveBeenCalledWith('user-1', token, '123456', 'pay_details');
+  });
+
+  it('lets the password through when two-factor is off, and refuses a wrong one', async () => {
+    const { reauth } = reauthFor({});
+    await expect(reauth.confirm('user-1', { password: PASSWORD }, 'pay_details')).resolves.toBeUndefined();
+    expect(await refusalCode(reauth.confirm('user-1', { password: 'guess' }, 'pay_details'))).toBe(
+      'WRONG_PASSWORD',
+    );
   });
 });

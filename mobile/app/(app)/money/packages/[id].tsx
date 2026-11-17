@@ -1,7 +1,16 @@
 import { Alert, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { CalendarPlusIcon, MinusIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, WalletIcon } from 'lucide-react-native';
+import {
+  CalendarPlusIcon,
+  MinusIcon,
+  PencilIcon,
+  PlusIcon,
+  QrCodeIcon,
+  Share2Icon,
+  Trash2Icon,
+  WalletIcon,
+} from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
   ApiError,
@@ -25,7 +34,7 @@ import { PressableScale } from '@/components/PressableScale';
 import { MoneyRow, rowOf } from '@/components/money/MoneyRow';
 import { packageProgress } from '@/components/money/PackageRow';
 
-for (const Icon of [CalendarPlusIcon, MinusIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, WalletIcon]) {
+for (const Icon of [CalendarPlusIcon, MinusIcon, PencilIcon, PlusIcon, QrCodeIcon, Share2Icon, Trash2Icon, WalletIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -66,6 +75,11 @@ export default function MoneyPackageScreen() {
   const progress = packageProgress(pkg);
   const payments = entries.filter((e) => e.kind === 'income');
   const costs = entries.filter((e) => e.kind === 'expense');
+  // What Show QR asks for: the next payment due, less tax they withhold, else the balance.
+  const nextDue = payments
+    .filter((e) => e.paidOn === null)
+    .sort((a, b) => a.occurredOn.localeCompare(b.occurredOn))[0];
+  const collectMinor = nextDue ? nextDue.amountMinor - nextDue.withheldMinor : pkg.balanceMinor;
   const costsMinor = pkg.costsMinor ?? 0;
   const profitMinor = pkg.profitMinor ?? pkg.receivedMinor - costsMinor;
   const subtitle = [pkg.clientName, pkg.eventDate ? dayLabel(pkg.eventDate) : null].filter(Boolean).join(' · ');
@@ -239,6 +253,27 @@ export default function MoneyPackageScreen() {
               <Text className="text-destructive text-[12px] font-semibold">Stop sharing</Text>
             </Pressable>
           </View>
+        ) : null}
+
+        {/* Collecting in person: the QR full size, led by what is due. */}
+        {!pkg.paidInFull ? (
+          <PressableScale
+            onPress={() =>
+              payMethods.length === 0
+                ? router.push('/money/pay-methods/edit')
+                : router.push(`/money/pay-methods/show?package=${pkg.id}`)
+            }
+            accessibilityRole="button"
+            scaleTo={0.97}
+            className="min-h-12 flex-row items-center justify-center gap-2 rounded-2xl bg-secondary"
+          >
+            <QrCodeIcon size={17} className="text-foreground" />
+            <Text className="text-foreground text-[15px] font-bold">
+              {payMethods.length === 0
+                ? 'Add a QR to collect in person'
+                : `Show QR to collect ${formatMoney(collectMinor)}`}
+            </Text>
+          </PressableScale>
         ) : null}
 
         {/* Every payment toward it, in the order they fall. */}

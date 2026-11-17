@@ -3,7 +3,13 @@ import { DatabaseService } from '../database/database.service';
 import type { AddressPlace } from '../discover/places';
 import type { SessionClient } from './device-label';
 
-export type TwoFactorPurpose = 'setup' | 'login' | 'disable' | 'recovery' | 'delete';
+export type TwoFactorPurpose =
+  | 'setup'
+  | 'login'
+  | 'disable'
+  | 'recovery'
+  | 'delete'
+  | 'pay_details';
 
 export interface UserRow {
   id: string;

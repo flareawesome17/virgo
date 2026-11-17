@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { StorageModule } from '../storage/storage.module';
 import { MoneyController } from './money.controller';
 import { MoneyService } from './money.service';
@@ -15,7 +16,8 @@ import { MoneySavingsController } from './money-savings.controller';
 import { MoneySavingsService } from './money-savings.service';
 
 @Module({
-  imports: [StorageModule],
+  // AuthModule for ReauthService: changing how clients pay asks for the password.
+  imports: [StorageModule, AuthModule],
   controllers: [
     MoneyController,
     MoneyPackagesController,

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   moneyApi,
   queryKeys,
+  type DeleteProof,
   type MoneyEntry,
   type MoneyEntryInput,
   type MoneyEntryPatch,
@@ -401,18 +402,39 @@ export function useMoneyPayMethods(options: { enabled?: boolean } = {}) {
   };
 }
 
+/**
+ * Adding, changing and removing a way to pay each carry the password, or
+ * the emailed code, from useDeleteProof('pay_details').
+ */
 export function useCreateMoneyPayMethod() {
-  return useMoneyWrite((input: MoneyPayMethodInput) => moneyApi.createPayMethod(input));
+  return useMoneyWrite(({ proof, ...input }: MoneyPayMethodInput & { proof: DeleteProof }) =>
+    moneyApi.createPayMethod(input, proof),
+  );
 }
 
 export function useUpdateMoneyPayMethod() {
-  return useMoneyWrite(({ id, ...patch }: Partial<MoneyPayMethodInput> & { id: string }) =>
-    moneyApi.updatePayMethod(id, patch),
+  return useMoneyWrite(
+    ({ id, proof, ...patch }: Partial<MoneyPayMethodInput> & { id: string; proof: DeleteProof }) =>
+      moneyApi.updatePayMethod(id, patch, proof),
   );
 }
 
 export function useDeleteMoneyPayMethod() {
-  return useMoneyWrite((id: string) => moneyApi.deletePayMethod(id));
+  return useMoneyWrite(({ id, proof }: { id: string; proof: DeleteProof }) =>
+    moneyApi.deletePayMethod(id, proof),
+  );
+}
+
+/** Makes one the main way to pay. The list takes its new order at once. */
+export function useMakeMainMoneyPayMethod() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => moneyApi.makeMainPayMethod(id),
+    onSuccess: (list) => {
+      queryClient.setQueryData(queryKeys.money.payMethods, list);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.money.all });
+    },
+  });
 }
 
 /** A year at a glance. */

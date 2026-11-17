@@ -12,6 +12,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { DeleteProofDto } from '../../auth/dto/delete-proof.dto';
 import { IsCalendarDate } from '../../common/validators/calendar-date';
 import { MAX_AMOUNT_MINOR } from '../money.categories';
 import { PAY_METHOD_KINDS, type PayMethodKind } from '../money-pay-methods.service';
@@ -120,7 +121,12 @@ export class ListPackagesDto {
   status?: 'open' | 'all';
 }
 
-export class CreatePayMethodDto {
+/**
+ * A new way to pay, and the password (or the two-factor code) that lets it
+ * in: ReauthService, as for a delete. The proof fields come from
+ * DeleteProofDto, all optional, so an app from before this is told to update.
+ */
+export class CreatePayMethodDto extends DeleteProofDto {
   @IsIn(PAY_METHOD_KINDS as unknown as string[])
   kind!: PayMethodKind;
 
@@ -149,7 +155,8 @@ export class CreatePayMethodDto {
   qrReceiptId?: string | null;
 }
 
-export class UpdatePayMethodDto {
+/** A change to a way to pay, with its proof, as a new one carries. */
+export class UpdatePayMethodDto extends DeleteProofDto {
   @IsOptional()
   @IsIn(PAY_METHOD_KINDS as unknown as string[])
   kind?: PayMethodKind;

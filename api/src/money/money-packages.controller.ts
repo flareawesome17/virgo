@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -13,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
+import { DeleteProofDto } from '../auth/dto/delete-proof.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../auth/public.decorator';
 import { StorageService } from '../storage/storage.service';
@@ -95,27 +97,57 @@ export class MoneyPackagesController {
     return this.payMethods.list(userId);
   }
 
+  /**
+   * Adding, changing or removing a way to pay carries the password, or the
+   * two-factor code: the same proof a delete does. Throttled like a delete,
+   * since a wrong password is worth guessing at here.
+   */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('pay-methods')
-  payMethodCreate(@CurrentUser('id') userId: string, @Body() dto: CreatePayMethodDto) {
-    return this.payMethods.create(userId, dto);
+  payMethodCreate(
+    @CurrentUser('id') userId: string,
+    @Body() dto: CreatePayMethodDto,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    const { password, challengeToken, code, ...input } = dto;
+    return this.payMethods.create(userId, input, {
+      proof: { password, challengeToken, code },
+      userAgent,
+    });
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Patch('pay-methods/:id')
   payMethodUpdate(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePayMethodDto,
+    @Headers('user-agent') userAgent?: string,
   ) {
-    return this.payMethods.update(userId, id, dto);
+    const { password, challengeToken, code, ...patch } = dto;
+    return this.payMethods.update(userId, id, patch, {
+      proof: { password, challengeToken, code },
+      userAgent,
+    });
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(204)
   @Delete('pay-methods/:id')
   async payMethodRemove(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() proof: DeleteProofDto,
+    @Headers('user-agent') userAgent?: string,
   ): Promise<void> {
-    await this.payMethods.remove(userId, id);
+    await this.payMethods.remove(userId, id, { proof: { ...proof }, userAgent });
+  }
+
+  /** Makes it the main way to pay; returns the list in its new order. */
+  @HttpCode(200)
+  @Post('pay-methods/:id/main')
+  payMethodMakeMain(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payMethods.makeMain(userId, id);
   }
 }
 
