@@ -1,5 +1,6 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system/legacy';
+import { requireOptionalNativeModule } from 'expo';
 import {
   CopyCancelled,
   copyRange,
@@ -908,8 +909,26 @@ const PART_DIR = 'multipart-parts';
  */
 const PART_COPY_CHUNK_BYTES = 512 * 1024;
 
-/** The gap left between reads, so taps and frames get the thread in between. */
-const PART_COPY_PAUSE_MS = 8;
+/**
+ * The gap left between reads, so taps and frames get the thread in between.
+ * About a frame: every read allocates its chunk in JavaScript's memory, and
+ * the collector that frees them runs on the same thread, so the rate of reads
+ * is the rate of garbage. A part still takes well under the time it takes to
+ * send one, so the upload is no slower for it.
+ */
+const PART_COPY_PAUSE_MS = 16;
+
+/**
+ * The app's own native copier, in builds that have it (modules/virgo-file-range).
+ *
+ * It cuts a part on a native thread, so no byte of the file passes through
+ * JavaScript: the copy above moved a whole film through the thread that
+ * answers taps, and on a 1 GB film the app stalled for as long as it took.
+ * Builds from before it have no such module, and those keep the copy above.
+ */
+const nativeRange = requireOptionalNativeModule<{
+  copyRange(source: string, destination: string, start: number, length: number): Promise<number>;
+}>('VirgoFileRange');
 
 /**
  * One part is cut at a time. The parts still upload side by side, which is
@@ -960,6 +979,29 @@ async function copyPartFile(range: FileRange, signal?: AbortSignal): Promise<Fil
   dir.create({ idempotent: true, intermediates: true });
   const out = new File(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.part`);
   out.create({ overwrite: true });
+
+  // The native copier reads files by path, which a file:// URI is. Anything
+  // else (an Android content URI from a document picker) takes the copy below.
+  if (nativeRange && range.uri.startsWith('file://')) {
+    const length = range.end - range.start;
+    try {
+      const copied = await nativeRange.copyRange(range.uri, out.uri, range.start, length);
+      if (signal?.aborted) throw new CopyCancelled();
+      if (copied < length) throw new SourceShrank();
+      return out;
+    } catch (error) {
+      try {
+        out.delete();
+      } catch {
+        // Swept by clearStalePartFiles next time.
+      }
+      if (error instanceof CopyCancelled) throw new ApiError(0, 'Upload was cancelled.');
+      if (error instanceof SourceShrank) {
+        throw new ApiError(409, 'That file changed while it was uploading.');
+      }
+      throw error;
+    }
+  }
 
   let source: ReturnType<File['open']> | undefined;
   let sink: ReturnType<File['open']> | undefined;
@@ -1050,8 +1092,14 @@ async function putPartFromDevice(
         // single PUT above for why passing it as well hangs on Android.
         headers: withoutContentLength(ticket.requiredHeaders),
       },
-      (data) => onLoaded(Math.min(data.totalBytesSent, part.size)),
+      // No progress callback. The native uploader reports every few kilobytes
+      // it writes, and four parts at once made a steady stream of events into
+      // JavaScript for the whole length of a film, each one adding up every
+      // part. A part counts when it lands (uploadInParts does that), which on
+      // a 16 MB part is a step of a percent or two on a large film.
     );
+    // Kept in the signature for the shared uploader; a part reports once, whole.
+    void onLoaded;
     const cancel = () => {
       void task.cancelAsync().catch(() => undefined);
     };
