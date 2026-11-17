@@ -8,7 +8,7 @@ import {
   type FocusEvent,
   type ReactNode,
 } from 'react';
-import { Copy, Forward, MoreHorizontal, Pencil, Reply, Trash2 } from 'lucide-react';
+import { Copy, Forward, MoreHorizontal, Pencil, Pin, PinOff, Reply, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -58,6 +58,8 @@ export function MessageFrame({
   below,
   toolbar,
   width = 'max-w-[75%]',
+  messageId,
+  lit = false,
   children,
 }: {
   side: Side;
@@ -70,6 +72,10 @@ export function MessageFrame({
   /** The actions; `hold` keeps them showing while a menu of theirs is open. */
   toolbar?: ((hold: (open: boolean) => void) => ReactNode) | null;
   width?: string;
+  /** Which message this is, for jumping to it from a search or a pin. */
+  messageId?: string;
+  /** The message a search or a pin jumped to, ringed so the eye finds it (board 140). */
+  lit?: boolean;
   children: ReactNode;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
@@ -101,6 +107,7 @@ export function MessageFrame({
       role="group"
       aria-label={label}
       tabIndex={0}
+      data-message-id={messageId}
       onPointerEnter={toolbar ? place : undefined}
       onFocus={toolbar ? place : undefined}
       className={cn(
@@ -116,7 +123,14 @@ export function MessageFrame({
         )}
       >
         {header}
-        <div ref={bubbleRef} className={cn('relative max-w-full', side === 'center' && 'w-full')}>
+        <div
+          ref={bubbleRef}
+          className={cn(
+            'relative max-w-full',
+            side === 'center' && 'w-full',
+            lit && 'rounded-2xl ring-2 ring-amber-400 ring-offset-2 ring-offset-background',
+          )}
+        >
           {children}
           {toolbar && (
             <div
@@ -226,6 +240,7 @@ export function MessageToolbar({
   onDelete,
   canDeleteForEveryone,
   onDiscard,
+  pin,
 }: {
   hold: (open: boolean) => void;
   side: Side;
@@ -240,6 +255,8 @@ export function MessageToolbar({
   canDeleteForEveryone?: boolean;
   /** An unsent message: taken off this device, nothing to ask the server. */
   onDiscard?: () => void;
+  /** Pin or Unpin, for everyone in the chat. Not on a notice, nor on a message that has not gone. */
+  pin?: { pinned: boolean; onToggle: () => void };
 }) {
   const [openedAt, setOpenedAt] = useState<number | null>(null);
   /**
@@ -270,7 +287,7 @@ export function MessageToolbar({
         )
       : 0;
 
-  const hasMenu = !!(onForward || onCopy || edit || onDelete || onDiscard);
+  const hasMenu = !!(onForward || onCopy || edit || onDelete || onDiscard || pin);
 
   return (
     <RovingToolbar
@@ -361,7 +378,13 @@ export function MessageToolbar({
                 </span>
               </DropdownMenuItem>
             )}
-            {(onDelete || onDiscard) && (onForward || onCopy || minutesLeft > 0) && (
+            {pin && (
+              <DropdownMenuItem onSelect={pin.onToggle}>
+                {pin.pinned ? <PinOff /> : <Pin />}
+                {pin.pinned ? 'Unpin' : 'Pin'}
+              </DropdownMenuItem>
+            )}
+            {(onDelete || onDiscard) && (onForward || onCopy || minutesLeft > 0 || pin) && (
               <DropdownMenuSeparator />
             )}
             {onDiscard && (

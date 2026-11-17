@@ -30,9 +30,11 @@ import {
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
+  GROUP_ABOUT_MAX,
   MAX_FORWARD_TARGETS,
   MessagesService,
   REACTIONS,
+  type AddPolicy,
   type Reaction,
 } from './messages.service';
 
@@ -117,11 +119,53 @@ export class MuteDto {
   minutes?: number;
 }
 
-export class RenameConversationDto {
+/**
+ * A group's settings. Apps before phase 3 send only `title`, which is still a
+ * rename. Each field left out stays as it is; admins only.
+ */
+export class UpdateGroupDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(120)
-  title!: string;
+  title?: string;
+
+  /** One line at the top of group info. Empty or null clears it. */
+  @IsOptional()
+  @ValidateIf((_o, value) => value !== null)
+  @IsString()
+  @MaxLength(GROUP_ABOUT_MAX)
+  about?: string | null;
+
+  /** The public address of a photo the admin uploaded, or null to take it off. */
+  @IsOptional()
+  @ValidateIf((_o, value) => value !== null)
+  @IsString()
+  @MaxLength(1000)
+  photoUrl?: string | null;
+
+  @IsOptional()
+  @IsIn(['everyone', 'admins'])
+  addPolicy?: AddPolicy;
+}
+
+export class SetAdminDto {
+  @IsBoolean()
+  admin!: boolean;
+}
+
+export class PinDto {
+  /** The pin to take down for this one, when the chat already has three. */
+  @IsOptional()
+  @IsUUID('all')
+  replace?: string;
+}
+
+export class SearchChatQueryDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  q!: string;
 }
 
 export class DeleteMessageQueryDto {
@@ -158,6 +202,14 @@ export class ThreadQueryDto {
   @IsOptional()
   @IsUUID('all')
   after?: string;
+
+  /**
+   * A message id: the messages around it instead, to open the chat at a
+   * search match or a pin. Not with `before` or `after`.
+   */
+  @IsOptional()
+  @IsUUID('all')
+  around?: string;
 }
 
 export class EditMessageDto {
@@ -288,12 +340,12 @@ export class MessagesController {
     @Param('id') id: string,
     @Query() query: ThreadQueryDto,
   ) {
-    if (query.before && query.after) {
-      throw new BadRequestException('Ask for older or newer messages, not both');
+    if ([query.before, query.after, query.around].filter(Boolean).length > 1) {
+      throw new BadRequestException('Ask for older, newer or around one message, not more than one');
     }
     return this.messages
-      .messages(userId, id, query.limit, query.before, query.after)
-      .then(({ messages, lastReadAt, canSend, blockedByMe, blockId }) => ({
+      .messages(userId, id, query.limit, query.before, query.after, query.around)
+      .then(({ messages, lastReadAt, canSend, blockedByMe, blockId, hasNewer }) => ({
         data: messages,
         total: messages.length,
         // Where the caller had read up to before this call, for the
@@ -304,7 +356,24 @@ export class MessagesController {
         canSend,
         blockedByMe,
         blockId,
+        ...(hasNewer === undefined ? {} : { hasNewer }),
       }));
+  }
+
+  /** Every message in this chat with these words in it, newest first. */
+  @Get(':id/search')
+  search(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: SearchChatQueryDto,
+  ) {
+    return this.messages.search(userId, id, query.q);
+  }
+
+  /** The chat's pinned messages, newest pin first. */
+  @Get(':id/pins')
+  pins(@CurrentUser('id') userId: string, @Param('id', new ParseUUIDPipe()) id: string) {
+    return this.messages.pins(userId, id).then((data) => ({ data, total: data.length }));
   }
 
   /**
@@ -375,6 +444,28 @@ export class MessagesController {
     return this.messages.forward(userId, id, messageId, dto.conversationIds);
   }
 
+  /** Pins a message for everyone in the chat; `replace` takes one down for it. */
+  @HttpCode(200)
+  @Post(':id/messages/:messageId/pin')
+  pin(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('messageId', new ParseUUIDPipe()) messageId: string,
+    @Body() dto: PinDto,
+  ) {
+    return this.messages.pin(userId, id, messageId, dto.replace);
+  }
+
+  @HttpCode(200)
+  @Delete(':id/messages/:messageId/pin')
+  unpin(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('messageId', new ParseUUIDPipe()) messageId: string,
+  ) {
+    return this.messages.unpin(userId, id, messageId);
+  }
+
   /** Pins, archives or marks unread, in your own list only. */
   @HttpCode(200)
   @Post(':id/list-state')
@@ -435,6 +526,29 @@ export class MessagesController {
     return this.messages.leave(userId, id);
   }
 
+  /** An admin takes somebody out of the group. After `members/me`, which is leaving. */
+  @HttpCode(200)
+  @Delete(':id/members/:userId')
+  removeMember(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) memberId: string,
+  ) {
+    return this.messages.removeMember(userId, id, memberId);
+  }
+
+  /** An admin makes somebody an admin, or stops them being one. */
+  @HttpCode(200)
+  @Post(':id/members/:userId/admin')
+  setAdmin(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) memberId: string,
+    @Body() dto: SetAdminDto,
+  ) {
+    return this.messages.setAdmin(userId, id, memberId, dto.admin);
+  }
+
   /** Silences push for this conversation. `minutes: 0` (or omitted) unmutes. */
   @HttpCode(200)
   @Post(':id/mute')
@@ -448,13 +562,29 @@ export class MessagesController {
     return this.messages.mute(userId, id, until);
   }
 
+  /**
+   * A group's name, About, photo, or who can add people. Admins only. An app
+   * from before phase 3 sends only a title, and gets the rename answer it
+   * always got.
+   */
   @Patch(':id')
-  rename(
+  async updateGroup(
     @CurrentUser('id') userId: string,
     @Param('id') id: string,
-    @Body() dto: RenameConversationDto,
+    @Body() dto: UpdateGroupDto,
   ) {
-    return this.messages.rename(userId, id, dto.title);
+    const onlyTitle =
+      dto.title !== undefined &&
+      dto.about === undefined &&
+      dto.photoUrl === undefined &&
+      dto.addPolicy === undefined;
+    if (onlyTitle) return this.messages.rename(userId, id, dto.title!);
+    return this.messages.updateGroup(userId, id, {
+      title: dto.title,
+      about: dto.about,
+      photoUrl: dto.photoUrl,
+      addPolicy: dto.addPolicy,
+    });
   }
 
   /**

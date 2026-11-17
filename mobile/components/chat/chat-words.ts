@@ -19,6 +19,16 @@ export function chatError(err: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
+/**
+ * What a refused group change says: an admin's control, a name a team chat
+ * takes from its workspace, an owner who can't be removed. The server words
+ * a 403 from a group as a whole sentence, so that is shown too.
+ */
+export function groupError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 403 && err.message) return err.message;
+  return chatError(err);
+}
+
 /** Mute durations, in minutes. A year stands in for "until I turn it back on". */
 export const MUTE_OPTIONS: { label: string; minutes: number }[] = [
   { label: '1 hour', minutes: 60 },

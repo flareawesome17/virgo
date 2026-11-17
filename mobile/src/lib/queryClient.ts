@@ -193,7 +193,10 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // archived and marked unread, and the list a count of what is archived.
 // v16: messages can be cards (album photos, bookings, job posts, posts,
 // packages, dates), and an album link preview carries blurred stand-ins.
-const CACHE_VERSION = 'v16-chat-cards'
+// v17: crew chats. Chats carry About, admins, who can add people and what made
+// them (a workspace or a job), messages can be notices and carry when they
+// were pinned, and people carry admin, joined and roles.
+const CACHE_VERSION = 'v17-chat-crew'
 
 /**
  * Never written to disk, whatever their staleTime says.

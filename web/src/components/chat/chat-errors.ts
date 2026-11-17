@@ -19,6 +19,26 @@ export function chatProblem(err: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
+/**
+ * Why a change to a group did not go through: its photo, About, admins,
+ * removing someone, who can add people.
+ *
+ * Not chatProblem: these refusals are a 403 as often as a 400 ("Only admins
+ * can remove people", "This chat is named after its workspace…"), each a
+ * whole sentence from the server that says what to do, so both are kept.
+ * A block is still said without the word.
+ */
+export function groupProblem(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 0) return "You're offline. Try again when you're connected.";
+    if (err.status === 429) return "You've done this a lot in a short time. Try again later.";
+    if (chatRefusal(err)) return "You can't do that in this conversation.";
+    if (err.status === 404) return "That person or chat is no longer here.";
+    if ((err.status === 400 || err.status === 403) && err.message) return err.message;
+  }
+  return 'Something went wrong. Please try again.';
+}
+
 /** What a share-in-chat card is, for saying what went wrong with sending one. */
 export type CardSendKind = CardKind | 'pay-card';
 
