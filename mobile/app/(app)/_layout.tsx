@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useAppleFinishing } from '@/src/lib/apple-sign-in';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
-import { Redirect, Stack, router, type ErrorBoundaryProps } from 'expo-router';
+import { Redirect, Stack, router, usePathname, type ErrorBoundaryProps } from 'expo-router';
 import {
   useAuth,
   useMessageAlerts,
@@ -103,6 +104,16 @@ export default function AppLayout() {
     retrySession,
     signOut,
   } = useAuth();
+
+  // A new account made with Apple still owes its roles and address. Wherever
+  // signing in landed it, it goes to those steps until they are done.
+  const finishing = useAppleFinishing();
+  const pathname = usePathname();
+  useEffect(() => {
+    if (finishing && isAuthenticated && pathname !== '/almost-there') {
+      router.replace('/almost-there');
+    }
+  }, [finishing, isAuthenticated, pathname]);
 
   if (isLoading) {
     return (

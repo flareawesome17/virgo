@@ -4,6 +4,7 @@ import { Redirect, router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { FormField, FormHint, FormInput, FormLabel } from '@/components/Form';
 import { AuthButton, AuthFooter, AuthFooterLine, AuthFrame, AuthTitle } from '@/components/auth/AuthFrame';
+import { AppleButton } from '@/components/auth/AppleButton';
 import { PasswordInput } from '@/components/auth/AuthFields';
 
 export default function SignInScreen() {
@@ -97,6 +98,7 @@ export default function SignInScreen() {
             disabled={!canSubmit}
             busy={signIn.isPending}
           />
+          <AppleButton />
           <AuthFooterLine lead="New to Virgo?" action="Create an account" onPress={() => router.push('/sign-up')} />
         </AuthFooter>
       }

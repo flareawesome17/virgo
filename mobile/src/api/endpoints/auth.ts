@@ -1,6 +1,7 @@
 import { api, sessionEnded } from '../client';
 import { clearTokens, getRefreshToken, setTokens } from '../tokens';
 import type {
+  AppleSignInResult,
   AuthResult,
   AuthUser,
   LoginResult,
@@ -131,6 +132,26 @@ export const authApi = {
   async login(credentials: Credentials & { unpause?: boolean }): Promise<LoginResult> {
     const result = await api.post<LoginResult>('/auth/login', {
       body: credentials,
+      anonymous: true,
+    });
+    if (!('twoFactorRequired' in result)) {
+      await setTokens(result.accessToken, result.refreshToken);
+    }
+    return result;
+  },
+
+  /**
+   * Signs in with a token Apple signed. `nonce` is the one-time value in the
+   * clear; Apple was given its SHA-256. `displayName` only on the first
+   * sign-in, which is the only time Apple passes a name on.
+   */
+  async apple(proof: {
+    identityToken: string;
+    nonce: string;
+    displayName?: string;
+  }): Promise<AppleSignInResult> {
+    const result = await api.post<AppleSignInResult>('/auth/apple', {
+      body: proof,
       anonymous: true,
     });
     if (!('twoFactorRequired' in result)) {

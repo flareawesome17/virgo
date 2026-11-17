@@ -4,12 +4,13 @@
     "slug": "virgo",
     "owner": "flareawesome",
     "scheme": "virgo",
-    "version": "1.3.4",
+    "version": "1.3.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "bundleIdentifier": "com.virgo.app",
       "config": {
         "usesNonExemptEncryption": false
@@ -49,6 +50,7 @@
         }
       ],
       "expo-font",
+      "expo-apple-authentication",
       "expo-web-browser",
       [
         "@react-native-community/datetimepicker",

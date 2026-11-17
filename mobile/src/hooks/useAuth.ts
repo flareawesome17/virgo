@@ -10,6 +10,7 @@
 import { clearReminderNotifications, knownPushToken, setAppBadgeCount } from '@/src/lib/notifications';
 import { forgetUploadQueue } from '@/src/lib/upload-queue-storage';
 import { useEffect, useMemo } from 'react';
+import { setAppleFinishing, type AppleProof } from '@/src/lib/apple-sign-in';
 import {
   useIsRestoring,
   useMutation,
@@ -262,6 +263,24 @@ export function useAuth() {
     },
   });
 
+  const signInWithApple = useMutation({
+    mutationFn: async (proof: AppleProof) => {
+      try {
+        return await authApi.apple(proof);
+      } catch (err) {
+        throw toAuthError(err);
+      }
+    },
+    onSuccess: (result) => {
+      if ('twoFactorRequired' in result) return;
+      // Before the session: the signed-in layout reads this as it mounts.
+      const owes =
+        (result.user.roles ?? []).length + (result.user.customRoles ?? []).length === 0;
+      setAppleFinishing(result.isNew && owes);
+      queryClient.setQueryData(queryKeys.auth.session, result.user);
+    },
+  });
+
   const completeTwoFactorSignIn = useMutation({
     mutationFn: async ({
       challengeToken,
@@ -373,7 +392,10 @@ export function useAuth() {
     // Settled, not success. logout clears the tokens whether or not the
     // server heard it, then rethrows a network failure — so offline, the
     // tokens were gone but the UI stayed signed in until a second tap.
-    onSettled: () => forgetSession(queryClient),
+    onSettled: () => {
+      setAppleFinishing(false);
+      return forgetSession(queryClient);
+    },
   });
 
   /**
@@ -455,6 +477,7 @@ export function useAuth() {
     disableAccount,
     deleteAccount,
     signIn,
+    signInWithApple,
     completeTwoFactorSignIn,
     resendTwoFactorCode,
     signUp,

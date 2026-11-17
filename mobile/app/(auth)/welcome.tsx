@@ -2,6 +2,7 @@ import { View, Text, Image } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { useAuth } from '@/src/hooks';
 import { AuthButton, AuthFooter, AuthFrame } from '@/components/auth/AuthFrame';
+import { AppleButton } from '@/components/auth/AppleButton';
 
 /** What Virgo is for, in three plain lines. No icons: the words carry it. */
 const REASONS = [
@@ -31,6 +32,7 @@ export default function WelcomeScreen() {
               which is the kind of thing that makes people think they have the
               wrong app. There is no OAuth client behind it. It comes back when
               it works. */}
+          <AppleButton />
           <AuthButton label="Sign up with email" onPress={() => router.push('/sign-up')} />
           <AuthButton label="Sign in" quiet onPress={() => router.push('/sign-in')} />
 

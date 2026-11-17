@@ -4,6 +4,7 @@ import { SparklesIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useAuth } from '@/src/hooks';
 import { BottomSheet } from '@/components/BottomSheet';
+import { useAppleFinishing } from '@/src/lib/apple-sign-in';
 import { RolePicker } from '@/components/RolePicker';
 
 cssInterop(SparklesIcon, {
@@ -29,9 +30,13 @@ export function RolesRequiredSheet() {
   const { profile, isAuthenticated, updateProfile } = useAuth();
   const [picked, setPicked] = useState<string[]>([]);
   const [postponed, setPostponed] = useState(false);
+  // A new Apple account is being asked the same thing, with the rest, on
+  // "Almost there": one question is enough.
+  const finishing = useAppleFinishing();
 
   const needsRoles =
     isAuthenticated &&
+    !finishing &&
     !!profile &&
     (profile.roles ?? []).length + (profile.customRoles ?? []).length === 0;
 
