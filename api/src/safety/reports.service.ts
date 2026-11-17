@@ -135,11 +135,16 @@ export class ReportsService {
     try {
       await this.db.query(
         `insert into report_evidence
-           (report_id, message_id, conversation_id, sender_id, sender_role, sender_name, body, kind, sent_at)
+           (report_id, message_id, conversation_id, sender_id, sender_role, sender_name, body, kind, sent_at,
+            earlier_bodies)
          select $1, m.id, m.conversation_id, m.sender_id,
                 case when m.sender_id = $2 then 'reporter' else 'reported' end,
                 coalesce(nullif(btrim(u.display_name), ''), split_part(u.email, '@', 1)),
-                m.body, m.kind, m.created_at
+                m.body, m.kind, m.created_at,
+                -- What an edited message said before, oldest first, so an
+                -- edit made after the fact cannot clean up the evidence.
+                coalesce((select array_agg(e.body order by e.replaced_at)
+                            from message_edits e where e.message_id = m.id), '{}')
            from messages m
            join conversation_participants me
              on me.conversation_id = m.conversation_id and me.user_id = $2

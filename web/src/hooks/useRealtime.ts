@@ -11,15 +11,21 @@ import {
   queryKeys,
   type ConversationMessage,
   type NotificationSetting,
+  type ReactionKey,
 } from '@/api';
 import {
   applyMessageDeleted,
+  applyMessageEdited,
+  applyReaction,
+  catchUpChat,
   chatKeys,
   flushOutbox,
+  flushPendingWrites,
   getOpenConversation,
   insertThreadMessage,
   isConversationMuted,
   noteLiveMessage,
+  setLiveSocket,
 } from '@/hooks/useChat';
 import { removeFromOutbox } from '@/lib/outbox';
 import { applyWorkspaceDeleted, applyWorkspaceRestored } from '@/hooks/useWorkspaces';
@@ -54,6 +60,16 @@ type ServerEvent =
   | { type: 'ready'; userId: string }
   | { type: 'message'; conversationId: string; message: ConversationMessage }
   | { type: 'message-deleted'; conversationId: string; messageId: string; scope: 'me' | 'everyone' }
+  // Somebody's words changed. The whole message, as the thread draws it.
+  | { type: 'message-edited'; conversationId: string; message: ConversationMessage }
+  // One person's reaction: set, changed, or taken back with null.
+  | {
+      type: 'reaction';
+      conversationId: string;
+      messageId: string;
+      userId: string;
+      reaction: ReactionKey | null;
+    }
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
   | { type: 'conversation'; conversationId: string }
@@ -338,6 +354,28 @@ export function useRealtime(enabled: boolean): void {
           queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
           queryClient.invalidateQueries({ queryKey: chatKeys.unread });
           break;
+        case 'message-edited':
+          // In place, like a delete: the message may be on a page scrolled
+          // back to. Silent — nobody is alerted for an edit. The list's
+          // preview may be this message, so the rows are read again.
+          if (event.message && typeof event.message === 'object') {
+            applyMessageEdited(queryClient, event.conversationId, event.message);
+          }
+          queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+          break;
+        case 'reaction':
+          // One per person, so theirs is replaced, or taken off on null.
+          // Your own comes back too, from another device or this one, and
+          // finds the thread already showing it.
+          applyReaction(
+            queryClient,
+            event.conversationId,
+            event.messageId,
+            event.userId,
+            event.reaction ?? null,
+          );
+          break;
         case 'read':
         case 'delivered':
           // Ticks are worked out from each member's receipts, which ride on
@@ -440,18 +478,24 @@ export function useRealtime(enabled: boolean): void {
         }
         if (event.type === 'ready') {
           backoff.current = 1000;
+          // Live: the chat's backup polls stop while it stays up.
+          setLiveSocket(true);
           // A reconnect — after a deploy, a dropped network or a laptop waking
-          // — missed whatever was sent meanwhile. Refetching the chat on screen
-          // catches up now rather than on the next poll, up to a minute later.
-          // The bell too: a notification sent while the socket was down never
-          // reached the frame handler, and its count waited for the next poll.
+          // — missed whatever was sent meanwhile. The thread on screen catches
+          // up with only what is new, and the list is read once. The first
+          // connection catches the open thread up too: the polls that would
+          // have covered the moment between loading it and the socket opening
+          // are off now. The bell too: a notification sent while the socket
+          // was down never reached the frame handler.
+          void catchUpChat(queryClient, connectedBefore);
           if (connectedBefore) {
-            queryClient.invalidateQueries({ queryKey: ['chat'] });
             queryClient.invalidateQueries({ queryKey: queryKeys.notifications.unread });
           }
           connectedBefore = true;
-          // A live socket is a working connection: whatever is queued goes.
+          // A live socket is a working connection: whatever is queued goes —
+          // messages, and the reactions and edits made without one.
           void flushOutbox(queryClient);
+          void flushPendingWrites(queryClient);
           return;
         }
         apply(event);
@@ -459,6 +503,8 @@ export function useRealtime(enabled: boolean): void {
 
       socket.onclose = (closeEvent) => {
         socketRef.current = null;
+        // Down: the backup polls take over until it is back.
+        setLiveSocket(false);
         // 4001 means the token was rejected. Reconnecting with the same one
         // would loop; the REST layer's refresh fixes the session and the next
         // mount reconnects.
@@ -486,6 +532,7 @@ export function useRealtime(enabled: boolean): void {
 
     return () => {
       stopped.current = true;
+      setLiveSocket(false);
       unprime();
       registerTypingSender(null);
       resetPresence();

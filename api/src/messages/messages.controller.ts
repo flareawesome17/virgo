@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -13,7 +14,9 @@ import {
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -23,9 +26,15 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { MessagesService } from './messages.service';
+import {
+  MAX_FORWARD_TARGETS,
+  MessagesService,
+  REACTIONS,
+  type Reaction,
+} from './messages.service';
 
 // Account ids are uuids, checked here so a malformed one is a 400 rather than
 // a 500 from Postgres. Every client only ever sends ids the API gave it.
@@ -125,6 +134,59 @@ export class ThreadQueryDto {
   @IsOptional()
   @IsUUID('all')
   before?: string;
+
+  /**
+   * A message id: only messages newer than it. How an app that has the
+   * thread already catches up after a dropped connection, on a weak signal,
+   * without downloading the newest page again. Not with `before`.
+   */
+  @IsOptional()
+  @IsUUID('all')
+  after?: string;
+}
+
+export class EditMessageDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4000)
+  body!: string;
+
+  /** Who the new words name. Left out, the message keeps the mentions it had. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  mentionIds?: string[];
+}
+
+export class ReactDto {
+  /** One of the six, or null to take yours back. */
+  @ValidateIf((_o, value) => value !== null)
+  @IsIn(REACTIONS as unknown as string[])
+  reaction!: Reaction | null;
+}
+
+export class ForwardDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_FORWARD_TARGETS)
+  @IsUUID('all', { each: true })
+  conversationIds!: string[];
+}
+
+/** How a chat sits in your own list. Any of the three, at least one. */
+export class ListStateDto {
+  @IsOptional()
+  @IsBoolean()
+  pinned?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  archived?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  markedUnread?: boolean;
 }
 
 export class ConversationsQueryDto {
@@ -133,6 +195,11 @@ export class ConversationsQueryDto {
   @IsString()
   @MaxLength(120)
   q?: string;
+
+  /** 'true' lists the archived chats instead. A query string, so a string. */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  archived?: 'true' | 'false';
 
   /** A page of the list. Without these it is the newest 100, as it always was. */
   @IsOptional()
@@ -159,13 +226,23 @@ export class MessagesController {
 
   /** The caller's conversations, most recently active first. */
   @Get('conversations')
-  conversations(
+  async conversations(
     @CurrentUser('id') userId: string,
     @Query() query: ConversationsQueryDto,
   ) {
-    return this.messages
-      .conversations(userId, { q: query.q, limit: query.limit, offset: query.offset })
-      .then((data) => ({ data, total: data.length }));
+    const archived = query.archived === 'true';
+    const [data, archivedCount] = await Promise.all([
+      this.messages.conversations(userId, {
+        q: query.q,
+        archived,
+        limit: query.limit,
+        offset: query.offset,
+      }),
+      // For the "Archived" row at the top of the list: only the list's first
+      // page needs it.
+      archived || query.q || query.offset ? Promise.resolve(null) : this.messages.archivedCount(userId),
+    ]);
+    return { data, total: data.length, ...(archivedCount === null ? {} : { archivedCount }) };
   }
 
   /** Drives the tab badge. */
@@ -196,8 +273,11 @@ export class MessagesController {
     @Param('id') id: string,
     @Query() query: ThreadQueryDto,
   ) {
+    if (query.before && query.after) {
+      throw new BadRequestException('Ask for older or newer messages, not both');
+    }
     return this.messages
-      .messages(userId, id, query.limit, query.before)
+      .messages(userId, id, query.limit, query.before, query.after)
       .then(({ messages, lastReadAt, canSend, blockedByMe, blockId }) => ({
         data: messages,
         total: messages.length,
@@ -242,6 +322,56 @@ export class MessagesController {
       replyToId: dto.replyToId,
       mentionIds: dto.mentionIds,
       clientId: dto.clientId,
+    });
+  }
+
+  /** Changes the words of your own message, for a short while after sending. */
+  @Patch(':id/messages/:messageId')
+  edit(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('messageId', new ParseUUIDPipe()) messageId: string,
+    @Body() dto: EditMessageDto,
+  ) {
+    return this.messages.edit(userId, id, messageId, dto.body, dto.mentionIds);
+  }
+
+  /** Your reaction to a message: set, changed, or `null` to take it back. */
+  @HttpCode(200)
+  @Post(':id/messages/:messageId/reaction')
+  react(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('messageId', new ParseUUIDPipe()) messageId: string,
+    @Body() dto: ReactDto,
+  ) {
+    return this.messages.react(userId, id, messageId, dto.reaction ?? null);
+  }
+
+  /** Sends a message on to up to five other chats, marked Forwarded. */
+  @HttpCode(200)
+  @Post(':id/messages/:messageId/forward')
+  forward(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('messageId', new ParseUUIDPipe()) messageId: string,
+    @Body() dto: ForwardDto,
+  ) {
+    return this.messages.forward(userId, id, messageId, dto.conversationIds);
+  }
+
+  /** Pins, archives or marks unread, in your own list only. */
+  @HttpCode(200)
+  @Post(':id/list-state')
+  listState(
+    @CurrentUser('id') userId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ListStateDto,
+  ) {
+    return this.messages.setListState(userId, id, {
+      pinned: dto.pinned,
+      archived: dto.archived,
+      markedUnread: dto.markedUnread,
     });
   }
 

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View, Text, Pressable, Alert, Linking } from 'react-native';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
@@ -11,6 +12,7 @@ import {
   GlobeIcon,
   HardDriveIcon,
   HelpCircleIcon,
+  ImageIcon,
   InfoIcon,
   LifeBuoyIcon,
   LockIcon,
@@ -33,14 +35,16 @@ import {
   useTheme,
   useUsage,
 } from '@/src/hooks';
-import { formatBytes } from '@/src/api';
+import { formatBytes, MEDIA_AUTO_LOAD_LABEL } from '@/src/api';
+import { useMediaAutoLoad } from '@/src/hooks/useConnectionQuality';
+import { MediaAutoLoadSheet } from '@/components/chat/MediaAutoLoadSheet';
 
 // Every icon used below has to appear here too. One left out renders without
 // its colour rather than failing, so the omission shows up as a grey icon
 // nobody traces back to this list.
 for (const Icon of [
   BellIcon, ChevronRightIcon, CloudIcon, FileTextIcon, GiftIcon, GlobeIcon,
-  HardDriveIcon, HelpCircleIcon, InfoIcon, LifeBuoyIcon, LockIcon, LogOutIcon,
+  HardDriveIcon, HelpCircleIcon, ImageIcon, InfoIcon, LifeBuoyIcon, LockIcon, LogOutIcon,
   MonitorSmartphoneIcon, PaletteIcon, ShieldIcon, StarIcon, Trash2Icon, UserCogIcon,
   UserXIcon,
 ]) {
@@ -54,7 +58,8 @@ interface SettingsRow {
   detail?: string;
   value?: string;
   route?: string;
-  action?: 'rate';
+  /** Done here rather than on a screen of its own. */
+  action?: 'rate' | 'media';
   badge?: number;
 }
 
@@ -78,6 +83,8 @@ export function SettingsList() {
   const { usage } = useUsage({ enabled: !!user?.id });
   const { offers: rewards } = usePromoOffers(!!user?.id);
   const { isOffline } = useOffline();
+  const { setting: mediaSetting } = useMediaAutoLoad();
+  const [mediaOpen, setMediaOpen] = useState(false);
   const version = Constants.expoConfig?.version ?? '1.0';
 
   // The auth guard in (app)/_layout.tsx handles the redirect once the session
@@ -205,6 +212,15 @@ export function SettingsList() {
           detail: 'Sounds for messages, events and everything else',
           route: '/settings/notifications',
         },
+        {
+          // Under the chat sounds: on a weak or costly signal, messages come
+          // first. Kept per phone, so it is set here rather than on the account.
+          icon: ImageIcon,
+          label: 'Media in chats',
+          detail: 'Load photos, films and voice notes automatically',
+          value: MEDIA_AUTO_LOAD_LABEL[mediaSetting],
+          action: 'media',
+        },
       ],
     },
     {
@@ -263,7 +279,13 @@ export function SettingsList() {
   return (
     <View className="px-5 pt-5 gap-6">
       {sections.map((section) => (
-        <Section key={section.title} title={section.title} rows={section.rows} onRate={rateVirgo} />
+        <Section
+          key={section.title}
+          title={section.title}
+          rows={section.rows}
+          onRate={rateVirgo}
+          onMedia={() => setMediaOpen(true)}
+        />
       ))}
 
       {/* On its own, and plain: it is the one row here that takes you out. */}
@@ -278,6 +300,8 @@ export function SettingsList() {
           {signOut.isPending ? 'Signing out…' : 'Sign out'}
         </Text>
       </Pressable>
+
+      <MediaAutoLoadSheet visible={mediaOpen} onClose={() => setMediaOpen(false)} />
     </View>
   );
 }
@@ -294,10 +318,12 @@ function Section({
   title,
   rows,
   onRate,
+  onMedia,
 }: {
   title: string;
   rows: SettingsRow[];
   onRate?: () => void;
+  onMedia?: () => void;
 }) {
   return (
     <View>
@@ -316,7 +342,9 @@ function Section({
               onPress={
                 row.action === 'rate'
                   ? onRate
-                  : row.route
+                  : row.action === 'media'
+                    ? onMedia
+                    : row.route
                     ? () => router.push(row.route as never)
                     : undefined
               }

@@ -1,15 +1,25 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from 'react';
 import { View, Text, Pressable, TextInput, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AtSignIcon, ReplyIcon, SendIcon, XIcon } from 'lucide-react-native';
+import { AtSignIcon, CheckIcon, PencilIcon, PlusIcon, ReplyIcon, SendIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import type { ConversationMessage, Participant } from '@/src/api';
+import { EDIT_WINDOW_MINUTES, type ConversationMessage, type Participant } from '@/src/api';
 import { sendTyping } from '@/src/lib/presence-store';
+import { getConnectionQuality } from '@/src/hooks/useConnectionQuality';
 import { useTheme } from '@/src/hooks';
 import { useKeyboardUp } from '@/src/lib/keyboard';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [AtSignIcon, ReplyIcon, SendIcon, XIcon]) {
+for (const Icon of [AtSignIcon, CheckIcon, PencilIcon, PlusIcon, ReplyIcon, SendIcon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -22,6 +32,16 @@ const TYPING_IDLE_MS = 3000;
 // the chat screen, which imports it with the composer.
 export { useKeyboardUp };
 
+/** What the screen can do to the box from outside it. */
+export interface ComposerHandle {
+  /**
+   * Puts words in the box — a saved reply. Added after what is already
+   * there, on a new line or after a space, or in place of an empty box.
+   */
+  insert: (text: string) => void;
+  focus: () => void;
+}
+
 interface ComposerProps {
   conversationId: string;
   isGroup: boolean;
@@ -30,6 +50,20 @@ interface ComposerProps {
   replyTo: ConversationMessage | null;
   onCancelReply: () => void;
   onSend: (message: { body: string; mentionIds: string[] }) => void;
+  /** The message being changed, or null. The box holds its words meanwhile. */
+  editing: ConversationMessage | null;
+  /** Who will see it marked Edited, said under Editing. */
+  editNote: string;
+  onCancelEdit: () => void;
+  onSaveEdit: (change: { message: ConversationMessage; body: string; mentionIds: string[] }) => void;
+  /**
+   * The edit window closed while the box held the change. The words stay in
+   * the box, to send as a new message or clear.
+   */
+  onEditExpired: () => void;
+  /** The round + at the start of the box: saved replies, in this phase. */
+  onPlus?: () => void;
+  ref?: Ref<ComposerHandle>;
 }
 
 /**
@@ -46,6 +80,13 @@ export const Composer = memo(function Composer({
   replyTo,
   onCancelReply,
   onSend,
+  editing,
+  editNote,
+  onCancelEdit,
+  onSaveEdit,
+  onEditExpired,
+  onPlus,
+  ref,
 }: ComposerProps) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
@@ -53,6 +94,72 @@ export const Composer = memo(function Composer({
   const keyboardUp = useKeyboardUp();
   const [draft, setDraft] = useState('');
   const [mentioned, setMentioned] = useState<Participant[]>([]);
+  const inputRef = useRef<TextInput>(null);
+
+  // The latest of each, for the effects and timers below, which should not
+  // re-run on every keystroke.
+  const latest = useRef({ draft, mentioned, others, onEditExpired });
+  latest.current = { draft, mentioned, others, onEditExpired };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      insert: (text: string) => {
+        setDraft((current) => {
+          if (!current.trim()) return text;
+          if (/\s$/.test(current)) return `${current}${text}`;
+          const joiner = current.includes('\n') || text.includes('\n') ? '\n' : ' ';
+          return `${current}${joiner}${text}`;
+        });
+      },
+      focus: () => inputRef.current?.focus(),
+    }),
+    [],
+  );
+
+  /*
+   * Editing borrows the box. What was being written before is put aside and
+   * comes back after Save or Cancel. Going from one edit straight to another
+   * keeps the first thing put aside, not the first edit.
+   */
+  const stash = useRef<{ draft: string; mentioned: Participant[] } | null>(null);
+  const editingId = editing?.id ?? null;
+  useEffect(() => {
+    if (!editing) {
+      // Left by the screen — the window closed, or the message went. What is
+      // in the box stays there.
+      stash.current = null;
+      return undefined;
+    }
+    const { draft: current, mentioned: named, others: people } = latest.current;
+    if (!stash.current) stash.current = { draft: current, mentioned: named };
+    setDraft(editing.body);
+    setMentioned(people.filter((p) => editing.body.includes(`@${p.name}`)));
+    inputRef.current?.focus();
+
+    // The window closes while the change is still in the box.
+    const left = new Date(editing.created_at).getTime() + EDIT_WINDOW_MINUTES * 60_000 - Date.now();
+    const timer = setTimeout(() => {
+      stash.current = null;
+      latest.current.onEditExpired();
+    }, Math.max(0, left));
+    return () => clearTimeout(timer);
+    // Keyed on which message, not on the object: a reaction arriving on it
+    // must not start the edit again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
+
+  const restoreStash = () => {
+    const kept = stash.current;
+    stash.current = null;
+    setDraft(kept?.draft ?? '');
+    setMentioned(kept?.mentioned ?? []);
+  };
+
+  const cancelEdit = () => {
+    restoreStash();
+    onCancelEdit();
+  };
 
   /*
    * "Typing", said again every few seconds while it carries on.
@@ -81,7 +188,13 @@ export const Composer = memo(function Composer({
         return;
       }
       const now = Date.now();
-      if (!typingSent.current || now - lastBeat.current >= TYPING_HEARTBEAT_MS) {
+      // On 2G or 3G only "started" and "stopped" go, not the heartbeat: a
+      // frame every three seconds is worth less there than the message.
+      const heartbeat = getConnectionQuality() !== 'slow';
+      if (
+        !typingSent.current ||
+        (heartbeat && now - lastBeat.current >= TYPING_HEARTBEAT_MS)
+      ) {
         typingSent.current = true;
         lastBeat.current = now;
         sendTyping(conversationId, true);
@@ -123,6 +236,14 @@ export const Composer = memo(function Composer({
     if (!body) return;
     // Only the people actually still named in the text.
     const mentionIds = mentioned.filter((p) => body.includes(`@${p.name}`)).map((p) => p.id);
+    if (editing) {
+      const message = editing;
+      restoreStash();
+      // Saved unchanged is no change: nothing is marked Edited for it.
+      if (body === message.body.trim()) onCancelEdit();
+      else onSaveEdit({ message, body, mentionIds });
+      return;
+    }
     setDraft('');
     setMentioned([]);
     // Sending is the clearest possible "stopped typing".
@@ -182,8 +303,8 @@ export const Composer = memo(function Composer({
         </View>
       )}
 
-      {/* What you are replying to */}
-      {replyTo && (
+      {/* What you are replying to — put aside while a message is edited. */}
+      {replyTo && !editing && (
         <View
           className="mx-4 mb-2 bg-card rounded-2xl pl-3 flex-row items-center gap-3"
           style={{ borderLeftWidth: 3, borderLeftColor: palette.primary }}
@@ -208,21 +329,66 @@ export const Composer = memo(function Composer({
         </View>
       )}
 
+      {/* Editing: which message, who will see it changed, and the way out. */}
+      {editing && (
+        <View
+          className="pl-4 pr-1 py-2 flex-row items-center gap-3 border-t border-border/50 bg-card"
+          style={{ borderTopColor: border }}
+        >
+          <PencilIcon size={18} className="text-primary" />
+          <View className="flex-1 min-w-0">
+            <Text className="text-primary text-[13px] leading-[18px] font-bold">Editing</Text>
+            <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+              {editNote}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Stop editing"
+            onPress={cancelEdit}
+            className="w-11 h-11 items-center justify-center active:opacity-60"
+          >
+            <XIcon size={18} className="text-secondary-foreground" />
+          </Pressable>
+        </View>
+      )}
+
       <View
-        className="px-3 pt-2 flex-row items-end gap-2 border-t border-border/50 bg-background"
-        style={{ paddingBottom: (keyboardUp ? 0 : insets.bottom) + 8, borderTopColor: border }}
+        className={`px-3 pt-2 flex-row items-end gap-2 ${
+          editing ? 'bg-card' : 'border-t border-border/50 bg-background'
+        }`}
+        style={{
+          paddingBottom: (keyboardUp ? 0 : insets.bottom) + 8,
+          ...(editing ? null : { borderTopColor: border }),
+        }}
       >
+        {/* Quiet, so the send button stays the one thing in colour. */}
+        {onPlus && !editing ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Saved replies"
+            accessibilityHint="Puts one of your saved replies in the message"
+            onPress={onPlus}
+            className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.94]"
+          >
+            <PlusIcon size={20} className="text-foreground" />
+          </Pressable>
+        ) : null}
         <View className="flex-1 bg-muted rounded-[22px] px-4 py-2.5 min-h-[44px] justify-center">
           <TextInput
+            ref={inputRef}
             value={draft}
             onChangeText={(value) => {
               setDraft(value);
-              noteTyping(value);
+              // A change to something already sent is not "typing…".
+              if (!editing) noteTyping(value);
             }}
             onBlur={stopTyping}
-            placeholder={isGroup ? 'Message — use @ to mention' : 'Message'}
+            placeholder={
+              editing ? 'Edit your message' : isGroup ? 'Message — use @ to mention' : 'Message'
+            }
             placeholderTextColor={palette.mutedForeground}
-            accessibilityLabel="Message"
+            accessibilityLabel={editing ? 'Edit message' : 'Message'}
             multiline
             // The server's limit. Past it the send was refused, and the
             // bubble offered a retry that could only fail again.
@@ -233,7 +399,7 @@ export const Composer = memo(function Composer({
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Send message"
+          accessibilityLabel={editing ? 'Save the change' : 'Send message'}
           accessibilityState={{ disabled: !ready }}
           onPress={submit}
           disabled={!ready}
@@ -241,7 +407,11 @@ export const Composer = memo(function Composer({
             ready ? 'bg-action' : 'bg-muted'
           }`}
         >
-          <SendIcon size={17} className={ready ? 'text-action-foreground' : 'text-muted-foreground'} />
+          {editing ? (
+            <CheckIcon size={20} className={ready ? 'text-action-foreground' : 'text-muted-foreground'} />
+          ) : (
+            <SendIcon size={17} className={ready ? 'text-action-foreground' : 'text-muted-foreground'} />
+          )}
         </Pressable>
       </View>
     </View>

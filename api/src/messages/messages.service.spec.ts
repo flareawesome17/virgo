@@ -611,9 +611,11 @@ describe('MessagesService list and badge', () => {
     await h.service.conversations(ME, { limit: 50, offset: 50 });
 
     const [first, second] = h.ran(/as other_blocked/);
-    expect(first.sql).toMatch(/order by coalesce\(last\.created_at, c\.created_at\) desc, c\.id desc/);
-    expect(first.params).toEqual([ME, null, null, 100, 0]);
-    expect(second.params).toEqual([ME, null, null, 50, 50]);
+    expect(first.sql).toMatch(
+      /order by \(me\.pinned_at is not null\) desc,\s+coalesce\(last\.created_at, c\.created_at\) desc, c\.id desc/,
+    );
+    expect(first.params).toEqual([ME, null, null, 100, 0, false]);
+    expect(second.params).toEqual([ME, null, null, 50, 50, false]);
   });
 
   it('finds one conversation by id, or says it is not there', async () => {
@@ -621,7 +623,7 @@ describe('MessagesService list and badge', () => {
 
     await expect(h.service.conversation(ME, CONVO)).rejects.toThrow('Conversation not found');
     const [select] = h.ran(/as other_blocked/);
-    expect(select.params).toEqual([ME, null, CONVO, 1, 0]);
+    expect(select.params).toEqual([ME, null, CONVO, 1, 0, false]);
   });
 });
 
