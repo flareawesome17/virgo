@@ -39,6 +39,35 @@ export interface MoneyPayMethodInput {
   qrReceiptId?: string | null;
 }
 
+/**
+ * A way to pay as somebody else is shown it — a client reading a chat card,
+ * a poster on a booking. The details and a link to the QR, and nothing about
+ * the uploaded file itself: not its name, which is the owner's own.
+ */
+export interface PayCardMethod {
+  id: string;
+  kind: PayMethodKind;
+  label: string | null;
+  accountName: string | null;
+  accountNumber: string | null;
+  qrUrl: string | null;
+  detailsChangedAt: string;
+}
+
+export function toCard(m: MoneyPayMethod): PayCardMethod {
+  return {
+    id: m.id,
+    kind: m.kind,
+    label: m.label,
+    accountName: m.accountName,
+    accountNumber: m.accountNumber,
+    qrUrl: m.qr?.url ?? null,
+    detailsChangedAt: m.detailsChangedAt,
+  };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Who is asking: the proof that it is the account holder, and the device, for the email. */
 export interface PayMethodChangeContext {
   proof: DeleteProof;
@@ -295,6 +324,38 @@ export class MoneyPayMethodsService {
       [userId, id],
     );
     return this.list(userId);
+  }
+
+  /**
+   * Ways to pay as somebody else sees them: on a chat card. By id, each with
+   * its owner, for the caller to check the owner is who sent the card. The
+   * QR's link is minted for this read, and expires like every other.
+   */
+  async cardsByIds(ids: readonly string[]): Promise<Map<string, PayCardMethod & { ownerId: string }>> {
+    const unique = [...new Set(ids)].filter((id) => UUID.test(id));
+    const cards = new Map<string, PayCardMethod & { ownerId: string }>();
+    if (unique.length === 0) return cards;
+    const rows = await this.db.query<PayMethodRow>(
+      `select ${COLUMNS} from money_pay_methods where id = any($1::uuid[])`,
+      [unique],
+    );
+    const presented = await this.present(rows);
+    rows.forEach((row, i) => cards.set(row.id, { ...toCard(presented[i]), ownerId: row.user_id }));
+    return cards;
+  }
+
+  /** Someone's main way to pay, as the person who owes them sees it; null when they have none. */
+  async mainCardOf(ownerId: string): Promise<PayCardMethod | null> {
+    const rows = await this.db.query<PayMethodRow>(
+      `select ${COLUMNS}
+         from money_pay_methods where user_id = $1
+        order by position, created_at
+        limit 1`,
+      [ownerId],
+    );
+    if (rows.length === 0) return null;
+    const [main] = await this.present(rows);
+    return toCard(main);
   }
 
   /**
