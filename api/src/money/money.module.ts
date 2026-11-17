@@ -36,5 +36,8 @@ import { MoneySavingsService } from './money-savings.service';
     MoneyTaxService,
     MoneySavingsService,
   ],
+  // Chat sends a way to pay as a card, and a booking shows the creative's to
+  // the poster who owes them; a card can name the package it is for.
+  exports: [MoneyPayMethodsService, MoneyPackagesService],
 })
 export class MoneyModule {}

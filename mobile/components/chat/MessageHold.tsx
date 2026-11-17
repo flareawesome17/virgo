@@ -6,6 +6,7 @@ import {
   REACTION_EMOJI,
   REACTION_LABEL,
   type ConversationMessage,
+  type JobAcceptedContext,
   type ReactionKey,
 } from '@/src/api';
 import {
@@ -131,7 +132,9 @@ export function MessageHold({
             <View className="flex-row items-center gap-2.5">
               <BriefcaseIcon size={18} className="text-primary" />
               <Text className="text-foreground text-[15px] font-semibold flex-1" numberOfLines={2}>
-                {message.context?.postTitle ? `Accepted · ${message.context.postTitle}` : 'Job accepted'}
+                {(message.context as JobAcceptedContext | null)?.postTitle
+                  ? `Accepted · ${(message.context as JobAcceptedContext).postTitle}`
+                  : 'Job accepted'}
               </Text>
             </View>
           ) : (

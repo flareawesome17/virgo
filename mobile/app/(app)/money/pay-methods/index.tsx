@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -17,7 +18,7 @@ import { useMoneyPayMethods } from '@/src/hooks';
 import { CardListSkeleton, EmptyState, ScreenHeader } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PayQr } from '@/components/money/PayQr';
-import { sendPayMethod } from '@/src/lib/pay-method-actions';
+import { PaySendSheet } from '@/components/money/PaySendSheet';
 
 for (const Icon of [
   ChevronRightIcon,
@@ -46,6 +47,7 @@ export default function PayMethodsScreen() {
   const add = () => router.push('/money/pay-methods/edit');
   const show = (id: string) => router.push(`/money/pay-methods/show?id=${id}`);
   const [main, ...others] = payMethods;
+  const [sending, setSending] = useState(false);
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
@@ -112,7 +114,7 @@ export default function PayMethodsScreen() {
                 <Text className="text-background text-[15px] font-semibold">Show QR</Text>
               </Pressable>
               <Pressable
-                onPress={() => void sendPayMethod(main)}
+                onPress={() => setSending(true)}
                 accessibilityRole="button"
                 className="flex-1 h-12 rounded-[14px] bg-secondary flex-row items-center justify-center gap-2 active:opacity-70"
               >
@@ -190,6 +192,7 @@ export default function PayMethodsScreen() {
           </View>
         </ScrollView>
       )}
+      <PaySendSheet visible={sending} method={main ?? null} onClose={() => setSending(false)} />
     </SafeAreaView>
   );
 }

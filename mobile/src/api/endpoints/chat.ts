@@ -1,4 +1,5 @@
 import { api } from '../client';
+import type { PayCardContext } from './money';
 
 export interface Conversation {
   id: string;
@@ -299,10 +300,11 @@ export interface ConversationMessage {
    * 'text' is somebody typing, and is the default for everything written
    * before this existed. 'job-accepted' is the app itself marking the moment
    * an application was accepted, rendered as a card rather than a bubble.
+   * 'pay-card' is somebody sending how to pay them, as a card on their side.
    */
-  kind?: 'text' | 'job-accepted';
-  /** What the card needs. Null on a typed message. */
-  context?: JobAcceptedContext | null;
+  kind?: 'text' | 'job-accepted' | 'pay-card';
+  /** What the card needs. Null on a typed message. Read it by `kind`. */
+  context?: JobAcceptedContext | PayCardContext | null;
   /**
    * The id the sender's app gave this message before sending it — how that app
    * matches the stored message to the bubble it drew while sending. Absent
@@ -473,6 +475,14 @@ export const chatApi = {
 
   send(id: string, input: SendMessageInput): Promise<ConversationMessage> {
     return api.post(`/messages/${id}/messages`, { body: input });
+  },
+
+  /** Sends one of your ways to pay as a card, optionally for one of your packages. */
+  sendPayCard(
+    id: string,
+    input: { payMethodId: string; packageId?: string; clientId?: string },
+  ): Promise<ConversationMessage> {
+    return api.post(`/messages/${id}/pay-card`, { body: input });
   },
 
   /**
