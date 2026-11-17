@@ -8,7 +8,9 @@ import { chatKeys } from './useChat';
  * your packages. The card arrives in an open thread live, like any message;
  * the thread and the list are refetched for a chat that is not open.
  *
- * One client id per send, so a retry after a lost response stores one card.
+ * One client id per card: pass the same `clientId` when sending the same card
+ * again, and a retry after a lost response stores one card, not two. Left
+ * out, each call makes its own.
  */
 export function useSendPayCard() {
   const queryClient = useQueryClient();
@@ -17,11 +19,13 @@ export function useSendPayCard() {
       conversationId,
       payMethodId,
       packageId,
+      clientId,
     }: {
       conversationId: string;
       payMethodId: string;
       packageId?: string;
-    }) => chatApi.sendPayCard(conversationId, { payMethodId, packageId, clientId: newClientId() }),
+      clientId?: string;
+    }) => chatApi.sendPayCard(conversationId, { payMethodId, packageId, clientId: clientId ?? newClientId() }),
     onSuccess: (_message, { conversationId }) => {
       void queryClient.invalidateQueries({ queryKey: chatKeys.thread(conversationId) });
       void queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });

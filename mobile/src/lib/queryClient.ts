@@ -191,7 +191,9 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // knows where you are. A saved list showed "about 1 km" for a whole province.
 // v15: messages carry edits, reactions and Forwarded; chats carry pinned,
 // archived and marked unread, and the list a count of what is archived.
-const CACHE_VERSION = 'v15-chat-basics'
+// v16: messages can be cards (album photos, bookings, job posts, posts,
+// packages, dates), and an album link preview carries blurred stand-ins.
+const CACHE_VERSION = 'v16-chat-cards'
 
 /**
  * Never written to disk, whatever their staleTime says.

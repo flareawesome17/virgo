@@ -67,14 +67,18 @@ import { MessageFrame, MessageToolbar } from '@/components/chat/message-actions'
 import { LinkPreviewCard, MessageBody } from '@/components/chat/message-body';
 import { ReactionBar } from '@/components/chat/reactions';
 import { SeenBy } from '@/components/chat/seen-by';
-import { SavedRepliesButton } from '@/components/chat/saved-replies';
+import { ShareMenu } from '@/components/chat/share/share-menu';
+import { ChatCard, cardIsCentred, cardReadout, type CardEnv } from '@/components/chat/cards';
 import { ForwardDialog } from '@/components/chat/forward-dialog';
 import { PayChatCard } from '@/components/money/pay-card';
 import { chatProblem } from '@/components/chat/chat-errors';
 import {
   ApiError,
+  cardSummary,
   firstVirgoLink,
+  isCardKind,
   myReaction,
+  type CardKind,
   type ConversationMessage,
   type JobAcceptedContext,
   type Participant,
@@ -112,6 +116,16 @@ function usePageVisible(): boolean {
 /** How a notice addresses someone: by first name, as a person would. */
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
+}
+
+/**
+ * A message as a quote: its words, or for a shared card what it is —
+ * "Album photos · 12 photos · Santos Wedding" rather than the card's
+ * stored text and link.
+ */
+function quoteOf(message: ConversationMessage): string {
+  const card = cardSummary(message);
+  return card ? `${card.label} · ${card.title}` : message.body;
 }
 
 function timeLabel(iso: string): string {
@@ -527,7 +541,7 @@ export function Thread({
       conversationId,
       body,
       replyToId: replyTo?.id,
-      replyToBody: replyTo?.body ?? null,
+      replyToBody: replyTo ? quoteOf(replyTo) : null,
       replyToSender: replyTo?.sender_name ?? null,
       mentionIds: mentioned.filter((p) => body.includes(`@${p.name}`)).map((p) => p.id),
       status: 'sending',
@@ -779,7 +793,7 @@ export function Thread({
                 reactions={message.reactions}
                 meId={meId}
                 people={people}
-                excerpt={message.body}
+                excerpt={quoteOf(message)}
                 side={side}
                 onToggle={canSend ? (reaction) => togglePill(message, reaction) : undefined}
               />
@@ -832,14 +846,110 @@ export function Thread({
               );
             }
 
-            // How to pay the sender: a card on their side, like their own line.
-            if (message.kind === 'pay-card') {
-              return <PayChatCard key={message.id} message={message} mine={mine} />;
-            }
-
             const state = mine ? deliveryOf(message.created_at) : 'sent';
             const side = mine ? 'end' : 'start';
             const typed = (message.kind ?? 'text') === 'text';
+
+            /** Under a card: when it went, and for your own how far it has got. */
+            const cardMeta = (at: 'start' | 'end' | 'center') => (
+              <div
+                className={cn(
+                  'mt-1 flex items-center gap-1 px-1 text-[10px] text-muted-foreground',
+                  at === 'end' ? 'justify-end' : at === 'center' ? 'justify-center' : 'justify-start',
+                )}
+              >
+                <span>{timeLabel(message.created_at)}</span>
+                {mine &&
+                  (isGroup && others.length > 1 ? (
+                    <SeenBy sentAt={message.created_at} others={others} excerpt={quoteOf(message)}>
+                      <DeliveryMark state={state} />
+                    </SeenBy>
+                  ) : (
+                    <DeliveryMark state={state} />
+                  ))}
+              </div>
+            );
+
+            /*
+             * A card's actions: react, reply, copy its line and link, delete.
+             * No Edit and no Forward — both are for typed words, and the
+             * server takes neither for a card.
+             */
+            const cardToolbar = (at: 'start' | 'end' | 'center', hold: (open: boolean) => void) => (
+              <MessageToolbar
+                hold={hold}
+                side={at}
+                react={reactControl}
+                onReply={canSend ? () => startReply(message) : undefined}
+                onCopy={() => copyText(message.body)}
+                onDelete={(scope) => deleteMessage(message, scope)}
+                canDeleteForEveryone={mine}
+              />
+            );
+
+            const senderName =
+              isGroup && !mine ? (
+                <p className="mb-0.5 ml-1 text-[11px] text-muted-foreground">{message.sender_name}</p>
+              ) : undefined;
+
+            // How to pay the sender: a card on their side, like their own line.
+            if (message.kind === 'pay-card') {
+              return (
+                <MessageFrame
+                  key={message.id}
+                  side={side}
+                  label={`${label}, how to pay ${mine ? 'you' : firstName(message.sender_name ?? 'them')}`}
+                  width="max-w-full"
+                  header={senderName}
+                  below={
+                    <>
+                      {reactions(side)}
+                      {cardMeta(side)}
+                    </>
+                  }
+                  toolbar={(hold) => cardToolbar(side, hold)}
+                >
+                  <PayChatCard message={message} mine={mine} />
+                </MessageFrame>
+              );
+            }
+
+            // A Virgo thing somebody shared: album photos, a booking, a job
+            // post, a post, a package, a date.
+            if (isCardKind(message.kind)) {
+              const card = message as ConversationMessage & { kind: CardKind };
+              const centred = cardIsCentred(card.kind);
+              const at = centred ? 'center' : side;
+              const env: CardEnv = { conversationId, mine, meId, isGroup, others, people };
+              return (
+                <MessageFrame
+                  key={message.id}
+                  side={at}
+                  label={`${label}, ${cardReadout(card, env)}`}
+                  width={centred ? 'w-full max-w-sm' : 'max-w-full'}
+                  header={
+                    centred ? (
+                      // Centred, so not on anyone's side: who shared it is said.
+                      <p className="mb-1 text-center text-[11px] text-muted-foreground">
+                        {mine ? 'You shared' : `${firstName(message.sender_name ?? 'Someone')} shared`}
+                      </p>
+                    ) : (
+                      senderName
+                    )
+                  }
+                  below={
+                    <>
+                      {reactions(at)}
+                      {cardMeta(at)}
+                    </>
+                  }
+                  toolbar={(hold) => cardToolbar(at, hold)}
+                >
+                  <ChatCard message={card} env={env} />
+                </MessageFrame>
+              );
+            }
+
             const preview = firstVirgoLink(message.body);
 
             return (
@@ -1017,7 +1127,7 @@ export function Thread({
             <p className="text-[11px] font-bold text-primary">
               Replying to {replyTo.sender_name}
             </p>
-            <p className="truncate text-xs text-muted-foreground">{replyTo.body}</p>
+            <p className="truncate text-xs text-muted-foreground">{quoteOf(replyTo)}</p>
           </div>
           <Button size="icon" variant="ghost" onClick={() => setReplyTo(null)} aria-label="Cancel reply">
             <X className="size-3.5" />
@@ -1073,7 +1183,13 @@ export function Thread({
         )
       ) : (
         <div ref={composerRowRef} className="flex shrink-0 items-end gap-2 border-t p-3">
-          <SavedRepliesButton onInsert={insertSaved} />
+          <ShareMenu
+            conversationId={conversationId}
+            audience={{ isGroup, others }}
+            onInsertSaved={insertSaved}
+            // What you just shared is what you want to see, as after Send.
+            onSent={() => scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+          />
           <Textarea
             ref={composerRef}
             value={draft}

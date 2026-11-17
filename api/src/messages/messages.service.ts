@@ -16,7 +16,18 @@ import { PresenceService } from '../realtime/presence.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { blockedBetween } from '../safety/block-sql';
 import { BlocksService } from '../safety/blocks.service';
+import type { CardKind } from './cards/card-kinds';
 import { unreadMessagesCount } from './unread-sql';
+
+/**
+ * Fills in the cards somebody shared: an album's photos, a booking, a job
+ * post, a post, a package, a date. Registered by ChatCardsService, which
+ * reads from modules this one cannot import without a cycle (hiring and
+ * bookings already import messages).
+ */
+export interface CardFiller {
+  fill(rows: MessageRow[]): Promise<void>;
+}
 
 /** The codes a chat refusal carries, which the clients switch on. */
 type ChatRefusalCode = 'YOU_BLOCKED' | 'CHAT_UNAVAILABLE' | 'GROUP_MEMBER_UNAVAILABLE';
@@ -113,9 +124,11 @@ export interface MessageRow {
    * moment an application was accepted — rendered as a card with the job, the
    * role and the booking rather than as a bubble. 'pay-card' is somebody
    * sending how to pay them: its context names their way to pay, and the
-   * details are filled in fresh on every read (withPayCards).
+   * details are filled in fresh on every read (withPayCards). The rest are
+   * things somebody shared from Virgo (CardKind), filled in the same way by
+   * ChatCardsService.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card';
+  kind?: 'text' | 'job-accepted' | 'pay-card' | CardKind;
   /** Whatever the card needs to render. Null on a typed message. */
   context?: Record<string, unknown> | null;
   /**
@@ -301,6 +314,26 @@ export class MessagesService {
     @Optional() private readonly payMethods?: MoneyPayMethodsService,
     @Optional() private readonly packages?: MoneyPackagesService,
   ) {}
+
+  private cardFiller: CardFiller | null = null;
+
+  /** Called once by ChatCardsService as the app starts. */
+  useCardFiller(filler: CardFiller): void {
+    this.cardFiller = filler;
+  }
+
+  /**
+   * Every card in these rows, filled in as it is now. A card that cannot be
+   * filled says so in its own context rather than failing the thread: the
+   * words around it still have to load.
+   */
+  private async withCards<T extends MessageRow>(rows: T[]): Promise<T[]> {
+    await this.withPayCards(rows);
+    if (this.cardFiller && rows.some((r) => r.kind && r.kind !== 'text')) {
+      await this.cardFiller.fill(rows);
+    }
+    return rows;
+  }
 
   /**
    * Fills each pay card with its sender's way to pay as it is now: the
@@ -863,8 +896,11 @@ export class MessagesService {
          join conversation_participants me
            on me.conversation_id = c.id and me.user_id = $1
          left join lateral (
-           select case when m.deleted_at is null
-                       then m.body else 'Message deleted' end as body,
+           -- A card's body is its line and then its link, for apps without
+           -- cards; the list shows the line alone.
+           select case when m.deleted_at is not null then 'Message deleted'
+                       when m.kind <> 'text' then split_part(m.body, chr(10), 1)
+                       else m.body end as body,
                   m.created_at,
                   coalesce(u.display_name, split_part(u.email, '@', 1)) as sender_name
              from messages m
@@ -1137,7 +1173,7 @@ export class MessagesService {
     // single block for a notice to offer to undo.
     const blockedByMe = !state.isGroup && !!state.myBlockId;
     return {
-      messages: await this.withPayCards(messages),
+      messages: await this.withCards(messages),
       lastReadAt: me?.last_read_at ?? null,
       canSend: !frozen(state),
       blockedByMe,
@@ -1230,7 +1266,7 @@ export class MessagesService {
         where m.id = $1`,
       [messageId],
     );
-    return row ? (await this.withPayCards([row]))[0] : null;
+    return row ? (await this.withCards([row]))[0] : null;
   }
 
   /**
@@ -1250,7 +1286,7 @@ export class MessagesService {
    * A message the caller can see, or a 404. The same rules as the thread:
    * not hidden by "delete for me", not before they cleared the chat.
    */
-  private async visibleMessage(
+  async visibleMessage(
     userId: string,
     conversationId: string,
     messageId: string,
@@ -1449,6 +1485,36 @@ export class MessagesService {
     return { sent, skipped: targets.length - sent };
   }
 
+  /**
+   * Refuses a frozen thread, or one the caller is not in, before anything is
+   * made: a card makes a client link or a calendar entry first, and neither
+   * should exist for a message that could never be sent.
+   */
+  async assertCanSend(userId: string, conversationId: string): Promise<void> {
+    const state = await this.sendState(conversationId, userId);
+    if (frozen(state)) {
+      throw !state.isGroup && state.myBlockId
+        ? refusal('YOU_BLOCKED', 'You blocked this person. Unblock them to send messages.')
+        : refusal('CHAT_UNAVAILABLE', "You can't reply to this conversation.");
+    }
+  }
+
+  /**
+   * Sends a card's new state to everyone who can see it — somebody answered a
+   * date. As an edit frame, which apps from Phase 1 on already apply in place
+   * (an edit with no `edited_at` shows no "Edited"), and older apps ignore.
+   */
+  async announceChanged(userId: string, conversationId: string, messageId: string): Promise<MessageRow | null> {
+    const row = await this.joinedMessage(messageId);
+    if (!row) return null;
+    this.realtime.emitToUsers(await this.participantIdsVisibleTo(conversationId, userId), {
+      type: 'message-edited',
+      conversationId,
+      message: row,
+    });
+    return row;
+  }
+
   async send(
     userId: string,
     conversationId: string,
@@ -1459,16 +1525,17 @@ export class MessagesService {
       clientId?: string;
       /** Set by forward(), never by a request. */
       forwarded?: boolean;
+      /**
+       * A card rather than typed words: set by the card senders below, never
+       * by a request. The body is then the card's plain line, which is what
+       * the list, the push and an app from before cards show.
+       */
+      card?: { kind: CardKind | 'pay-card'; context: Record<string, unknown> };
     } = {},
   ): Promise<MessageRow> {
     // Before the text is even looked at: a frozen thread refuses whatever is
     // sent to it, and the reason must not depend on what was typed.
-    const state = await this.sendState(conversationId, userId);
-    if (frozen(state)) {
-      throw !state.isGroup && state.myBlockId
-        ? refusal('YOU_BLOCKED', 'You blocked this person. Unblock them to send messages.')
-        : refusal('CHAT_UNAVAILABLE', "You can't reply to this conversation.");
-    }
+    await this.assertCanSend(userId, conversationId);
 
     const text = body.trim();
     if (!text) throw new BadRequestException('Message cannot be empty');
@@ -1506,11 +1573,21 @@ export class MessagesService {
     // the partial index's predicate, which is how Postgres finds it.
     const clientId = options.clientId ?? null;
     const inserted = await this.db.queryOne<{ id: string }>(
-      `insert into messages (conversation_id, sender_id, body, reply_to_id, mentions, client_id, forwarded)
-       values ($1, $2, $3, $4, $5::uuid[], $6::uuid, $7)
+      `insert into messages (conversation_id, sender_id, body, reply_to_id, mentions, client_id, forwarded, kind, context)
+       values ($1, $2, $3, $4, $5::uuid[], $6::uuid, $7, $8, $9::jsonb)
        on conflict (sender_id, client_id) where client_id is not null do nothing
        returning id`,
-      [conversationId, userId, text, replyToId, mentions, clientId, options.forwarded === true],
+      [
+        conversationId,
+        userId,
+        text,
+        replyToId,
+        mentions,
+        clientId,
+        options.forwarded === true,
+        options.card?.kind ?? 'text',
+        options.card ? JSON.stringify(options.card.context) : null,
+      ],
     );
 
     if (!inserted) {
@@ -1551,7 +1628,10 @@ export class MessagesService {
     // sender's request waited for all of it: in a group, sending was slow in
     // proportion to its size. The message is stored and delivered live by
     // now, and notify never throws.
-    void this.notify(userId, conversationId, text, mentions);
+    //
+    // A card pushes its line without the link under it: "Shared 6 photos
+    // from Santos Wedding", not a client link's address on a lock screen.
+    void this.notify(userId, conversationId, options.card ? text.split('\n')[0] : text, mentions);
     return row!;
   }
 
@@ -1612,12 +1692,7 @@ export class MessagesService {
     conversationId: string,
     input: { payMethodId: string; packageId?: string; clientId?: string },
   ): Promise<MessageRow> {
-    const state = await this.sendState(conversationId, userId);
-    if (frozen(state)) {
-      throw !state.isGroup && state.myBlockId
-        ? refusal('YOU_BLOCKED', 'You blocked this person. Unblock them to send messages.')
-        : refusal('CHAT_UNAVAILABLE', "You can't reply to this conversation.");
-    }
+    await this.assertCanSend(userId, conversationId);
     if (!this.payMethods) throw new BadRequestException('Ways to pay cannot be sent from here.');
 
     // Only your own: the card is how somebody pays you.
@@ -1643,36 +1718,12 @@ export class MessagesService {
       .join('\n');
     const context = { payMethodId: card.id, ...(pkg ? { package: pkg } : {}) };
 
-    const clientId = input.clientId ?? null;
-    const inserted = await this.db.queryOne<{ id: string }>(
-      `insert into messages (conversation_id, sender_id, body, kind, context, client_id)
-       values ($1, $2, $3, 'pay-card', $4::jsonb, $5::uuid)
-       on conflict (sender_id, client_id) where client_id is not null do nothing
-       returning id`,
-      [conversationId, userId, body, JSON.stringify(context), clientId],
-    );
-    if (!inserted) {
-      // A retry of one that got through: answer with it, send nothing again.
-      const earlier = await this.db.queryOne<{ id: string }>(
-        `select id from messages
-          where sender_id = $1 and client_id = $2::uuid and conversation_id = $3`,
-        [userId, clientId, conversationId],
-      );
-      if (!earlier) throw new BadRequestException('That message id is already in use');
-      return (await this.joinedMessage(earlier.id))!;
-    }
-
-    const row = await this.joinedMessage(inserted.id);
-    await this.db.query('update conversations set updated_at = now() where id = $1', [
-      conversationId,
-    ]);
-    this.realtime.emitToUsers(await this.participantIdsVisibleTo(conversationId, userId), {
-      type: 'message',
-      conversationId,
-      message: row,
+    // Sent like a typed line from here: the retry guard, the list coming back
+    // out of the archive, the live frame and the push.
+    return this.send(userId, conversationId, body, {
+      clientId: input.clientId,
+      card: { kind: 'pay-card', context },
     });
-    void this.notify(userId, conversationId, body, []);
-    return row!;
   }
 
   /** Marks the thread read up to now. */

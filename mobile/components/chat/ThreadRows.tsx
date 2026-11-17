@@ -10,6 +10,7 @@ import {
 import { cssInterop } from 'nativewind';
 import {
   firstVirgoLink,
+  isCardKind,
   splitLinks,
   type ConversationMessage,
   type JobAcceptedContext,
@@ -19,6 +20,9 @@ import type { OutboxItem } from '@/src/lib/outbox';
 import { JobAcceptedCard } from '@/components/JobAcceptedCard';
 import { PayChatCard } from '@/components/money/PayChatCard';
 import { PALETTES } from '@/theme';
+import { isCentredCard } from './cards/card-icons';
+import type { ChatPeople } from './cards/card-words';
+import { ChatCard } from './cards/ChatCard';
 import type { HeldRect } from './HoldOverlay';
 import { LinkPreviewCard } from './LinkPreviewCard';
 import { openChatLink } from './links';
@@ -141,7 +145,7 @@ export function buildThreadRows({
         i !== firstUnread &&
         older?.kind === 'message' &&
         older.message.sender_id === m.sender_id &&
-        older.message.kind !== 'job-accepted';
+        !isCentredCard(older.message.kind);
       rows.push({
         kind: 'message',
         key: m.id,
@@ -325,6 +329,10 @@ interface MessageBubbleProps {
   waiting: boolean;
   /** Whether pictures load by themselves on this connection and setting. */
   autoLoadMedia: boolean;
+  /** Who is in the chat, for the words on shared cards. */
+  people: ChatPeople;
+  /** A short word over the foot of the thread, from a card: a failed answer. */
+  notify: (words: string) => void;
 }
 
 /**
@@ -352,6 +360,8 @@ export const MessageBubble = memo(function MessageBubble({
   beingEdited,
   waiting,
   autoLoadMedia,
+  people,
+  notify,
 }: MessageBubbleProps) {
   const bubbleRef = useRef<View>(null);
   const hold = useCallback(() => {
@@ -367,14 +377,14 @@ export const MessageBubble = memo(function MessageBubble({
     <ReactionPills
       reactions={message.reactions}
       myId={myId}
-      align={mine && message.kind !== 'job-accepted' ? 'end' : 'start'}
+      align={mine && !isCentredCard(message.kind) ? 'end' : 'start'}
       canReact={reactable}
       onToggle={(reaction) => onToggleReaction(message, reaction)}
       onShowWho={() => onShowReactions(message)}
     />
   );
   const link = useMemo(
-    () => (message.deleted_at || message.kind === 'job-accepted' ? null : firstVirgoLink(message.body)),
+    () => (message.deleted_at || (message.kind ?? 'text') !== 'text' ? null : firstVirgoLink(message.body)),
     [message.body, message.deleted_at, message.kind],
   );
 
@@ -437,7 +447,36 @@ export const MessageBubble = memo(function MessageBubble({
 
   // How to pay the sender: a card on their side, like their own line.
   if (message.kind === 'pay-card') {
-    return <PayChatCard message={message} mine={mine} time={time} onLongPress={() => hold()} />;
+    return (
+      <PayChatCard ref={bubbleRef} message={message} mine={mine} time={time} onLongPress={hold} pills={pills} />
+    );
+  }
+
+  // A Virgo thing shared here: album photos, a booking, a job post, a post,
+  // a package or a date. Held and reacted to like any message.
+  if (isCardKind(message.kind)) {
+    const seen =
+      state === 'read'
+        ? 'Seen'
+        : showSeenBy && seenBy > 0
+          ? `Seen by ${seenBy}`
+          : DELIVERY_WORDS[state];
+    return (
+      <ChatCard
+        kind={message.kind}
+        message={message}
+        mine={mine}
+        senderName={showName ? (message.sender_name ?? null) : null}
+        meta={mine ? `${time} · ${seen}` : time}
+        cardRef={bubbleRef}
+        onHold={hold}
+        pills={pills}
+        myId={myId}
+        people={people}
+        autoLoadMedia={autoLoadMedia}
+        notify={notify}
+      />
+    );
   }
 
   const who = mine ? 'You' : (message.sender_name ?? 'Someone');

@@ -1,5 +1,6 @@
 import { api } from '../client';
 import type { PayCardContext } from './money';
+import { formatMoney } from './usage';
 
 export interface Conversation {
   id: string;
@@ -301,10 +302,21 @@ export interface ConversationMessage {
    * before this existed. 'job-accepted' is the app itself marking the moment
    * an application was accepted, rendered as a card rather than a bubble.
    * 'pay-card' is somebody sending how to pay them, as a card on their side.
+   * The rest (CardKind) are Virgo things somebody shared: album photos, a
+   * booking, a job post, a post, a package, a date.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card';
+  kind?: 'text' | 'job-accepted' | 'pay-card' | CardKind;
   /** What the card needs. Null on a typed message. Read it by `kind`. */
-  context?: JobAcceptedContext | PayCardContext | null;
+  context?:
+    | JobAcceptedContext
+    | PayCardContext
+    | AlbumCardContext
+    | BookingCardContext
+    | JobPostCardContext
+    | PostCardContext
+    | PackageCardContext
+    | DatePlanCardContext
+    | null;
   /**
    * The id the sender's app gave this message before sending it — how that app
    * matches the stored message to the bubble it drew while sending. Absent
@@ -334,6 +346,262 @@ export interface JobAcceptedContext {
   /** Which of the post's roles. Null on posts that only ever wanted one. */
   role: string | null;
   bookingId: string;
+}
+
+// ─── Cards: Virgo things shared in a chat ───────────────────────────────────
+
+/**
+ * What a chat can carry from the rest of Virgo. Each card stores what the
+ * thing is, and the server fills in how it is now every time the thread is
+ * read: a moved date or a new payment shows on a card sent last week. A field
+ * filled in as null means the thing is gone, or no longer its sender's to
+ * show, and the card says so.
+ */
+export const CARD_KINDS = ['album-photos', 'booking', 'job-post', 'post', 'package', 'date-plan'] as const;
+export type CardKind = (typeof CARD_KINDS)[number];
+
+export function isCardKind(kind: string | null | undefined): kind is CardKind {
+  return !!kind && (CARD_KINDS as readonly string[]).includes(kind);
+}
+
+/** The calendar's kinds of entry a date can be. A shoot is 'event' there. */
+export const PLAN_TYPES = ['event', 'meeting', 'editing', 'review', 'delivery'] as const;
+export type PlanType = (typeof PLAN_TYPES)[number];
+export const PLAN_TYPE_LABEL: Record<PlanType, string> = {
+  event: 'Shoot',
+  meeting: 'Meeting',
+  editing: 'Editing',
+  review: 'Review',
+  delivery: 'Delivery',
+};
+
+/** Photos in one card. The API enforces it too. */
+export const MAX_CARD_FILES = 500;
+
+export interface AlbumCardContext {
+  albumId: string;
+  linkId: string;
+  /** The client link made for just these files. Opening the card opens it. */
+  url: string;
+  album: {
+    name: string;
+    /** The one section everything is in, when there is one. */
+    sectionName: string | null;
+    total: number;
+    counts: { image: number; video: number; audio: number };
+    /** Up to four small thumbnails. */
+    thumbs: string[];
+    /** Each thumbnail's tiny blurred stand-in, in the same order. */
+    blurs: (string | null)[];
+  } | null;
+}
+
+export interface BookingCardContext {
+  bookingId: string;
+  booking: {
+    id: string;
+    postTitle: string;
+    postSlug: string;
+    role: string | null;
+    eventDate: string | null;
+    location: string | null;
+    rateMinor: number | null;
+    currency: string;
+    /** Both sides have agreed. */
+    confirmed: boolean;
+    cancelled: boolean;
+    /** The two on it, who alone can open it. */
+    parties: string[];
+  } | null;
+}
+
+export interface JobPostCardContext {
+  postId: string;
+  job: {
+    slug: string;
+    title: string;
+    eventDate: string | null;
+    location: string | null;
+    roles: string[];
+    /** Centavos. */
+    budgetMin: number | null;
+    budgetMax: number | null;
+    status: string;
+    postedBy: string | null;
+  } | null;
+}
+
+export interface PostCardContext {
+  showcaseId: string;
+  post: {
+    id: string;
+    title: string | null;
+    likeCount: number;
+    makerId: string;
+    makerName: string;
+    thumbUrl: string;
+    blur: string | null;
+    /** The first piece is a film. */
+    film: boolean;
+    pieces: number;
+  } | null;
+}
+
+export interface PackageCardContext {
+  packageId: string;
+  package: {
+    id: string;
+    title: string;
+    totalMinor: number;
+    receivedMinor: number;
+    balanceMinor: number;
+    paidInFull: boolean;
+    /** The statement page. Null once its sender stops sharing it. */
+    statementUrl: string | null;
+  } | null;
+}
+
+export type PlanAnswer = 'pending' | 'accepted' | 'declined';
+
+export interface DatePlanCardContext {
+  eventId: string;
+  plan: {
+    eventId: string;
+    title: string;
+    /** YYYY-MM-DD. */
+    date: string;
+    /** HH:MM, or null for a whole day. */
+    time: string | null;
+    type: string;
+    typeOther: string | null;
+    location: string | null;
+    organiserId: string;
+    /** Everyone invited, and what they said. The organiser is not in it. */
+    answers: { userId: string; status: PlanAnswer }[];
+  } | null;
+}
+
+export type SendCardInput = { clientId?: string } & (
+  | { kind: 'album-photos'; albumId: string; keys: string[] }
+  | { kind: 'booking'; bookingId: string }
+  | { kind: 'job-post'; postId: string }
+  | { kind: 'post'; showcaseId: string }
+  | { kind: 'package'; packageId: string }
+  | {
+      kind: 'date-plan';
+      type: PlanType;
+      /** Empty is fine: the date is then called by its type. */
+      title: string;
+      /** YYYY-MM-DD. */
+      date: string;
+      /** HH:MM. */
+      time?: string;
+      place?: string;
+      /** Everyone else in the chat you are connected with. */
+      inviteEveryone: boolean;
+    }
+);
+
+function utcDay(date: string | null | undefined): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date ?? '');
+  return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
+}
+
+/** "Sat, Dec 6" from "2026-12-06": the day as written, wherever the phone is. */
+export function planDayLabel(date: string | null | undefined): string | null {
+  const day = utcDay(date);
+  return day
+    ? day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+    : null;
+}
+
+/** "4:00 PM" from "16:00". */
+export function planTimeLabel(time: string | null | undefined): string | null {
+  const m = /^(\d{2}):(\d{2})/.exec(time ?? '');
+  if (!m) return null;
+  const h = Number(m[1]);
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** The date's badge: "DEC" over "6". */
+export function planBadge(date: string | null | undefined): { month: string; day: string } | null {
+  const day = utcDay(date);
+  if (!day) return null;
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  return { month: months[day.getUTCMonth()], day: String(day.getUTCDate()) };
+}
+
+/** "Sat · 4:00 PM · Sirao Garden, Cebu". */
+export function planWhenLine(plan: NonNullable<DatePlanCardContext['plan']>): string {
+  const day = utcDay(plan.date);
+  const weekday = day ? day.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }) : null;
+  return [weekday, planTimeLabel(plan.time) ?? 'All day', plan.location].filter(Boolean).join(' · ');
+}
+
+/** Who is going, who can't, and who hasn't said, as account ids. */
+export function planTally(plan: NonNullable<DatePlanCardContext['plan']>): {
+  going: string[];
+  cant: string[];
+  waiting: string[];
+} {
+  const of = (status: PlanAnswer) => plan.answers.filter((a) => a.status === status).map((a) => a.userId);
+  return { going: of('accepted'), cant: of('declined'), waiting: of('pending') };
+}
+
+/** Your answer, or null when you were not invited (the organiser, or not connected to them). */
+export function myPlanAnswer(
+  plan: DatePlanCardContext['plan'] | undefined,
+  myId: string | null | undefined,
+): PlanAnswer | null {
+  if (!plan || !myId) return null;
+  return plan.answers.find((a) => a.userId === myId)?.status ?? null;
+}
+
+/** "₱8,000 – ₱12,000", one amount, or null when the post names no budget. */
+export function budgetRangeLabel(min: number | null | undefined, max: number | null | undefined): string | null {
+  if (min && max && min !== max) return `${formatMoney(min)} – ${formatMoney(max)}`;
+  const one = min || max;
+  return one ? formatMoney(one) : null;
+}
+
+/** "12 photos", "12 photos and 2 films". */
+export function albumCardCount(album: NonNullable<AlbumCardContext['album']>): string {
+  return album.total > 0 ? describeAlbumCount(album.counts) : 'Nothing left in it';
+}
+
+/**
+ * A line for any shared card where only a line fits: the held copy, a
+ * reply's quote. The kind's name, and what it is.
+ */
+export function cardSummary(
+  message: Pick<ConversationMessage, 'kind' | 'context' | 'body'>,
+): { label: string; title: string } | null {
+  const fallback = message.body.split('\n')[0] ?? '';
+  switch (message.kind) {
+    case 'album-photos': {
+      const album = (message.context as AlbumCardContext | null)?.album;
+      return { label: 'Album photos', title: album ? `${albumCardCount(album)} · ${album.name}` : fallback };
+    }
+    case 'booking': {
+      const b = (message.context as BookingCardContext | null)?.booking;
+      return { label: 'Booking', title: b ? [b.role, b.postTitle].filter(Boolean).join(' · ') : fallback };
+    }
+    case 'job-post':
+      return { label: 'Job post', title: (message.context as JobPostCardContext | null)?.job?.title ?? fallback };
+    case 'post':
+      return {
+        label: 'Post',
+        title: (message.context as PostCardContext | null)?.post?.title?.trim() || fallback,
+      };
+    case 'package':
+      return { label: 'Package', title: (message.context as PackageCardContext | null)?.package?.title ?? fallback };
+    case 'date-plan': {
+      const p = (message.context as DatePlanCardContext | null)?.plan;
+      return { label: 'Date', title: p ? [p.title, planDayLabel(p.date)].filter(Boolean).join(' · ') : fallback };
+    }
+    default:
+      return null;
+  }
 }
 
 export interface SendMessageInput {
@@ -475,6 +743,16 @@ export const chatApi = {
 
   send(id: string, input: SendMessageInput): Promise<ConversationMessage> {
     return api.post(`/messages/${id}/messages`, { body: input });
+  },
+
+  /** Shares a Virgo thing as a card: album photos, a booking, a job post, a post, a package or a date. */
+  sendCard(id: string, input: SendCardInput): Promise<ConversationMessage> {
+    return api.post(`/messages/${id}/cards`, { body: input });
+  },
+
+  /** Going, or can't go, to a date planned in the chat. Answers with the card as it now stands. */
+  answerDate(id: string, messageId: string, going: boolean): Promise<ConversationMessage> {
+    return api.post(`/messages/${id}/messages/${messageId}/answer`, { body: { going } });
   },
 
   /** Sends one of your ways to pay as a card, optionally for one of your packages. */

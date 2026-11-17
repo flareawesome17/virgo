@@ -1,14 +1,14 @@
 import { Pressable, Text, View, useWindowDimensions } from 'react-native';
-import { BriefcaseIcon } from 'lucide-react-native';
-import { cssInterop } from 'nativewind';
 import {
   REACTIONS,
   REACTION_EMOJI,
   REACTION_LABEL,
+  cardSummary,
   type ConversationMessage,
   type JobAcceptedContext,
   type ReactionKey,
 } from '@/src/api';
+import { CARD_ICON, isCentredCard } from './cards/card-icons';
 import {
   HOLD_GAP,
   HoldMenu,
@@ -21,7 +21,7 @@ import {
 } from './HoldOverlay';
 import { MessageBody, type MentionMatcher } from './ThreadRows';
 
-cssInterop(BriefcaseIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+// The card icons are registered with cssInterop where CARD_ICON is made.
 
 const REACTION_BAR = 52;
 const MENU_WIDTH = 244;
@@ -31,6 +31,22 @@ export interface HeldMessage {
   message: ConversationMessage;
   rect: HeldRect;
   mine: boolean;
+}
+
+/**
+ * What the held copy of a card says, in a line or two: the kind's name and
+ * what it is. Null for a typed message, which lifts with its own words.
+ */
+function heldCardLine(message: ConversationMessage): { label: string | null; title: string } | null {
+  const kind = message.kind ?? 'text';
+  if (kind === 'text') return null;
+  if (kind === 'job-accepted') {
+    const title = (message.context as JobAcceptedContext | null)?.postTitle;
+    return { label: null, title: title ? `Accepted · ${title}` : 'Job accepted' };
+  }
+  if (kind === 'pay-card') return { label: null, title: 'How to pay' };
+  const summary = cardSummary(message);
+  return summary ? { label: summary.label, title: summary.title } : { label: null, title: message.body };
 }
 
 /**
@@ -68,10 +84,12 @@ export function MessageHold({
   let content = null;
   if (held) {
     const { message, rect, mine } = held;
-    const card = message.kind === 'job-accepted';
+    const cardLine = message.deleted_at ? null : heldCardLine(message);
+    const card = !!cardLine;
+    const CardIcon = card && message.kind && message.kind !== 'text' ? CARD_ICON[message.kind] : null;
     // Your own on the right edge, theirs on the left, where they were drawn.
-    // A card is nobody's side, and lifts from the left.
-    const edge = mine && !card
+    // A centred card is nobody's side, and lifts from the left.
+    const edge = mine && !isCentredCard(message.kind)
       ? { right: Math.max(SIDE, windowWidth - (rect.x + rect.width)), alignItems: 'flex-end' as const }
       : { left: Math.max(SIDE, rect.x), alignItems: 'flex-start' as const };
     const lines = Math.max(1, Math.floor((copyHeight - 20) / 20));
@@ -114,7 +132,11 @@ export function MessageHold({
         <View
           accessible
           accessibilityLabel={
-            message.deleted_at ? 'Deleted message' : card ? 'Job accepted card' : message.body
+            message.deleted_at
+              ? 'Deleted message'
+              : cardLine
+                ? [cardLine.label, cardLine.title].filter(Boolean).join(': ')
+                : message.body
           }
           className={`rounded-[20px] px-3.5 py-2.5 overflow-hidden ${
             message.deleted_at ? 'bg-muted' : mine && !card ? 'bg-action' : 'bg-card'
@@ -128,14 +150,19 @@ export function MessageHold({
             <Text className="text-muted-foreground text-sm italic">
               {mine ? 'You deleted this message' : 'This message was deleted'}
             </Text>
-          ) : card ? (
+          ) : cardLine ? (
             <View className="flex-row items-center gap-2.5">
-              <BriefcaseIcon size={18} className="text-primary" />
-              <Text className="text-foreground text-[15px] font-semibold flex-1" numberOfLines={2}>
-                {(message.context as JobAcceptedContext | null)?.postTitle
-                  ? `Accepted · ${(message.context as JobAcceptedContext).postTitle}`
-                  : 'Job accepted'}
-              </Text>
+              {CardIcon ? <CardIcon size={18} className="text-primary" /> : null}
+              <View className="flex-1 min-w-0">
+                {cardLine.label ? (
+                  <Text className="text-muted-foreground text-[12px] leading-4 font-bold" numberOfLines={1}>
+                    {cardLine.label}
+                  </Text>
+                ) : null}
+                <Text className="text-foreground text-[15px] font-semibold" numberOfLines={2}>
+                  {cardLine.title}
+                </Text>
+              </View>
             </View>
           ) : (
             <MessageBody body={message.body} mine={mine} matcher={matcher} numberOfLines={lines} inert />

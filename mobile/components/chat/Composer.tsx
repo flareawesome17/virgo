@@ -61,7 +61,7 @@ interface ComposerProps {
    * the box, to send as a new message or clear.
    */
   onEditExpired: () => void;
-  /** The round + at the start of the box: saved replies, in this phase. */
+  /** The round + at the start of the box: what can be shared here, saved replies among it. */
   onPlus?: () => void;
   ref?: Ref<ComposerHandle>;
 }
@@ -366,8 +366,8 @@ export const Composer = memo(function Composer({
         {onPlus && !editing ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Saved replies"
-            accessibilityHint="Puts one of your saved replies in the message"
+            accessibilityLabel="Share something"
+            accessibilityHint="Album photos, a date, a booking, a job post, a post, a package, how to pay, or a saved reply"
             onPress={onPlus}
             className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.94]"
           >

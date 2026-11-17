@@ -730,24 +730,40 @@ export class AlbumShareService {
     total: number;
     counts: { image: number; video: number; audio: number };
     thumbs: string[];
+    /** Each thumbnail's ~300-byte blurred stand-in, in the same order; null where there is none. */
+    blurs: (string | null)[];
+    /** The album's own name, for a card that says "from Santos Wedding". */
+    albumName: string;
+    /** The one section everything shown is in, when there is one. */
+    sectionName: string | null;
   }> {
     const link = await this.linkFor(token);
     const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
     const part = this.partSql(link, 'f', params);
 
     const [summary, firsts] = await Promise.all([
-      this.db.queryOne<{ total: string; image: string; video: string; audio: string }>(
+      this.db.queryOne<{
+        total: string;
+        image: string;
+        video: string;
+        audio: string;
+        section_name: string | null;
+      }>(
         `select count(*)::text as total,
                 count(*) filter (where f.content_type like 'image/%')::text as image,
                 count(*) filter (where f.content_type like 'video/%')::text as video,
-                count(*) filter (where f.content_type like 'audio/%')::text as audio
+                count(*) filter (where f.content_type like 'audio/%')::text as audio,
+                -- Only when every file shown sits in the same one section.
+                case when count(distinct f.section_id) = 1 and count(f.section_id) = count(*)
+                     then min(fs.name) end as section_name
            from user_files f
+           left join album_sections fs on fs.id = f.section_id
           where f.user_id = $1 and f.album_id = $2
             and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])${part}`,
         params,
       ),
-      this.db.query<{ thumb_key: string | null; poster_key: string | null }>(
-        `select f.thumb_key, f.poster_key
+      this.db.query<{ thumb_key: string | null; poster_key: string | null; blur_data_url: string | null }>(
+        `select f.thumb_key, f.poster_key, f.blur_data_url
            from user_files f
           where f.user_id = $1 and f.album_id = $2
             and split_part(coalesce(f.content_type, ''), '/', 1) = any($3::text[])${part}
@@ -772,6 +788,9 @@ export class AlbumShareService {
         audio: Number(summary?.audio ?? 0),
       },
       thumbs: thumbs.filter((u): u is string => !!u),
+      blurs: firsts.filter((_, i) => !!thumbs[i]).map((f) => f.blur_data_url ?? null),
+      albumName: link.name,
+      sectionName: link.scope === 'section' ? (link.section_name ?? null) : (summary?.section_name ?? null),
     };
   }
 

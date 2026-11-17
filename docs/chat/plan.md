@@ -1,6 +1,6 @@
 # Chat: what it does today, and how it could do more
 
-Status: **all five phases approved (2026-11-17), nothing built.** Canvas mockups are boards 120–148 on the design canvas and await approval before the build.
+Status: **all five phases approved (2026-11-17), designs approved (boards 120–148).** Phase 1 is PR #244. Phase 2 is being built on `feat/chat-cards`, on top of Phase 1 and the pay card (PR #243); see *Phase 2 as built* at the end.
 
 > "elevate the features for the chat too, be able to do more"
 
@@ -186,3 +186,24 @@ Voice notes, the camera, and a wider photo-access explanation for the App Store.
 - **Reports:** A3 keeps earlier versions of an edited message, and a report copies them. Cards copy their `context`. D1 and E1 keep reported attachments until the report is closed.
 - **Pushes:** none for reactions, edits or pins. Plan a date reuses the calendar's invite notification. A card sent by a person pushes like a message, with its body as the preview.
 - **Real Postgres:** check new SQL on a throwaway PG18 or PGlite, not the specs' fake database.
+
+## Phase 2 as built
+
+On `feat/chat-cards`, which carries Phase 1 (`feat/chat-basics`, PR #244) and the pay card (`feat/pay-cards`, PR #243) merged in. Merge those two first; then this one's diff is only Phase 2.
+
+**Server**
+- Migration `112_chat_cards.sql`: six new message kinds, `album-photos`, `booking`, `job-post`, `post`, `package` and `date-plan`, and keeps 110's `pay-card`.
+- `POST /messages/:id/cards` sends any of them, and `POST /messages/:id/messages/:messageId/answer` answers a date. Both live in `api/src/messages/cards/`, a module of its own, because bookings and hiring already import messages.
+- A card stores only what the thing is. Reading the thread fills it in as it is now, as its sender may see it. A booking shows only from someone on it, a date only from its organiser, and a package only from its owner, without costs or profit. Anything gone shows as `null`, and the apps say so.
+- Each card's body is a plain line with the thing's link, so the chat list, pushes and older apps read well.
+- Sending refuses a frozen chat before anything is made: no client link and no calendar entry for a card that could never be sent.
+- **Album photos** makes, or reuses, the same client link to just those files that the album's own "share a selection" makes. You need Manage on the album, and up to 500 files go in one card. The card shows four small thumbnails and their blurred stand-ins.
+- **Package** shares the package's statement, which is what "Open statement" opens.
+- **Plan a date** puts it on the sender's Schedule and invites the others in the chat through the calendar's own invites and notification. Only people the sender is connected with are invited: that is the calendar's rule. An answer from the card is the calendar's own answer. Going puts the date on your Schedule and tells the organiser, and the card's new count reaches the chat as an edit frame that apps from Phase 1 on apply in place.
+
+**Decided while building**
+- The board's "From your phone" group (photos, a file, the camera) is left out of the + sheet until Phase 4.
+- Booking cards sit centred, like the job-accepted card: a booking is an agreement between two people, not one person's line. Only the two people on it see "Open booking".
+- Forward and Edit stay text-only. Forwarding someone's package or booking card would show it to a chat they didn't choose.
+- Reports copy a card's body, which holds the link, but not its context: `report_evidence` has no column for it.
+- Cards that show pictures (album photos and posts) follow the weak-signal rule 3: blurred stand-ins until tapped when pictures aren't loading automatically.

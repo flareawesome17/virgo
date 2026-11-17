@@ -94,7 +94,9 @@ export const queryClient = new QueryClient({
 // list's rows say pinned, archived and marked unread, and its first page how
 // many are archived. A saved list would draw no Pinned section and no
 // Archived row until its first refetch.
-const CACHE_VERSION = 'v13-chat-basics';
+// v14: chat messages can be cards (album photos, bookings, job posts, posts,
+// packages, dates), and an album link preview carries blurred stand-ins.
+const CACHE_VERSION = 'v14-chat-cards';
 
 /**
  * Queries never written to disk, whatever their staleTime says.
