@@ -24,6 +24,13 @@ interface DeleteConfirmDialogProps {
   /** What deleting it does, in a sentence or two. */
   description: string;
   confirmLabel?: string;
+  /**
+   * 'pay_details': the same two steps before a way clients pay is added,
+   * changed or removed. The emailed code is asked for that.
+   */
+  purpose?: 'delete' | 'pay_details';
+  /** 'action' for a save, which is not a loss: the primary button colour. */
+  tone?: 'destructive' | 'action';
   onConfirm: (proof: DeleteProof) => Promise<unknown>;
   /** After the delete went through; the dialog is closed by then. */
   onDone: () => void;
@@ -58,10 +65,12 @@ function DeleteConfirmContent({
   title,
   description,
   confirmLabel = 'Delete',
+  purpose = 'delete',
+  tone = 'destructive',
   onConfirm,
   onDone,
 }: DeleteConfirmDialogProps) {
-  const form = useDeleteProof();
+  const form = useDeleteProof(purpose);
   const [showPassword, setShowPassword] = useState(false);
 
   const value = form.step === 'password' ? form.password : form.code;
@@ -163,7 +172,7 @@ function DeleteConfirmContent({
       <AlertDialogFooter>
         <AlertDialogCancel disabled={form.busy}>Cancel</AlertDialogCancel>
         <AlertDialogAction
-          className="bg-destructive text-white hover:bg-destructive/90"
+          className={tone === 'action' ? undefined : 'bg-destructive text-white hover:bg-destructive/90'}
           disabled={!ready}
           onClick={(event) => {
             event.preventDefault();

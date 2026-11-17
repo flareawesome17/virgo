@@ -1,5 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { describeDevice } from '../auth/device-label';
+import { ReauthService, type DeleteProof } from '../auth/reauth.service';
+import { manilaTime } from '../auth/sessions.service';
 import { DatabaseService } from '../database/database.service';
+import { MailConfig } from '../mail/mail.config';
+import { MailService } from '../mail/mail.service';
+import { payDetailsChanged } from '../mail/mail.templates';
+import { NotifyService } from '../notifications/notify.service';
 import { ReceiptFilesService, type MoneyReceipt } from '../storage/receipt-files.service';
 
 export const PAY_METHOD_KINDS = ['gcash', 'maya', 'bank', 'other'] as const;
@@ -15,6 +22,12 @@ export interface MoneyPayMethod {
   accountNumber: string | null;
   /** A QR code — GCash's or Maya's "receive money", or a bank's QR Ph. */
   qr: MoneyReceipt | null;
+  /**
+   * When what a client pays to last changed: kind, bank, name, number or QR.
+   * Making a method the main one does not count. The statement shows it,
+   * and warns for a day after.
+   */
+  detailsChangedAt: string;
 }
 
 export interface MoneyPayMethodInput {
@@ -26,6 +39,12 @@ export interface MoneyPayMethodInput {
   qrReceiptId?: string | null;
 }
 
+/** Who is asking: the proof that it is the account holder, and the device, for the email. */
+export interface PayMethodChangeContext {
+  proof: DeleteProof;
+  userAgent?: string | null;
+}
+
 interface PayMethodRow {
   id: string;
   user_id: string;
@@ -33,10 +52,31 @@ interface PayMethodRow {
   label: string | null;
   account_name: string | null;
   account_number: string | null;
+  details_changed_at: Date;
 }
+
+const COLUMNS = 'id, user_id, kind, label, account_name, account_number, details_changed_at';
 
 /** As many as a statement has room for. */
 export const MAX_PAY_METHODS = 4;
+
+const KIND_NAMES: Record<PayMethodKind, string> = {
+  gcash: 'GCash',
+  maya: 'Maya',
+  bank: 'Bank',
+  other: 'Other',
+};
+
+/** What a method is called in an email: the bank's name, or the wallet's. */
+function nameOf(m: { kind: PayMethodKind; label: string | null }): string {
+  return (m.kind === 'bank' || m.kind === 'other') && m.label ? m.label : KIND_NAMES[m.kind];
+}
+
+/** The last four digits of a number, for an email that must not carry all of it. */
+function ending(accountNumber: string | null): string | null {
+  const digits = (accountNumber ?? '').replace(/\D/g, '');
+  return digits.length >= 4 ? digits.slice(-4) : null;
+}
 
 function text(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -45,14 +85,25 @@ function text(value: string | null | undefined): string | null {
 
 /**
  * How clients pay you: GCash, Maya, a bank account, each with its number and
- * QR code if you like. Virgo only shows them — on a statement you chose to
- * share — and never takes or holds a payment.
+ * QR code if you like. Virgo only shows them — on your own phone to scan, and
+ * on a statement you chose to share — and never takes or holds a payment.
+ *
+ * Adding, changing or removing one asks for the password, or with two-factor
+ * on the emailed code (ReauthService), and each such change is emailed and
+ * notified. These details decide where a client's money goes; someone in the
+ * account swapping in their own QR code is the harm this guards against.
  */
 @Injectable()
 export class MoneyPayMethodsService {
+  private readonly logger = new Logger(MoneyPayMethodsService.name);
+
   constructor(
     private readonly db: DatabaseService,
     private readonly receipts: ReceiptFilesService,
+    private readonly reauth: ReauthService,
+    private readonly mail: MailService,
+    private readonly mailConfig: MailConfig,
+    private readonly notifier: NotifyService,
   ) {}
 
   private async present(rows: PayMethodRow[]): Promise<MoneyPayMethod[]> {
@@ -64,12 +115,14 @@ export class MoneyPayMethodsService {
       accountName: r.account_name,
       accountNumber: r.account_number,
       qr: qrs.get(r.id) ?? null,
+      detailsChangedAt: new Date(r.details_changed_at).toISOString(),
     }));
   }
 
+  /** The main way to pay first, then the rest as they were added. */
   async list(userId: string): Promise<MoneyPayMethod[]> {
     const rows = await this.db.query<PayMethodRow>(
-      `select id, user_id, kind, label, account_name, account_number
+      `select ${COLUMNS}
          from money_pay_methods where user_id = $1
         order by position, created_at`,
       [userId],
@@ -84,7 +137,11 @@ export class MoneyPayMethodsService {
     }
   }
 
-  async create(userId: string, input: MoneyPayMethodInput): Promise<MoneyPayMethod> {
+  async create(
+    userId: string,
+    input: MoneyPayMethodInput,
+    context: PayMethodChangeContext,
+  ): Promise<MoneyPayMethod> {
     const count = await this.db.queryOne<{ n: number }>(
       'select count(*)::int as n from money_pay_methods where user_id = $1',
       [userId],
@@ -99,12 +156,13 @@ export class MoneyPayMethodsService {
     };
     const qrReceiptId = input.qrReceiptId ?? null;
     this.check(fields, !!qrReceiptId);
+    await this.reauth.confirm(userId, context.proof, 'pay_details');
 
     const row = await this.db.transaction(async (tx) => {
       const inserted = await tx.query<PayMethodRow>(
         `insert into money_pay_methods (user_id, kind, label, account_name, account_number, position)
          values ($1, $2, $3, $4, $5, $6)
-         returning id, user_id, kind, label, account_name, account_number`,
+         returning ${COLUMNS}`,
         [userId, input.kind, fields.label, fields.accountName, fields.accountNumber, count?.n ?? 0],
       );
       const method = inserted.rows[0];
@@ -114,14 +172,25 @@ export class MoneyPayMethodsService {
       }
       return method;
     });
+    void this.alert(userId, {
+      change: 'added',
+      method: nameOf(row),
+      numberEnding: ending(row.account_number),
+      qr: qrReceiptId ? 'added' : null,
+      userAgent: context.userAgent,
+    });
     const [method] = await this.present([row]);
     return method;
   }
 
-  async update(userId: string, id: string, patch: Partial<MoneyPayMethodInput>): Promise<MoneyPayMethod> {
+  async update(
+    userId: string,
+    id: string,
+    patch: Partial<MoneyPayMethodInput>,
+    context: PayMethodChangeContext,
+  ): Promise<MoneyPayMethod> {
     const current = await this.db.queryOne<PayMethodRow>(
-      `select id, user_id, kind, label, account_name, account_number
-         from money_pay_methods where id = $1 and user_id = $2`,
+      `select ${COLUMNS} from money_pay_methods where id = $1 and user_id = $2`,
       [id, userId],
     );
     if (!current) throw new NotFoundException('Payment method not found');
@@ -131,36 +200,160 @@ export class MoneyPayMethodsService {
       accountName: patch.accountName !== undefined ? text(patch.accountName) : current.account_name,
       accountNumber: patch.accountNumber !== undefined ? text(patch.accountNumber) : current.account_number,
     };
-    const hasQr =
-      patch.qrReceiptId !== undefined
-        ? !!patch.qrReceiptId
-        : (await this.receipts.forPayMethods([id])).has(id);
+    const currentQr = (await this.receipts.forPayMethods([id])).get(id) ?? null;
+    const hasQr = patch.qrReceiptId !== undefined ? !!patch.qrReceiptId : !!currentQr;
     this.check(fields, hasQr);
+    await this.reauth.confirm(userId, context.proof, 'pay_details');
     if (patch.qrReceiptId) await this.receipts.verify(userId, patch.qrReceiptId, { payMethodId: id });
+
+    const qr: 'added' | 'replaced' | 'removed' | null =
+      patch.qrReceiptId === undefined || patch.qrReceiptId === (currentQr?.id ?? null)
+        ? null
+        : !patch.qrReceiptId
+          ? 'removed'
+          : currentQr
+            ? 'replaced'
+            : 'added';
+    const changed =
+      qr !== null ||
+      fields.kind !== current.kind ||
+      fields.label !== current.label ||
+      fields.accountName !== current.account_name ||
+      fields.accountNumber !== current.account_number;
 
     const row = await this.db.transaction(async (tx) => {
       const updated = await tx.query<PayMethodRow>(
         `update money_pay_methods
-            set kind = $3, label = $4, account_name = $5, account_number = $6
+            set kind = $3, label = $4, account_name = $5, account_number = $6,
+                details_changed_at = case when $7::boolean then now() else details_changed_at end
           where id = $1 and user_id = $2
-          returning id, user_id, kind, label, account_name, account_number`,
-        [id, userId, fields.kind, fields.label, fields.accountName, fields.accountNumber],
+          returning ${COLUMNS}`,
+        [id, userId, fields.kind, fields.label, fields.accountName, fields.accountNumber, changed],
       );
       if (patch.qrReceiptId !== undefined) {
         await this.receipts.attach(tx, userId, { payMethodId: id }, patch.qrReceiptId);
       }
       return updated.rows[0];
     });
+    if (changed) {
+      void this.alert(userId, {
+        change: 'changed',
+        method: nameOf(row),
+        numberEnding:
+          fields.accountNumber !== current.account_number ? ending(row.account_number) : null,
+        qr,
+        userAgent: context.userAgent,
+      });
+    }
     const [method] = await this.present([row]);
     return method;
   }
 
   /** Its QR code is let go with it, and swept. */
-  async remove(userId: string, id: string): Promise<void> {
+  async remove(userId: string, id: string, context: PayMethodChangeContext): Promise<void> {
+    const current = await this.db.queryOne<PayMethodRow>(
+      `select ${COLUMNS} from money_pay_methods where id = $1 and user_id = $2`,
+      [id, userId],
+    );
+    if (!current) throw new NotFoundException('Payment method not found');
+    await this.reauth.confirm(userId, context.proof, 'pay_details');
     const rows = await this.db.query<{ id: string }>(
       'delete from money_pay_methods where id = $1 and user_id = $2 returning id',
       [id, userId],
     );
     if (rows.length === 0) throw new NotFoundException('Payment method not found');
+    void this.alert(userId, {
+      change: 'removed',
+      method: nameOf(current),
+      numberEnding: null,
+      qr: null,
+      userAgent: context.userAgent,
+    });
+  }
+
+  /**
+   * Makes one the main way to pay: first in the list, and first and largest
+   * on a statement. Asks for no password — every method here was already
+   * let in with one, and the order changes nothing a client pays to.
+   */
+  async makeMain(userId: string, id: string): Promise<MoneyPayMethod[]> {
+    const owned = await this.db.queryOne<{ id: string }>(
+      'select id from money_pay_methods where id = $1 and user_id = $2',
+      [id, userId],
+    );
+    if (!owned) throw new NotFoundException('Payment method not found');
+    await this.db.query(
+      `with ordered as (
+         select id, (row_number() over (order by (id = $2) desc, position, created_at) - 1)::smallint as pos
+           from money_pay_methods
+          where user_id = $1
+       )
+       update money_pay_methods m
+          set position = o.pos
+         from ordered o
+        where m.id = o.id and m.user_id = $1 and m.position is distinct from o.pos`,
+      [userId, id],
+    );
+    return this.list(userId);
+  }
+
+  /**
+   * Tells the account holder, by email and in Notifications, that a way to
+   * pay changed. Never throws, and nobody waits on it: the change is made.
+   */
+  async alert(
+    userId: string,
+    change: {
+      change: 'added' | 'changed' | 'removed';
+      method: string;
+      numberEnding: string | null;
+      qr: 'added' | 'replaced' | 'removed' | null;
+      userAgent?: string | null;
+    },
+  ): Promise<void> {
+    try {
+      const user = await this.db.queryOne<{ email: string }>('select email from users where id = $1', [
+        userId,
+      ]);
+      if (!user) return;
+      const label = change.userAgent ? describeDevice(change.userAgent, null) : null;
+      const device = label && label.device !== 'Unknown device' ? `${label.app} · ${label.device}` : null;
+      const devicesUrl = `${this.mailConfig.appUrl}/settings/devices`;
+
+      await this.mail.send(
+        user.email,
+        payDetailsChanged({
+          method: change.method,
+          change: change.change,
+          numberEnding: change.numberEnding,
+          qr: change.qr,
+          when: manilaTime(new Date()),
+          device,
+          devicesUrl,
+        }),
+      );
+
+      const what =
+        change.change === 'added'
+          ? `${change.method} was added to how clients pay you`
+          : change.change === 'removed'
+            ? `${change.method} was removed from how clients pay you`
+            : `Your ${change.method} pay details changed`;
+      const detail = change.numberEnding
+        ? `The number now ends in ${change.numberEnding}. `
+        : change.qr === 'replaced' || change.qr === 'added'
+          ? 'A new QR code is on it. '
+          : '';
+      await this.notifier.notify([userId], {
+        topic: 'money',
+        title: what,
+        body: `${detail}Not you? Change your password, then check Devices in Settings.`,
+        data: { type: 'money', payMethods: true },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Could not send a pay-details alert: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 }

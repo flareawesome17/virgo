@@ -143,7 +143,7 @@ export class TwoFactorService {
   async beginSecurityAction(
     userId: string,
     password: string,
-    purpose: 'disable' | 'recovery' | 'delete',
+    purpose: 'disable' | 'recovery' | 'delete' | 'pay_details',
   ) {
     const user = await this.requireUserAndPassword(userId, password);
     if (!user.two_factor_enabled_at) {
@@ -165,11 +165,17 @@ export class TwoFactorService {
   }
 
   /**
-   * Checks the emailed code for a delete, and spends it. Throws the same
-   * refusals as turning two-factor off does.
+   * Checks the emailed code for a delete, or for a change to how clients pay,
+   * and spends it. Throws the same refusals as turning two-factor off does.
+   * A code asked for one cannot be spent on the other.
    */
-  async confirmDelete(userId: string, challengeToken: string, code: string): Promise<void> {
-    await this.verifyEmailChallenge(challengeToken, code, 'delete', userId);
+  async confirmAction(
+    userId: string,
+    challengeToken: string,
+    code: string,
+    purpose: 'delete' | 'pay_details',
+  ): Promise<void> {
+    await this.verifyEmailChallenge(challengeToken, code, purpose, userId);
   }
 
   async regenerateRecoveryCodes(

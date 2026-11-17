@@ -272,6 +272,7 @@ export {
   useCreateMoneyPayMethod,
   useUpdateMoneyPayMethod,
   useDeleteMoneyPayMethod,
+  useMakeMainMoneyPayMethod,
   useMoneyInsights,
   useMoneyTax,
   useMark2307,

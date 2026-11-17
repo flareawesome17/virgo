@@ -15,6 +15,7 @@ import {
   NotebookPen,
   Paperclip,
   Plus,
+  QrCode,
   Repeat,
   Users,
   Wallet,
@@ -51,6 +52,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { MoneyEntryDialog } from '@/components/money/money-entry-dialog';
 import { PackageDialog } from '@/components/money/package-dialog';
+import { PayQrDialog } from '@/components/money/pay-qr-dialog';
 import { Progress } from '@/components/ui/progress';
 import { CategoryIcon } from '@/components/money/icons';
 import {
@@ -58,6 +60,7 @@ import {
   useMoneyEntries,
   useMoneyExport,
   useMoneyPackages,
+  useMoneyPayMethods,
   useMoneySuggestions,
   useMoneySummary,
   useUpdateMoneyEntry,
@@ -281,6 +284,8 @@ export default function MoneyPage() {
   const owing = useMoneyPackages('open');
   const router = useRouter();
   const [packageOpen, setPackageOpen] = useState(false);
+  const { payMethods } = useMoneyPayMethods();
+  const [qrOpen, setQrOpen] = useState(false);
   const owedPackages = kind === 'expense' ? [] : owing.packages;
   const dismiss = useDismissMoneySuggestion();
   const update = useUpdateMoneyEntry();
@@ -441,11 +446,22 @@ export default function MoneyPage() {
           </CardContent>
         </Card>
 
-        <div className="mt-3 flex justify-end">
+        {/* Show QR, for a client at the desk; the list of ways to pay beside it. */}
+        <div className="mt-3 flex items-center justify-end gap-3">
           <Button asChild variant="link" size="sm" className="h-auto px-0 text-xs text-muted-foreground">
             <Link href="/money/pay-methods">How clients pay you</Link>
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => (payMethods.length === 0 ? router.push('/money/pay-methods') : setQrOpen(true))}
+          >
+            <QrCode className="size-4" />
+            Show QR
+          </Button>
         </div>
+        <PayQrDialog open={qrOpen} onOpenChange={setQrOpen} payMethods={payMethods} />
 
         <div className="mt-3 flex gap-1.5" role="group" aria-label="Show">
           {(

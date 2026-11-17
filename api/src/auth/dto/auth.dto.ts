@@ -213,9 +213,10 @@ export class ResendTwoFactorCodeDto {
 
 export class BeginTwoFactorSecurityActionDto extends BeginTwoFactorSetupDto {
   // 'delete': deleting a workspace or an album, which asks for a code when
-  // two-factor is on (see ReauthService).
-  @IsIn(['disable', 'recovery', 'delete'])
-  action!: 'disable' | 'recovery' | 'delete';
+  // two-factor is on (see ReauthService). 'pay_details': adding, changing or
+  // removing a way clients pay, which asks the same.
+  @IsIn(['disable', 'recovery', 'delete', 'pay_details'])
+  action!: 'disable' | 'recovery' | 'delete' | 'pay_details';
 }
 
 export class TwoFactorSecurityActionDto extends ResendTwoFactorCodeDto {

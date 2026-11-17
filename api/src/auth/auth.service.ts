@@ -537,7 +537,7 @@ export class AuthService {
   beginTwoFactorSecurityAction(
     userId: string,
     password: string,
-    action: 'disable' | 'recovery' | 'delete',
+    action: 'disable' | 'recovery' | 'delete' | 'pay_details',
   ) {
     return this.twoFactor.beginSecurityAction(userId, password, action);
   }
