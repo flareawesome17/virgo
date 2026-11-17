@@ -8,12 +8,24 @@
 import { QueryClient } from '@tanstack/react-query'
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { wireLastAccount } from '@/src/lib/last-account'
 
 const isDesigner = process.env.EXPO_PUBLIC_RAPIDNATIVE_MODE === 'designer'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Query Client
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How long the saved screens last on the phone: a week.
+ *
+ * They are what the app shows with no connection, and a day was too short for
+ * that. A shoot in the mountains, or a phone left off over a long weekend, came
+ * back to an app with nothing in it. Everything is still asked of the server as
+ * soon as there is a connection; this only decides what can be shown before
+ * then.
+ */
+const CACHE_MAX_AGE = 1000 * 60 * 60 * 24 * 7
 
 export const queryClient = new QueryClient({
   defaultOptions: isDesigner
@@ -43,7 +55,7 @@ export const queryClient = new QueryClient({
           // 30s, not 5 minutes. Stale data is what a focus refetch is meant
           // to replace, and a 5-minute window swallowed most of them.
           staleTime: 1000 * 30,
-          gcTime: 1000 * 60 * 60 * 24, // 24 hours (must be >= persister maxAge)
+          gcTime: CACHE_MAX_AGE, // must be >= persister maxAge
           retry: 2,
           retryDelay: (attemptIndex) =>
             Math.min(1000 * 2 ** attemptIndex, 30000),
@@ -59,6 +71,10 @@ export const queryClient = new QueryClient({
         },
       },
 })
+
+// Before anything can sign in or check the session: the saved account follows
+// every change to it from the first one.
+wireLastAccount(queryClient)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AsyncStorage Persister
@@ -184,7 +200,9 @@ const CACHE_VERSION = 'v14-nearby-towns'
  */
 function isPerishable(queryKey: readonly unknown[]): boolean {
   const [root, second] = queryKey
-  // Auth, for security — a session should not be readable from storage.
+  // Auth, for security: the session is not kept in the cache. The one thing
+  // kept is who is signed in (lib/last-account), beside the tokens and gone
+  // with them, so a launch with no connection still opens.
   if (root === 'auth') return true
   // Prices and what the current plan is. Showing a stale price is not a
   // cosmetic problem: somebody who reads ₱25 can reasonably expect to pay ₱25.
@@ -212,8 +230,7 @@ function isPerishable(queryKey: readonly unknown[]): boolean {
 
 export const persistOptions = {
   persister: asyncStoragePersister,
-  // Maximum age of persisted data (24 hours)
-  maxAge: 1000 * 60 * 60 * 24,
+  maxAge: CACHE_MAX_AGE,
   buster: CACHE_VERSION,
   // Only persist successful queries
   dehydrateOptions: {
