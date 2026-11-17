@@ -1,4 +1,5 @@
-import { ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { Alert } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { DetailFallback } from '@/components/DetailFallback';
 import { InsetFrame } from '@/components/InsetFrame';
 import {
@@ -282,11 +283,8 @@ export default function CreateEventScreen() {
       <FormHeader title={editing ? 'Edit event' : 'New event'} />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           keyboardDismissMode="on-drag"
           className="flex-1"
           showsVerticalScrollIndicator={false}
@@ -404,7 +402,7 @@ export default function CreateEventScreen() {
           </FormField>
 
           {editing && <FormHint>Anyone who accepted sees these changes on their own calendar.</FormHint>}
-        </ScrollView>
+        </KeyboardScroll>
 
         {/* One button. There was a Cancel beside it, and an X above that
             already did the same thing. */}
@@ -414,7 +412,7 @@ export default function CreateEventScreen() {
           disabled={!canSave}
           busy={saving}
         />
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
 
       <ChoiceSheet
         visible={showWsPicker}

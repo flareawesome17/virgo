@@ -1,14 +1,12 @@
 import {
   View,
   Text,
-  ScrollView,
   Pressable,
   TextInput,
   Alert,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+  } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { goToTab } from '@/src/lib/navigation';
@@ -115,11 +113,8 @@ export default function NewChatScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           className="flex-1"
           contentContainerStyle={{ paddingBottom: 120 }}
           keyboardShouldPersistTaps="handled"
@@ -265,7 +260,7 @@ export default function NewChatScreen() {
               </View>
             )}
           </View>
-        </ScrollView>
+        </KeyboardScroll>
 
         {chattable.length > 0 && (
           <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 pb-8 bg-background">
@@ -289,7 +284,7 @@ export default function NewChatScreen() {
             </Pressable>
           </View>
         )}
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
     </SafeAreaView>
   );
 }

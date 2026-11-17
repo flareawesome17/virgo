@@ -1,14 +1,12 @@
 import {
   View,
   Text,
-  ScrollView,
   Pressable,
   Alert,
   ActivityIndicator,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+  } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState } from 'react';
@@ -128,7 +126,7 @@ export default function EditWorkspaceScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+      <KeyboardFrame>
         <View className="px-2 pt-1 flex-row items-center gap-1">
           <Pressable
             onPress={() => router.back()}
@@ -141,7 +139,7 @@ export default function EditWorkspaceScreen() {
           <Text className="text-foreground text-[17px] font-semibold">Workspace settings</Text>
         </View>
 
-        <ScrollView
+        <KeyboardScroll
           className="flex-1"
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 32, gap: 18 }}
@@ -270,8 +268,8 @@ export default function EditWorkspaceScreen() {
               <Text className="text-destructive text-sm font-bold">Delete…</Text>
             </Pressable>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardScroll>
+      </KeyboardFrame>
 
       <ChoiceSheet<string>
         visible={choosingCover}

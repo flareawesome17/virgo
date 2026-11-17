@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, Pressable, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, Pressable, Alert } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { InsetFrame } from '@/components/InsetFrame';
 import { RetentionPicker, retentionReady } from '@/components/RetentionPicker';
 import { useAuth, useCreateAlbum, useWorkspaces, usePlanLimits } from '@/src/hooks';
@@ -133,11 +134,8 @@ export default function CreateAlbumScreen() {
       <FormHeader title="New album" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           keyboardDismissMode="on-drag"
           className="flex-1"
           showsVerticalScrollIndicator={false}
@@ -191,7 +189,7 @@ export default function CreateAlbumScreen() {
           <FormSection title="Keep the files">
             <RetentionPicker value={retention} onChange={setRetention} />
           </FormSection>
-        </ScrollView>
+        </KeyboardScroll>
 
         {/* One button. There was a Cancel beside it, and an X above that
             already did the same thing. */}
@@ -201,7 +199,7 @@ export default function CreateAlbumScreen() {
           disabled={!canCreate}
           busy={createAlbum.isPending}
         />
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
 
       <ChoiceSheet
         visible={showWorkspacePicker}
