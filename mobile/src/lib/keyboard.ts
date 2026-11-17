@@ -2,11 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   Keyboard,
+  LayoutAnimation,
   Platform,
   TextInput,
+  type KeyboardEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type ScrollView,
+  type View,
 } from 'react-native';
 
 /**
@@ -43,6 +46,21 @@ function measurable(node: unknown): Measurable | null {
   return node && typeof (node as Measurable).measureInWindow === 'function' ? (node as Measurable) : null;
 }
 
+/** The field being typed in: the host input on iOS and Android, the DOM node on the web. */
+function focusedInput(): Measurable | null {
+  const state = TextInput.State as { currentlyFocusedInput?: () => unknown; currentlyFocusedField?: () => unknown };
+  return measurable(state?.currentlyFocusedInput?.()) ?? measurable(state?.currentlyFocusedField?.());
+}
+
+/** Moves the next layout with the keyboard, as KeyboardAvoidingView did on iOS. */
+function followKeyboard(event?: KeyboardEvent) {
+  if (Platform.OS !== 'ios' || !event?.duration) return;
+  LayoutAnimation.configureNext({
+    duration: event.duration,
+    update: { type: LayoutAnimation.Types.keyboard, duration: event.duration },
+  });
+}
+
 /**
  * Keeps the field being typed in above the keyboard, in a form that scrolls.
  *
@@ -50,59 +68,138 @@ function measurable(node: unknown): Measurable | null {
  * edge to edge from SDK 54, where it can leave the form at full height; and
  * even where it did shrink the form, nothing scrolled the focused field back
  * into what was left. The Note, last on the new-entry form, stayed under the
- * keyboard while it was typed in.
+ * keyboard while it was typed in, and so did the Notes on a new event.
  *
  * So this measures instead of assuming. When the keyboard comes up, or a field
  * takes focus while it is up, the field's place on screen is compared with the
- * keyboard's top edge and the form scrolls by exactly the overlap. While the
- * keyboard is up the form gets the keyboard's height as room at its end, so
- * even the last field can scroll clear of it, whether or not the system also
- * resized the window.
+ * keyboard's top edge (or the bottom of the scrolling part, when a footer sits
+ * above the keyboard) and the form scrolls by exactly the overlap.
  *
- * Spread `onScroll`/`scrollEventThrottle` and `ref` on the ScrollView, add
- * `room` to its bottom padding, and give every TextInput `onFocus`.
+ * Two ways to use it:
+ *  - Alone, as the Money forms do: spread `onScroll`/`scrollEventThrottle` and
+ *    `ref` on the ScrollView, add `room` to its bottom padding, and give every
+ *    TextInput `onFocus`. The form gets the keyboard's height as room at its
+ *    end, so even the last field can scroll clear of it.
+ *  - Through KeyboardFrame and KeyboardScroll (components/KeyboardForm), which
+ *    also lift a footer above the keyboard: `lifts` turns that on, and the
+ *    frame's own bottom is measured against the keyboard, so the lift is only
+ *    what the system did not already take away by resizing the window.
  */
-export function useKeyboardAwareScroll() {
+export function useKeyboardAwareScroll(options?: {
+  lifts?: boolean;
+  /** Whether this screen is the one in front. Screens behind it stay mounted. */
+  active?: () => boolean;
+}) {
+  const lifts = options?.lifts ?? false;
+  const activeRef = useRef(options?.active);
+  activeRef.current = options?.active;
   const scrollRef = useRef<ScrollView>(null);
+  /** The scrolling part's box on screen, so a footer above the keyboard counts. */
+  const viewportRef = useRef<View>(null);
+  /** Everything the keyboard should push up: the scroller and its footer. */
+  const frameRef = useRef<View>(null);
   const offset = useRef(0);
   const keyboardTop = useRef<number | null>(null);
   const lastFocused = useRef<Measurable | null>(null);
   const [room, setRoom] = useState(0);
+  const [lift, setLift] = useState(0);
+  const liftRef = useRef(0);
 
   const reveal = useCallback(() => {
     const top = keyboardTop.current;
-    const state = TextInput.State as { currentlyFocusedInput?: () => unknown; currentlyFocusedField?: () => unknown };
-    // The host input on iOS and Android; the DOM node in the web preview.
-    const input =
-      measurable(state?.currentlyFocusedInput?.()) ??
-      measurable(state?.currentlyFocusedField?.()) ??
-      lastFocused.current;
+    const input = focusedInput() ?? lastFocused.current;
     if (top === null || !input) return;
-    input.measureInWindow((_x, y, _width, height) => {
-      const overlap = y + height + REVEAL_GAP - top;
-      if (overlap > 0) scrollRef.current?.scrollTo({ y: offset.current + overlap, animated: true });
+    const scrollBy = (limit: number, viewportTop: number | null) => {
+      input.measureInWindow((_x, y, _width, height) => {
+        let overlap = y + height + REVEAL_GAP - limit;
+        // A tall note keeps its first lines in view rather than its last.
+        if (viewportTop !== null) overlap = Math.min(overlap, y - viewportTop - REVEAL_GAP);
+        if (overlap > 0) scrollRef.current?.scrollTo({ y: offset.current + overlap, animated: true });
+      });
+    };
+    const viewport = measurable(viewportRef.current);
+    if (!viewport) {
+      scrollBy(top, null);
+      return;
+    }
+    viewport.measureInWindow((_vx, viewportY, _vw, viewportHeight) => {
+      const limit = Math.min(top, viewportY + viewportHeight);
+      // Only a field in the scrolling content: one in the footer (a reply box)
+      // rises with the footer and has nothing to scroll to.
+      // In the runtime since RN 0.64, though the types leave it out.
+      const scroller = scrollRef.current as (ScrollView & { getInnerViewRef?: () => unknown }) | null;
+      const content = measurable(scroller?.getInnerViewRef?.());
+      if (!content) {
+        scrollBy(limit, viewportY);
+        return;
+      }
+      content.measureInWindow((_cx, contentY, _cw, contentHeight) => {
+        input.measureInWindow((_x, y) => {
+          if (y >= contentY && y < contentY + contentHeight) scrollBy(limit, viewportY);
+        });
+      });
+    });
+  }, []);
+
+  /** How far the frame reaches under the keyboard, which is how far to lift it. */
+  const measureLift = useCallback((event?: KeyboardEvent) => {
+    const frame = measurable(frameRef.current);
+    if (!frame) return;
+    const top = keyboardTop.current;
+    frame.measureInWindow((_x, y, _width, height) => {
+      // The frame's own box: the lift is padding inside it, so it stays put.
+      const next = top === null ? 0 : Math.max(0, Math.round(y + height - top));
+      if (next === liftRef.current) return;
+      liftRef.current = next;
+      followKeyboard(event);
+      setLift(next);
     });
   }, []);
 
   useEffect(() => {
     const ios = Platform.OS === 'ios';
+    let watch: ReturnType<typeof setInterval> | null = null;
+    const stopWatching = () => {
+      if (watch) clearInterval(watch);
+      watch = null;
+    };
     const shown = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', (event) => {
+      if (activeRef.current && !activeRef.current()) return;
       const { height, screenY } = event.endCoordinates;
       keyboardTop.current = screenY > 0 ? screenY : Dimensions.get('window').height - height;
-      setRoom(height);
+      if (lifts) measureLift(event);
+      else setRoom(height);
       // Once the room is laid out, so the scroll can reach it; on iOS, once
       // the keyboard has finished rising.
-      setTimeout(reveal, ios ? Math.max(event.duration ?? 0, 120) : 120);
+      setTimeout(reveal, ios ? Math.max(event.duration ?? 0, 120) + 20 : 140);
+      // Moving to another field leaves the keyboard up, so no event says so.
+      // Fields that call onFocus say it at once; for a screen's own TextInput,
+      // this notices within a beat, for as long as the keyboard is up.
+      if (lifts && !watch) {
+        let current = focusedInput();
+        watch = setInterval(() => {
+          const next = focusedInput();
+          if (next && next !== current) setTimeout(reveal, 0);
+          current = next;
+        }, 200);
+      }
     });
-    const hidden = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => {
+    const hidden = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', (event) => {
+      stopWatching();
       keyboardTop.current = null;
       setRoom(0);
+      if (lifts && liftRef.current !== 0) {
+        liftRef.current = 0;
+        followKeyboard(event);
+        setLift(0);
+      }
     });
     return () => {
+      stopWatching();
       shown.remove();
       hidden.remove();
     };
-  }, [reveal]);
+  }, [reveal, measureLift, lifts]);
 
   const onFocus = useCallback(
     (event?: { currentTarget?: unknown; target?: unknown }) => {
@@ -114,9 +211,33 @@ export function useKeyboardAwareScroll() {
     [reveal],
   );
 
+  /** A note growing a line as it is typed: keep its end in view. */
+  const onGrow = useCallback(() => {
+    if (keyboardTop.current !== null) setTimeout(reveal, 0);
+  }, [reveal]);
+
+  /**
+   * The frame moved or changed size: on Android the system may resize the
+   * window after the keyboard event, and then the lift it measured is too much.
+   */
+  const onFrameLayout = useCallback(() => {
+    if (keyboardTop.current !== null) measureLift();
+  }, [measureLift]);
+
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     offset.current = event.nativeEvent.contentOffset.y;
   }, []);
 
-  return { scrollRef, onScroll, scrollEventThrottle: 16, onFocus, room };
+  return {
+    scrollRef,
+    viewportRef,
+    frameRef,
+    onScroll,
+    scrollEventThrottle: 16,
+    onFocus,
+    onGrow,
+    onFrameLayout,
+    room,
+    lift,
+  };
 }

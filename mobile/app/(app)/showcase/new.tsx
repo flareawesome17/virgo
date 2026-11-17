@@ -2,13 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   BackHandler,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   View,
 } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { goToTab } from '@/src/lib/navigation';
@@ -543,10 +541,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         onClose={step === 2 ? () => setStep(1) : undefined}
       />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
+      <KeyboardFrame>
         {step === 1 ? (
           <>
             <WorkPicker
@@ -586,7 +581,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           </>
         ) : (
           <>
-            <ScrollView
+            <KeyboardScroll
               className="flex-1"
               keyboardDismissMode="on-drag"
               keyboardShouldPersistTaps="handled"
@@ -725,7 +720,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                   for people who want to book you.
                 </FormHint>
               </FormSection>
-            </ScrollView>
+            </KeyboardScroll>
 
             <FormFooter
               label={saves ? (busy ? 'Saving…' : 'Save') : busy ? 'Posting…' : 'Post'}
@@ -740,7 +735,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
             />
           </>
         )}
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
 
       <ArrangeSheet
         index={arranging}

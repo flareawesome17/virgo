@@ -1,12 +1,10 @@
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
@@ -70,11 +68,8 @@ export default function ChangeEmailScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           className="flex-1"
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -197,8 +192,8 @@ export default function ChangeEmailScreen() {
               ) : null}
             </View>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardScroll>
+      </KeyboardFrame>
     </SafeAreaView>
   );
 }

@@ -2,14 +2,12 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import {
@@ -73,16 +71,13 @@ export default function SupportScreen() {
         title={openId ? 'Request' : 'Support'}
         onBack={openId ? () => setOpenId(null) : undefined}
       />
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardFrame>
         {openId ? (
           <Thread id={openId} />
         ) : (
           <TicketList onOpen={setOpenId} />
         )}
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
     </SafeAreaView>
   );
 }
@@ -92,7 +87,7 @@ function TicketList({ onOpen }: { onOpen: (id: string) => void }) {
   const [composing, setComposing] = useState(false);
 
   return (
-    <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-16">
+    <KeyboardScroll keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-16">
       <Pressable
         onPress={() => setComposing((v) => !v)}
         className="mb-4 items-center rounded-xl py-3"
@@ -162,7 +157,7 @@ function TicketList({ onOpen }: { onOpen: (id: string) => void }) {
           ))}
         </View>
       )}
-    </ScrollView>
+    </KeyboardScroll>
   );
 }
 
@@ -244,7 +239,7 @@ function Thread({ id }: { id: string }) {
 
   return (
     <View className="flex-1">
-      <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-4" keyboardShouldPersistTaps="handled">
+      <KeyboardScroll keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-4" keyboardShouldPersistTaps="handled">
         {isLoading ? (
           <ActivityIndicator color="#B66A40" className="mt-10" />
         ) : loadFailed ? (
@@ -283,7 +278,7 @@ function Thread({ id }: { id: string }) {
             {ticket && <RateTicket ticket={ticket} />}
           </>
         )}
-      </ScrollView>
+      </KeyboardScroll>
 
       {!loadFailed && !isLoading && reply.isError && (
         // The text stays in the box, so trying again is one tap.

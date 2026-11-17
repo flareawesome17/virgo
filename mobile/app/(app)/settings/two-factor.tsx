@@ -1,12 +1,10 @@
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -177,11 +175,8 @@ export default function TwoFactorSettingsScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           className="flex-1"
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -291,8 +286,8 @@ export default function TwoFactorSettingsScreen() {
               </View>
             ) : null}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardScroll>
+      </KeyboardFrame>
     </SafeAreaView>
   );
 }

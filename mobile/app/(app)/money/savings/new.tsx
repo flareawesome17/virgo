@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Trash2Icon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -159,8 +160,8 @@ export default function SavingFormScreen() {
   return (
     <InsetFrame edges={['top']}>
       <FormHeader title={isEdit ? 'Edit saving' : 'New saving'} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -284,7 +285,7 @@ export default function SavingFormScreen() {
               </Text>
             </Pressable>
           )}
-        </ScrollView>
+        </KeyboardScroll>
 
         <FormFooter
           label={isEdit ? 'Save changes' : 'Create saving'}
@@ -292,7 +293,7 @@ export default function SavingFormScreen() {
           disabled={!canSave}
           busy={busy}
         />
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
     </InsetFrame>
   );
 }

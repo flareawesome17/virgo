@@ -1,7 +1,7 @@
 import {
-  View, Text, ScrollView, Alert, Share,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
-} from 'react-native';
+  View, Text, Alert, Share,
+  ActivityIndicator, } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { PALETTES } from '@/theme';
 import { InsetFrame } from '@/components/InsetFrame';
@@ -223,11 +223,8 @@ export default function NewJobScreen() {
     <InsetFrame edges={['top']}>
       <FormHeader title={isEdit ? 'Edit job' : 'Post a job'} />
 
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           keyboardDismissMode="on-drag"
           contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 24 }}
           keyboardShouldPersistTaps="handled"
@@ -377,7 +374,7 @@ export default function NewJobScreen() {
             Everyone on Virgo sees this on the job board. It is not visible outside the app, and it runs for 30 days
             or until the job date passes.
           </FormHint>
-        </ScrollView>
+        </KeyboardScroll>
 
         <FormFooter
           label={isEdit ? 'Save changes' : 'Post the job'}
@@ -386,7 +383,7 @@ export default function NewJobScreen() {
           busy={saving}
           note={ready ? undefined : `Still needs ${joinBlockers(blockers)}.`}
         />
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
     </InsetFrame>
   );
 }

@@ -2,15 +2,13 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useWindowInsets } from '@/src/lib/window-insets';
@@ -57,10 +55,7 @@ export default function BookingScreen() {
         // this screen, not a screen of its own.
         onBack={editing ? () => setEditing(false) : undefined}
       />
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardFrame>
         {isLoading ? (
           <ActivityIndicator color={palette.primary} className="mt-10" />
         ) : missing ? (
@@ -77,7 +72,7 @@ export default function BookingScreen() {
         ) : (
           <Details booking={booking} onEdit={() => setEditing(true)} />
         )}
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
     </SafeAreaView>
   );
 }
@@ -129,7 +124,7 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
   const canEdit = booking.yourSide === 'poster';
 
   return (
-    <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
+    <KeyboardScroll keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
       <View>
         <Text className="text-foreground text-[18px] font-bold">
           {booking.postTitle}
@@ -262,7 +257,7 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
         A record of what you agreed, not a legal contract. It is here so neither
         of you has to rely on memory or scroll back through a chat.
       </Text>
-    </ScrollView>
+    </KeyboardScroll>
   );
 }
 
@@ -365,7 +360,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
   };
 
   return (
-    <ScrollView keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
+    <KeyboardScroll keyboardDismissMode="on-drag" contentContainerClassName="p-5 pb-14 gap-4" keyboardShouldPersistTaps="handled">
       <View>
         <Text className="text-foreground text-[17px] font-bold">Edit the terms</Text>
         <Text className="text-muted-foreground mt-1 text-[12px] leading-5">
@@ -416,7 +411,7 @@ function EditForm({ booking, onDone }: { booking: Booking; onDone: () => void })
       >
         <Text className="text-muted-foreground text-[14px]">Cancel</Text>
       </Pressable>
-    </ScrollView>
+    </KeyboardScroll>
   );
 }
 

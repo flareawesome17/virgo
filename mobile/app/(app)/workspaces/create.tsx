@@ -1,4 +1,5 @@
-import { View, ScrollView, Pressable, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Pressable, Alert } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { InsetFrame } from '@/components/InsetFrame';
 import { useCreateWorkspace, usePlanLimits } from '@/src/hooks';
 import { router } from 'expo-router';
@@ -69,11 +70,8 @@ export default function CreateWorkspaceScreen() {
       <FormHeader title="New workspace" />
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           keyboardDismissMode="on-drag"
           className="flex-1"
           showsVerticalScrollIndicator={false}
@@ -134,7 +132,7 @@ export default function CreateWorkspaceScreen() {
               })}
             </View>
           </FormField>
-        </ScrollView>
+        </KeyboardScroll>
 
         <FormFooter
           label="Create workspace"
@@ -142,7 +140,7 @@ export default function CreateWorkspaceScreen() {
           disabled={!canSave}
           busy={createWorkspace.isPending}
         />
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
     </InsetFrame>
   );
 }

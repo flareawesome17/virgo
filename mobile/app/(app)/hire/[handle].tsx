@@ -1,7 +1,7 @@
 import {
   View, Text, ScrollView, Pressable, TextInput, Alert,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
-} from 'react-native';
+  ActivityIndicator, } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { RemoteImage } from '@/components/RemoteImage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -259,8 +259,8 @@ export default function HireScreen() {
   return (
     <InsetFrame edges={['top']}>
       <FormHeader title="Send an enquiry" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -341,7 +341,7 @@ export default function HireScreen() {
               <FormHint>A sentence or two at least — a blank enquiry rarely gets a reply.</FormHint>
             ) : null}
           </View>
-        </ScrollView>
+        </KeyboardScroll>
 
         <FormFooter
           label="Send enquiry"
@@ -350,7 +350,7 @@ export default function HireScreen() {
           busy={send.isPending}
           note="Accepting connects you both and opens a chat"
         />
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
     </InsetFrame>
   );
 }

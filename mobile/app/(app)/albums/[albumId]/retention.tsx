@@ -2,13 +2,11 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   View,
 } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -84,8 +82,8 @@ function RetentionEditor({ album }: { album: Album }) {
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <ScreenHeader title="Keep the files" subtitle={album.name} />
-      <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView
+      <KeyboardFrame>
+        <KeyboardScroll
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 32, gap: 16 }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -128,8 +126,8 @@ function RetentionEditor({ album }: { album: Album }) {
               )}
             </Pressable>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardScroll>
+      </KeyboardFrame>
     </SafeAreaView>
   );
 }
