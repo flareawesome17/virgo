@@ -7,9 +7,10 @@ import {
   ClockIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import type { ConversationMessage } from '@/src/api';
+import type { ConversationMessage, JobAcceptedContext } from '@/src/api';
 import type { OutboxItem } from '@/src/lib/outbox';
 import { JobAcceptedCard } from '@/components/JobAcceptedCard';
+import { PayChatCard } from '@/components/money/PayChatCard';
 
 for (const Icon of [AlertCircleIcon, CheckCheckIcon, CheckIcon, ClockIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -279,7 +280,7 @@ export const MessageBubble = memo(function MessageBubble({
    * they sent.
    */
   if (message.kind === 'job-accepted' && message.context) {
-    return <JobAcceptedCard context={message.context} />;
+    return <JobAcceptedCard context={message.context as JobAcceptedContext} />;
   }
 
   const time = timeLabel(message.created_at);
@@ -305,6 +306,11 @@ export const MessageBubble = memo(function MessageBubble({
         </Pressable>
       </View>
     );
+  }
+
+  // How to pay the sender: a card on their side, like their own line.
+  if (message.kind === 'pay-card') {
+    return <PayChatCard message={message} mine={mine} time={time} onLongPress={onLongPress} />;
   }
 
   const who = mine ? 'You' : (message.sender_name ?? 'Someone');
