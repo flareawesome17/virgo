@@ -10,7 +10,7 @@
  */
 
 export { api, request, setAuthFailureHandler } from './client';
-export { ApiError, chatRefusal, retryUnlessGone, type ChatRefusal } from './errors';
+export { ApiError, chatRefusal, isPinsFull, retryUnlessGone, type ChatRefusal } from './errors';
 export { API_BASE_URL } from './config';
 export {
   clearTokens,
@@ -350,6 +350,17 @@ export {
   budgetRangeLabel,
   albumCardCount,
   cardSummary,
+  MAX_PINNED_MESSAGES,
+  GROUP_ABOUT_MAX,
+  MIN_CREW,
+  groupSubtitle,
+  isNotice,
+  pinLine,
+  type GroupAddPolicy,
+  type GroupOrigin,
+  type GroupPatch,
+  type NoticeContext,
+  type ChatSearchMatch,
   type CardKind,
   type PlanType,
   type PlanAnswer,

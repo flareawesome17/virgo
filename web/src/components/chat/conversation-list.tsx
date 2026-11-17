@@ -12,7 +12,6 @@ import {
   Pin,
   Plus,
   Search,
-  Users,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -24,6 +23,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { PresenceDot } from '@/components/presence';
 import { ChatRowMenu } from '@/components/chat/chat-row-menu';
+import { GroupAvatar } from '@/components/chat/group-avatar';
+import { requestChatJump } from '@/components/chat/chat-jump';
 import { useConversations } from '@/hooks/useChat';
 import { useAuth } from '@/hooks/useAuth';
 import { typingLabel, useTypingIn } from '@/lib/presence-store';
@@ -63,6 +64,8 @@ function TypingOrPreview({ conversation }: { conversation: Conversation }) {
         looksUnread(conversation) ? 'font-medium text-foreground' : 'text-muted-foreground',
       )}
     >
+      {/* A team chat says so, as the board's list does: "Team chat · Jo: …". */}
+      {conversation.origin === 'workspace' && 'Team chat · '}
       {conversation.lastMessage
         ? conversation.isGroup && conversation.lastSender
           ? `${conversation.lastSender}: ${conversation.lastMessage}`
@@ -105,10 +108,13 @@ function ConversationRow({
   active,
   showPin,
   pinnedCount,
+  searchTerm,
   onDeleted,
 }: {
   conversation: Conversation;
   active: boolean;
+  /** The list's search, when the row is one of its results. */
+  searchTerm?: string;
   /** A pin on the row itself, where there is no Pinned heading to say so. */
   showPin: boolean;
   pinnedCount?: number;
@@ -129,15 +135,32 @@ function ConversationRow({
     >
       <Link
         href={`/chat/${conversation.id}`}
+        // A hit inside the thread opens the chat at it, searching for the
+        // same words (board 140): "Searching the list finds this chat too,
+        // and opens it here".
+        onClick={() => {
+          if (searchTerm && conversation.matchId) {
+            requestChatJump({
+              conversationId: conversation.id,
+              kind: 'search',
+              q: searchTerm,
+              matchId: conversation.matchId,
+            });
+          }
+        }}
         className={cn(
           'flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors',
           active ? 'bg-accent' : 'hover:bg-accent/60',
         )}
       >
         {conversation.isGroup ? (
-          <div className="grid size-10 shrink-0 place-items-center rounded-full bg-info/15">
-            <Users className="size-4 text-info" />
-          </div>
+          <GroupAvatar
+            title={conversation.title}
+            photoUrl={conversation.avatarUrl}
+            team={conversation.origin === 'workspace'}
+            className="size-10"
+            initialClassName="text-sm"
+          />
         ) : (
           // `relative` so the presence dot can anchor to the avatar.
           <div className="relative shrink-0">
@@ -268,6 +291,7 @@ export function ConversationList({
       active={conversation.id === activeId}
       showPin={!sectioned}
       pinnedCount={whole ? pinned.length : undefined}
+      searchTerm={searching ? term : undefined}
       onDeleted={() => {
         if (conversation.id === activeId) router.push('/chat');
       }}

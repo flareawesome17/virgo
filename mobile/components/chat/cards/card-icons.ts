@@ -26,7 +26,7 @@ type MessageKind = NonNullable<ConversationMessage['kind']>;
  * and on the held copy. Registered with cssInterop here, so a className
  * colour reaches them wherever this map is read.
  */
-export const CARD_ICON: Record<Exclude<MessageKind, 'text'>, LucideIcon> = {
+export const CARD_ICON: Record<Exclude<MessageKind, 'text' | 'notice'>, LucideIcon> = {
   'job-accepted': BriefcaseIcon,
   'pay-card': WalletIcon,
   'album-photos': ImagesIcon,

@@ -96,7 +96,10 @@ export const queryClient = new QueryClient({
 // Archived row until its first refetch.
 // v14: chat messages can be cards (album photos, bookings, job posts, posts,
 // packages, dates), and an album link preview carries blurred stand-ins.
-const CACHE_VERSION = 'v14-chat-cards';
+// v15: crew chats. Chats carry About, admins, who can add people and what made
+// them (a workspace or a job), messages can be notices and carry when they
+// were pinned, and people carry admin, joined and roles.
+const CACHE_VERSION = 'v15-chat-crew';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

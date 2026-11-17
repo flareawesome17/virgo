@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { type DeleteProof, ReauthService } from '../auth/reauth.service';
 import { type ListOptions } from '../common/owned.repository';
 import { OwnedResourceService } from '../common/owned-resource.service';
+import { ChatCrewService } from '../messages/crew/chat-crew.service';
 import { NotifyService } from '../notifications/notify.service';
 import { QuotaService } from '../quota/quota.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -27,6 +28,9 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
     private readonly notifier: NotifyService,
     private readonly realtime: RealtimeGateway,
     private readonly reauth: ReauthService,
+    // Optional so a module without chat still builds; the team chat then
+    // keeps the name it had.
+    @Optional() private readonly crews?: ChatCrewService,
   ) {
     super(workspaces, 'Workspace');
   }
@@ -80,7 +84,10 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
         throw new BadRequestException('Choose an album from this workspace for its cover');
       }
     }
-    return super.update(userId, id, changes);
+    const row = await super.update(userId, id, changes);
+    // Its team chat goes by the workspace's name.
+    if (typeof changes.name === 'string') await this.crews?.workspaceRenamed(id, row.name);
+    return row;
   }
 
   /**
@@ -181,6 +188,7 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
     if (!left) throw new NotFoundException('You are not a member of that workspace');
 
     await this.feed.record(id, userId, 'left');
+    await this.crews?.workspaceLeft(id, userId);
     try {
       await this.notifier.notify([left.owner_id], {
         topic: 'collaborator-response',

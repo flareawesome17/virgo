@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
+import { ChatCrewService } from '../messages/crew/chat-crew.service';
 import { MoneyPayMethodsService, type PayCardMethod } from '../money/money-pay-methods.service';
 import { NotifyService } from '../notifications/notify.service';
 import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
@@ -111,6 +112,9 @@ export class BookingsService {
     private readonly notifier: NotifyService,
     // Optional so a module without Money still builds; payTo is then absent.
     @Optional() private readonly payMethods?: MoneyPayMethodsService,
+    // Optional for the same reason: without it the crew chat keeps somebody
+    // whose booking fell through.
+    @Optional() private readonly crews?: ChatCrewService,
   ) {}
 
   /**
@@ -455,6 +459,8 @@ export class BookingsService {
       body: `The booking for “${row.post_title}” was cancelled.`,
       data: { type: 'booking', bookingId: id },
     });
+    // Not on the job any more, so not in its crew chat.
+    await this.crews?.unbooked(row.post_id, row.creative_id);
 
     return this.byId(userId, id);
   }

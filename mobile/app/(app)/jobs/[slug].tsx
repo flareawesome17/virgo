@@ -7,12 +7,14 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
 import { useApplyToJob, useJob, useReportJob, useWithdrawApplication } from '@/src/hooks';
+import { useStartCrewChat } from '@/src/hooks/useChatCrew';
 import { goToTab } from '@/src/lib/navigation';
 import {
   ApiError,
   applicationFor,
   budgetLabel,
   isRoleFilled,
+  MIN_CREW,
   openRolesOf,
   roleBudgetLabel,
   rolesLeftFor,
@@ -21,7 +23,7 @@ import {
 import { APPLICATION_LABEL, jobDate, postedAgo } from '@/src/lib/jobs-format';
 import {
   ArrowLeftIcon, BriefcaseIcon, CheckIcon, MapPinIcon,
-  SendIcon, EllipsisIcon, Share2Icon,
+  SendIcon, EllipsisIcon, Share2Icon, UsersIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { DetailFallback } from '@/components/DetailFallback';
@@ -29,10 +31,11 @@ import { PLACEHOLDER_IMAGE } from '@/src/lib/placeholder';
 import { ActionSheet } from '@/components/WorkspaceBits';
 import { ReportSheet } from '@/components/ReportSheet';
 import { firstName, safetyError, usePersonSafety } from '@/components/PersonSafetySheet';
+import { groupError } from '@/components/chat/chat-words';
 
 for (const Icon of [
   ArrowLeftIcon, BriefcaseIcon, CheckIcon, MapPinIcon,
-  SendIcon, EllipsisIcon, Share2Icon,
+  SendIcon, EllipsisIcon, Share2Icon, UsersIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -63,6 +66,16 @@ const POST_REPORT_REASONS: { value: ReportReason; label: string }[] = [
   { value: 'other', label: 'Something else' },
 ];
 
+const COUNT_WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+
+/**
+ * "Talk to both at once", "Talk to all three at once": small numbers as
+ * words, as a person says them.
+ */
+function allOf(n: number): string {
+  return n === 2 ? 'both' : `all ${COUNT_WORDS[n] ?? String(n)}`;
+}
+
 /** The person wording, except that a missing post is not a missing person. */
 function postReportFailure(err: unknown): string {
   if (err instanceof ApiError && err.status === 404) {
@@ -79,6 +92,7 @@ export default function JobDetailScreen() {
   const apply = useApplyToJob();
   const withdraw = useWithdrawApplication();
   const report = useReportJob();
+  const startCrew = useStartCrewChat();
   const [role, setRole] = useState<string | null>(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -181,6 +195,23 @@ export default function JobDetailScreen() {
   };
 
   const posterFirst = firstName(post.postedBy.displayName);
+
+  /*
+   * Everyone hired, and you, in one group. Offered to the poster once two or
+   * more are hired; once it exists, the poster and the crew open it from here.
+   */
+  const hired = post.hiredCount ?? 0;
+  const offerCrew = post.isMine && hired >= MIN_CREW && !post.crewChatId;
+  const openCrewChat = () => {
+    if (post.crewChatId) {
+      router.push(`/chat/${post.crewChatId}`);
+      return;
+    }
+    startCrew.mutate(post.id, {
+      onSuccess: ({ id }) => router.push(`/chat/${id}`),
+      onError: (err) => Alert.alert("Couldn't start the crew chat", groupError(err)),
+    });
+  };
 
   const when = post.eventDate ? jobDay(post.eventDate) : null;
   const canApply = !post.isMine && isOpen && left.length > 0;
@@ -356,6 +387,44 @@ export default function JobDetailScreen() {
               {post.description}
             </Text>
           </View>
+
+          {offerCrew ? (
+            <View className="rounded-[20px] bg-primary/10 p-4 gap-3">
+              <View className="flex-row items-start gap-3">
+                <View className="w-10 h-10 rounded-xl bg-card items-center justify-center">
+                  <UsersIcon size={20} className="text-primary" />
+                </View>
+                <View className="flex-1 min-w-0">
+                  <Text className="text-foreground text-[15px] leading-5 font-bold">
+                    Talk to {allOf(hired)} at once
+                  </Text>
+                  <Text className="text-secondary-foreground text-[13px] leading-[18px] mt-0.5">
+                    A group with you and everyone you hired. The job card goes first, and anyone you hire
+                    later joins it.
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={openCrewChat}
+                disabled={startCrew.isPending}
+                accessibilityRole="button"
+                accessibilityState={{ busy: startCrew.isPending }}
+                className="h-11 rounded-[14px] bg-action flex-row items-center justify-center gap-2 active:opacity-80"
+              >
+                {startCrew.isPending ? <ActivityIndicator size="small" color="#fff" /> : null}
+                <Text className="text-action-foreground text-[15px] font-semibold">Start crew chat</Text>
+              </Pressable>
+            </View>
+          ) : post.crewChatId ? (
+            <Pressable
+              onPress={openCrewChat}
+              accessibilityRole="button"
+              className="rounded-[14px] min-h-[48px] flex-row items-center justify-center gap-2 bg-card border border-border active:opacity-80"
+            >
+              <UsersIcon size={17} className="text-foreground" />
+              <Text className="text-foreground text-[15px] font-semibold">Open crew chat</Text>
+            </Pressable>
+          ) : null}
 
           {/* Your own post never offers the form. The API refuses a
               self-application, so showing it would only let somebody write one

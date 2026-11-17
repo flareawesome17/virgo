@@ -9,27 +9,29 @@ import {
 } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
 import { BottomSheet } from '@/components/BottomSheet';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { goToTab } from '@/src/lib/navigation';
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftIcon,
-  UsersIcon,
   BellIcon,
   BellOffIcon,
   PencilIcon,
   UserPlusIcon,
   LogOutIcon,
   Trash2Icon,
-  CheckIcon,
   MailIcon,
   FlagIcon,
   BanIcon,
-  EllipsisIcon,
   SearchIcon,
   UserIcon,
+  CameraIcon,
+  PinIcon,
+  PlusIcon,
+  ChevronRightIcon,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -39,39 +41,69 @@ import {
   useDeleteConversation,
   useLeaveConversation,
   useMuteConversation,
+  useOpenDirectChat,
   useParticipants,
-  useRenameConversation,
   useTheme,
 } from '@/src/hooks';
-import type { Participant } from '@/src/api';
+import {
+  GROUP_ABOUT_MAX,
+  groupSubtitle,
+  type GroupAddPolicy,
+  type Participant,
+} from '@/src/api';
 import { useAllConnections } from '@/src/hooks/useFriends';
 import { reportableMessageIds } from '@/src/hooks/useChat';
+import { usePins, useRemoveMember, useSetAdmin, useUpdateGroup } from '@/src/hooks/useChatCrew';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PersonSafetySheet, firstName, usePersonSafety } from '@/components/PersonSafetySheet';
+import { ActionSheet, ChoiceSheet } from '@/components/WorkspaceBits';
 import { PALETTES } from '@/theme';
-import { MUTE_OPTIONS, mutedUntilLabel } from '@/components/chat/chat-words';
+import { ChatAvatar, isTeamChat } from '@/components/chat/ChatAvatar';
+import { useChatToast } from '@/components/chat/ChatToast';
+import { GroupMemberSheet, memberRoles, type MemberAction } from '@/components/chat/GroupMemberSheet';
+import { useGroupPhotoEditor } from '@/components/chat/GroupPhoto';
+import { requestInThread } from '@/components/chat/thread-requests';
+import {
+  MUTE_OPTIONS,
+  chatError,
+  firstNameOf,
+  groupError,
+  mutedUntilLabel,
+} from '@/components/chat/chat-words';
 
 for (const Icon of [
-  ArrowLeftIcon, UsersIcon, BellIcon, BellOffIcon, PencilIcon, UserPlusIcon,
-  LogOutIcon, Trash2Icon, CheckIcon, MailIcon, FlagIcon, BanIcon,
-  EllipsisIcon, SearchIcon, UserIcon,
+  ArrowLeftIcon, BellIcon, BellOffIcon, PencilIcon, UserPlusIcon,
+  LogOutIcon, Trash2Icon, MailIcon, FlagIcon, BanIcon,
+  SearchIcon, UserIcon, CameraIcon, PinIcon, PlusIcon, ChevronRightIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
+
+/** A card, as the boards draw them. */
+const CARD = 'bg-card rounded-[20px] border border-border/40 overflow-hidden';
+
+const ADD_POLICY_OPTIONS: { value: GroupAddPolicy; label: string; description: string }[] = [
+  { value: 'everyone', label: 'Everyone', description: 'Anyone here can add people they are connected with' },
+  { value: 'admins', label: 'Admins', description: 'Only admins add people' },
+];
 
 /**
  * Conversation info.
  *
  * The counterpart to the thread: who is in it, what it is called, whether it
  * interrupts you, and how to get out of it. Everything here writes to the
- * server — mute and delete are per-person, rename and add-member are shared.
+ * server — mute and delete are per-person; a group's name, About, photo and
+ * people are shared, and only its admins change them.
  */
 export default function ConversationInfoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const toast = useChatToast(insets.bottom + 16);
+  const notify = toast.show;
 
   const {
     participants,
@@ -81,10 +113,15 @@ export default function ConversationInfoScreen() {
   } = useParticipants(id);
   const { conversation } = useConversation(id);
   const mute = useMuteConversation(id);
-  const rename = useRenameConversation(id);
   const addMember = useAddConversationMember(id);
   const leave = useLeaveConversation();
   const remove = useDeleteConversation();
+  const updateGroup = useUpdateGroup(id ?? '');
+  const removeMember = useRemoveMember(id ?? '');
+  const setAdmin = useSetAdmin(id ?? '');
+  const openDirect = useOpenDirectChat();
+  const photo = useGroupPhotoEditor(id ?? '', notify);
+  const { pins } = usePins(id);
 
   const [addOpen, setAddOpen] = useState(false);
   // Only once the sheet is open: the whole list is a page per hundred people.
@@ -95,8 +132,14 @@ export default function ConversationInfoScreen() {
 
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [aboutEditing, setAboutEditing] = useState(false);
+  const [aboutDraft, setAboutDraft] = useState('');
   const [muteOpen, setMuteOpen] = useState(false);
-  /** The group member whose More menu is open. */
+  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
+  /** The group member whose menu is open. */
+  const [memberFor, setMemberFor] = useState<Participant | null>(null);
+  /** The group member being reported or blocked, from their menu. */
   const [safetyFor, setSafetyFor] = useState<Participant | null>(null);
 
   // The server's word first: a group with two members left is still a group.
@@ -107,6 +150,18 @@ export default function ConversationInfoScreen() {
   );
   const title = conversation?.title ?? (isGroup ? 'Group' : (others[0]?.name ?? 'Conversation'));
   const muted = !!conversation?.muted;
+  const isAdmin = !!conversation?.isAdmin;
+  const team = isTeamChat(conversation);
+  // A team chat takes its workspace's name; the server refuses it on its own.
+  const canRename = isGroup && isAdmin && !team;
+  const canAdd = isGroup && ((conversation?.addPolicy ?? 'everyone') === 'everyone' || isAdmin);
+  const about = conversation?.about?.trim() || null;
+  const subtitle = conversation ? groupSubtitle(conversation) : null;
+  /** Admins first, as the server sends them; kept in that order whatever arrives. */
+  const people = useMemo(
+    () => participants.slice().sort((a, b) => Number(!!b.is_admin) - Number(!!a.is_admin)),
+    [participants],
+  );
 
   // By account id: participants carry it, and a handle is often unpublished.
   // Blocking needs no navigation afterwards — the thread stays, frozen, and
@@ -140,19 +195,71 @@ export default function ConversationInfoScreen() {
   const submitRename = () => {
     const next = titleDraft.trim();
     if (!next) return;
-    rename.mutate(next, {
-      onSuccess: () => setRenaming(false),
-      onError: (err: any) =>
-        Alert.alert('Could not rename', err?.message || 'Please try again.'),
-    });
+    updateGroup.mutate(
+      { title: next },
+      {
+        onSuccess: () => setRenaming(false),
+        onError: (err) => notify(groupError(err)),
+      },
+    );
+  };
+
+  const submitAbout = () => {
+    updateGroup.mutate(
+      { about: aboutDraft.trim() || null },
+      {
+        onSuccess: () => setAboutEditing(false),
+        onError: (err) => notify(groupError(err)),
+      },
+    );
   };
 
   const applyMute = (minutes: number) => {
     setMuteOpen(false);
     mute.mutate(minutes, {
-      onError: (err: any) =>
-        Alert.alert('Could not change notifications', err?.message || 'Please try again.'),
+      onError: (err) => Alert.alert('Could not change notifications', chatError(err)),
     });
+  };
+
+  /** Back to the chat, opening on search or the Pinned sheet. */
+  const openInThread = (kind: 'search' | 'pins') => {
+    if (!id) return;
+    requestInThread(id, kind === 'pins' ? { kind: 'pins' } : { kind: 'search' });
+    if (router.canGoBack()) router.back();
+    else router.replace(`/chat/${id}`);
+  };
+
+  const onMemberAction = (action: MemberAction, p: Participant) => {
+    const first = firstNameOf(p.name);
+    switch (action) {
+      case 'message':
+        openDirect.mutate(p.id, {
+          onSuccess: ({ id: chatId }) => router.push(`/chat/${chatId}`),
+          onError: (err) => notify(chatError(err)),
+        });
+        return;
+      case 'profile':
+        if (p.handle) router.push(`/u/${p.handle}`);
+        return;
+      case 'admin':
+        setAdmin.mutate(
+          { userId: p.id, admin: !p.is_admin },
+          {
+            onSuccess: () => notify(p.is_admin ? `${first} is no longer an admin` : `${first} is an admin now`),
+            onError: (err) => notify(groupError(err)),
+          },
+        );
+        return;
+      case 'remove':
+        removeMember.mutate(p.id, {
+          onSuccess: () => notify(`${first} was removed from the group`),
+          onError: (err) => notify(groupError(err)),
+        });
+        return;
+      case 'report':
+        setSafetyFor(p);
+        return;
+    }
   };
 
   const confirmLeave = () => {
@@ -172,8 +279,7 @@ export default function ConversationInfoScreen() {
               // Back twice: past the thread as well, which no longer exists
               // for this account.
               onSuccess: () => router.dismissTo('/(app)/(tabs)/connect?view=messages'),
-              onError: (err: any) =>
-                Alert.alert('Could not leave', err?.message || 'Please try again.'),
+              onError: (err) => Alert.alert('Could not leave', groupError(err)),
             }),
         },
       ],
@@ -194,8 +300,7 @@ export default function ConversationInfoScreen() {
           onPress: () =>
             remove.mutate(id, {
               onSuccess: () => router.dismissTo('/(app)/(tabs)/connect?view=messages'),
-              onError: (err: any) =>
-                Alert.alert('Could not delete', err?.message || 'Please try again.'),
+              onError: (err) => Alert.alert('Could not delete', chatError(err)),
             }),
         },
       ],
@@ -210,6 +315,61 @@ export default function ConversationInfoScreen() {
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   } as const;
+
+  const renameForm = (
+    <View className="w-full mt-4">
+      <TextInput
+        value={titleDraft}
+        onChangeText={setTitleDraft}
+        placeholder="Group name"
+        placeholderTextColor={palette.mutedForeground}
+        accessibilityLabel="Group name"
+        autoFocus
+        className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base text-center"
+        style={cardShadow}
+      />
+      <View className="flex-row gap-3 mt-3">
+        <Pressable
+          onPress={() => setRenaming(false)}
+          accessibilityRole="button"
+          className="flex-1 bg-muted rounded-2xl py-3 items-center active:scale-[0.97]"
+        >
+          <Text className="text-foreground text-sm font-semibold">Cancel</Text>
+        </Pressable>
+        <Pressable
+          onPress={submitRename}
+          disabled={updateGroup.isPending || !titleDraft.trim()}
+          accessibilityRole="button"
+          className="flex-[2] bg-action rounded-2xl py-3 items-center flex-row justify-center gap-2 active:scale-[0.97]"
+        >
+          {updateGroup.isPending && <ActivityIndicator size="small" color="#FFFFFF" />}
+          <Text className="text-action-foreground text-sm font-bold">Save name</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  /** One of the three tiles under About. */
+  const tile = (
+    label: string,
+    Icon: LucideIcon,
+    onPress: () => void,
+    a11y?: string,
+    busy = false,
+  ) => (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel={a11y ?? label}
+      className="flex-1 h-[68px] rounded-2xl bg-card border border-border/40 items-center justify-center gap-1 active:bg-muted/40"
+    >
+      {busy ? <ActivityIndicator size="small" /> : <Icon size={20} className="text-foreground" />}
+      <Text className="text-foreground text-[13px] font-semibold" numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
@@ -232,359 +392,513 @@ export default function ConversationInfoScreen() {
           </Text>
         </View>
 
-        {/* Identity */}
-        <View className="items-center px-5 mt-4">
-          {isGroup ? (
-            <View
-              className="w-20 h-20 rounded-full items-center justify-center"
-              style={{ backgroundColor: '#5B7B9A18' }}
-            >
-              <UsersIcon size={32} color="#5B7B9A" />
-            </View>
-          ) : others[0]?.avatar_url ? (
-            <RemoteImage
-              source={{ uri: others[0].avatar_url }}
-              style={{ width: 80, height: 80, borderRadius: 40 }}
-            />
-          ) : (
-            <View
-              className="w-20 h-20 rounded-full items-center justify-center"
-              style={{ backgroundColor: '#B66A4018' }}
-            >
-              <Text style={{ color: '#B66A40', fontWeight: '700', fontSize: 30 }}>
-                {title.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
-
-          {renaming ? (
-            <View className="w-full mt-4">
-              <TextInput
-                value={titleDraft}
-                onChangeText={setTitleDraft}
-                placeholder="Group name"
-                placeholderTextColor="#A89489"
-                autoFocus
-                className="bg-card rounded-2xl px-4 py-3.5 text-foreground text-base text-center"
-                style={cardShadow}
-              />
-              <View className="flex-row gap-3 mt-3">
-                <Pressable
-                  onPress={() => setRenaming(false)}
-                  className="flex-1 bg-muted rounded-2xl py-3 items-center active:scale-[0.97]"
-                >
-                  <Text className="text-foreground text-sm font-semibold">Cancel</Text>
-                </Pressable>
-                <Pressable
-                  onPress={submitRename}
-                  disabled={rename.isPending || !titleDraft.trim()}
-                  className="flex-[2] bg-action rounded-2xl py-3 items-center flex-row justify-center gap-2 active:scale-[0.97]"
-                >
-                  {rename.isPending && <ActivityIndicator size="small" color="#FFFFFF" />}
-                  <Text className="text-white text-sm font-bold">Save name</Text>
-                </Pressable>
+        {isGroup ? (
+          <>
+            {/* The photo (admins change it), the name (admins rename it,
+                except a team chat's), and what made the group. */}
+            <View className="items-center px-5 mt-3">
+              <View style={{ width: 88, height: 88 }}>
+                <ChatAvatar name={title} url={conversation?.avatarUrl} size={88} group square={team} />
+                {photo.busy ? (
+                  <View
+                    className="absolute inset-0 items-center justify-center bg-background/60"
+                    style={{ borderRadius: team ? 25 : 44 }}
+                  >
+                    <ActivityIndicator size="small" />
+                  </View>
+                ) : null}
+                {isAdmin ? (
+                  <Pressable
+                    onPress={() => setPhotoMenuOpen(true)}
+                    disabled={photo.busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Change the group photo"
+                    className="absolute -right-1 -bottom-1 w-9 h-9 rounded-full bg-card border border-border/40 items-center justify-center active:opacity-70"
+                  >
+                    <CameraIcon size={17} className="text-foreground" />
+                  </Pressable>
+                ) : null}
               </View>
-            </View>
-          ) : (
-            <>
-              <Text className="text-foreground text-xl font-bold mt-3 text-center">
-                {title}
-              </Text>
-              <Text className="text-muted-foreground text-sm mt-1">
-                {isGroup
-                  ? `${participants.length} member${participants.length === 1 ? '' : 's'}`
-                  : (others[0]?.name ?? '')}
-              </Text>
-              {isGroup && (
+
+              {renaming ? (
+                renameForm
+              ) : (
                 <Pressable
                   onPress={() => {
                     setTitleDraft(conversation?.title ?? '');
                     setRenaming(true);
                   }}
-                  accessibilityRole="button"
-                  className="mt-3 min-h-[44px] flex-row items-center gap-1.5 bg-primary/10 rounded-xl px-4 active:scale-[0.96]"
+                  disabled={!canRename}
+                  accessibilityRole={canRename ? 'button' : 'header'}
+                  accessibilityLabel={canRename ? `${title}. Rename the group` : title}
+                  className="mt-3.5 flex-row items-center justify-center gap-1.5 max-w-full active:opacity-70"
                 >
-                  <PencilIcon size={12} className="text-primary" />
-                  <Text className="text-primary text-xs font-bold">Rename group</Text>
+                  <Text
+                    className="text-foreground text-[24px] leading-[30px] font-bold tracking-tight text-center"
+                    numberOfLines={2}
+                    style={{ flexShrink: 1 }}
+                  >
+                    {title}
+                  </Text>
+                  {canRename ? <PencilIcon size={15} className="text-muted-foreground" /> : null}
                 </Pressable>
               )}
-            </>
-          )}
-        </View>
-
-        {/* Notifications */}
-        <View className="px-5 mt-7">
-          <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-            Notifications
-          </Text>
-          <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
-            <Pressable
-              onPress={() => (muted ? applyMute(0) : setMuteOpen(true))}
-              disabled={mute.isPending}
-              accessibilityRole="button"
-              className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-            >
-              <View
-                style={{
-                  width: 32, height: 32, borderRadius: 10,
-                  backgroundColor: muted ? '#A8948920' : '#B66A4014',
-                  alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                {muted ? (
-                  <BellOffIcon size={15} color="#8B7355" />
-                ) : (
-                  <BellIcon size={15} color="#B66A40" />
-                )}
-              </View>
-              <View className="flex-1">
-                <Text className="text-foreground text-sm font-semibold">
-                  {muted ? 'Unmute' : 'Mute notifications'}
+              {subtitle ? (
+                <Text className="text-muted-foreground text-[13px] leading-[18px] mt-1 text-center">
+                  {subtitle}
                 </Text>
-                <Text className="text-muted-foreground text-xs mt-0.5">
-                  {muted
-                    ? mutedUntilLabel(conversation?.mutedUntil ?? null)
-                    : 'No sounds, banners or badge from this chat'}
-                </Text>
-              </View>
-              {mute.isPending && <ActivityIndicator size="small" color="#B66A40" />}
-            </Pressable>
-          </View>
-        </View>
+              ) : null}
+            </View>
 
-        {/* Members */}
-        <View className="px-5 mt-6">
-          <View className="flex-row items-center justify-between mb-2 ml-1">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px]">
-              {isGroup ? 'Members' : 'Contact'}
-            </Text>
-            {isGroup && (
-              <Pressable
-                onPress={() => {
-                  setAddSearch('');
-                  setAddOpen(true);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Add people to the group"
-                className="min-h-[44px] -my-3 px-2 flex-row items-center gap-1.5 active:opacity-60"
-              >
-                <UserPlusIcon size={13} className="text-primary" />
-                <Text className="text-primary text-xs font-bold">Add</Text>
-              </Pressable>
-            )}
-          </View>
-
-          <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
-            {isLoading && participants.length === 0 ? (
-              <View className="py-6 items-center">
-                <ActivityIndicator size="small" color="#B66A40" />
-              </View>
-            ) : membersFailed && participants.length === 0 ? (
-              // An empty card read as a group with nobody in it.
-              <LoadFailed what="the members" onRetry={() => void refetchMembers()} compact />
-            ) : (
-              participants.map((p, i) => {
-                // In a group, anyone but you opens the More menu: a group puts
-                // you in a room with people you may never have added yourself.
-                // A direct chat has its own Safety card below instead.
-                const actionable = isGroup && p.id !== user?.id;
-                return (
-                  <Pressable
-                    key={p.id}
-                    disabled={!actionable}
-                    onPress={actionable ? () => setSafetyFor(p) : undefined}
-                    accessibilityRole={actionable ? 'button' : undefined}
-                    // A label replaces what the row contains, so the Blocked
-                    // pill is only heard if the label says it too.
-                    accessibilityLabel={
-                      actionable ? `${p.name}${p.blocked_by_me ? ', blocked' : ''}` : undefined
-                    }
-                    accessibilityHint={actionable ? 'Opens report and block options' : undefined}
-                    className="px-4 py-3 flex-row items-center gap-3 active:bg-muted/30"
-                    style={i < participants.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
-                  >
-                    {p.avatar_url ? (
-                      <RemoteImage source={{ uri: p.avatar_url }} style={{ width: 40, height: 40, borderRadius: 20 }} />
-                    ) : (
-                      <View className="w-10 h-10 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
-                        <Text style={{ color: '#B66A40', fontWeight: '700' }}>
-                          {p.name.charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
-                      {p.name}
-                    </Text>
-                    {p.id === user?.id && (
-                      <View className="rounded-full px-2 py-0.5 bg-muted">
-                        <Text className="text-muted-foreground text-[10px] font-bold">YOU</Text>
-                      </View>
-                    )}
-                    {p.blocked_by_me && (
-                      <View className="rounded-full px-2 py-0.5 bg-destructive/10">
-                        <Text className="text-destructive text-[10px] font-bold">Blocked</Text>
-                      </View>
-                    )}
-                    {actionable && <EllipsisIcon size={16} className="text-muted-foreground" />}
-                  </Pressable>
-                );
-              })
-            )}
-          </View>
-        </View>
-
-        {/* Direct-chat shortcuts */}
-        {!isGroup && others[0] && (
-          <View className="px-5 mt-6">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              Shortcuts
-            </Text>
-            <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
-              {/* Their profile, the obvious next stop from a chat — which was
-                  missing while "who is nearby", unrelated to this person, sat
-                  here. Only when they have a public page to open. */}
-              {others[0].handle ? (
-                <Pressable
-                  onPress={() => router.push(`/u/${others[0].handle}`)}
-                  accessibilityRole="button"
-                  className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-                  style={{ borderBottomWidth: 1, borderBottomColor: border }}
-                >
-                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#B66A4014', alignItems: 'center', justifyContent: 'center' }}>
-                    <UserIcon size={15} color="#A85D35" />
-                  </View>
-                  <Text className="text-foreground text-sm font-semibold flex-1">
-                    View profile
+            <View className="px-5 mt-5 gap-4">
+              {/* About: the one line everyone sees at the top of info. */}
+              {aboutEditing ? (
+                <View className={`${CARD} p-3.5`}>
+                  <Text className="text-muted-foreground text-[13px] leading-[18px] font-semibold">About</Text>
+                  <TextInput
+                    value={aboutDraft}
+                    onChangeText={setAboutDraft}
+                    placeholder="The date, the place, where call sheets go"
+                    placeholderTextColor={palette.mutedForeground}
+                    accessibilityLabel="About this group"
+                    maxLength={GROUP_ABOUT_MAX}
+                    multiline
+                    autoFocus
+                    textAlignVertical="top"
+                    className="text-foreground text-[15px] leading-[21px] mt-1 min-h-[64px]"
+                  />
+                  <Text className="text-muted-foreground text-[12px] text-right" style={{ fontVariant: ['tabular-nums'] }}>
+                    {aboutDraft.length}/{GROUP_ABOUT_MAX}
                   </Text>
+                  <View className="flex-row gap-3 mt-2">
+                    <Pressable
+                      onPress={() => setAboutEditing(false)}
+                      accessibilityRole="button"
+                      className="flex-1 h-11 bg-muted rounded-[14px] items-center justify-center active:opacity-70"
+                    >
+                      <Text className="text-foreground text-[15px] font-semibold">Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={submitAbout}
+                      disabled={updateGroup.isPending}
+                      accessibilityRole="button"
+                      className="flex-1 h-11 bg-action rounded-[14px] flex-row gap-2 items-center justify-center active:opacity-80"
+                    >
+                      {updateGroup.isPending ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+                      <Text className="text-action-foreground text-[15px] font-semibold">Save</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : about || isAdmin ? (
+                <Pressable
+                  onPress={() => {
+                    setAboutDraft(about ?? '');
+                    setAboutEditing(true);
+                  }}
+                  disabled={!isAdmin}
+                  accessibilityRole={isAdmin ? 'button' : 'text'}
+                  accessibilityLabel={`About. ${about ?? 'Nothing yet'}`}
+                  accessibilityHint={isAdmin ? 'Changes what everyone here sees' : undefined}
+                  className={`${CARD} p-3.5 flex-row items-start gap-3 active:bg-muted/40`}
+                >
+                  <View className="flex-1 min-w-0 gap-0.5">
+                    <Text className="text-muted-foreground text-[13px] leading-[18px] font-semibold">About</Text>
+                    <Text
+                      className={`text-[15px] leading-[21px] ${about ? 'text-foreground' : 'text-muted-foreground'}`}
+                    >
+                      {about ?? 'Add a line everyone here sees: the date, the place, where call sheets go.'}
+                    </Text>
+                  </View>
+                  {isAdmin ? <PencilIcon size={17} className="text-muted-foreground mt-0.5" /> : null}
                 </Pressable>
               ) : null}
-              <Pressable
-                onPress={() => goToTab('/(app)/(tabs)/connect?view=people')}
-                accessibilityRole="button"
-                className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-              >
-                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#6B8E4E14', alignItems: 'center', justifyContent: 'center' }}>
-                  <MailIcon size={15} color="#6B8E4E" />
-                </View>
-                <Text className="text-foreground text-sm font-semibold flex-1">
-                  Your connections
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
 
-        {/* Safety, for a direct chat. Its own card rather than a place in
-            Exits: blocking keeps the conversation, so it is not a way out of
-            it, and reporting has nothing to do with leaving. */}
-        {direct && (
-          <View className="px-5 mt-6">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
-              Safety
-            </Text>
-            <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
-              <Pressable
-                onPress={directSafety.openReport}
-                accessibilityRole="button"
-                className="px-4 py-3.5 flex-row items-center gap-3 border-b border-muted active:bg-muted/30"
-              >
-                <View className="w-8 h-8 rounded-[10px] bg-muted items-center justify-center">
-                  <FlagIcon size={15} className="text-foreground" />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-foreground text-sm font-semibold">
-                    Report {directFirst}
-                  </Text>
-                  <Text className="text-muted-foreground text-xs mt-0.5">
-                    {"Tell us something's wrong. They won't know."}
-                  </Text>
-                </View>
-              </Pressable>
-              {direct.blocked_by_me ? (
+              <View className="flex-row gap-2">
+                {tile('Search', SearchIcon, () => openInThread('search'), 'Search this chat')}
+                {tile(
+                  muted ? 'Muted' : 'Mute',
+                  muted ? BellOffIcon : BellIcon,
+                  () => (muted ? applyMute(0) : setMuteOpen(true)),
+                  muted ? `Muted. ${mutedUntilLabel(conversation?.mutedUntil ?? null)}. Unmute` : 'Mute',
+                  mute.isPending,
+                )}
+                {tile(
+                  pins.length > 0 ? `Pinned ${pins.length}` : 'Pinned',
+                  PinIcon,
+                  () => openInThread('pins'),
+                  `Pinned, ${pins.length}`,
+                )}
+              </View>
+            </View>
+
+            {/* People, admins first. */}
+            <View className="px-5 mt-6">
+              <Text accessibilityRole="header" className="text-foreground text-[17px] leading-6 font-bold mb-3">
+                {participants.length > 0
+                  ? `${participants.length} ${participants.length === 1 ? 'person' : 'people'}`
+                  : 'People'}
+              </Text>
+              <View className={CARD}>
+                {canAdd ? (
+                  <Pressable
+                    onPress={() => {
+                      setAddSearch('');
+                      setAddOpen(true);
+                    }}
+                    accessibilityRole="button"
+                    className="min-h-[56px] px-3.5 flex-row items-center gap-3 active:bg-muted/40"
+                  >
+                    <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
+                      <PlusIcon size={18} className="text-primary" />
+                    </View>
+                    <Text className="text-primary text-[15px] font-semibold">Add people</Text>
+                  </Pressable>
+                ) : null}
+                {isLoading && participants.length === 0 ? (
+                  <View className="py-6 items-center">
+                    <ActivityIndicator size="small" color={palette.primary} />
+                  </View>
+                ) : membersFailed && participants.length === 0 ? (
+                  // An empty card read as a group with nobody in it.
+                  <LoadFailed what="the people here" onRetry={() => void refetchMembers()} compact />
+                ) : (
+                  people.map((p, i) => {
+                    const me = p.id === user?.id;
+                    const roles = memberRoles(p);
+                    return (
+                      <Pressable
+                        key={p.id}
+                        disabled={me}
+                        onPress={me ? undefined : () => setMemberFor(p)}
+                        accessibilityRole={me ? undefined : 'button'}
+                        // A label replaces what the row contains, so the chips
+                        // are only heard if the label says them too.
+                        accessibilityLabel={[
+                          me ? 'You' : p.name,
+                          roles || null,
+                          p.is_admin ? 'admin' : null,
+                          p.blocked_by_me ? 'blocked' : null,
+                        ]
+                          .filter(Boolean)
+                          .join(', ')}
+                        accessibilityHint={me ? undefined : 'Shows what you can do'}
+                        className={`min-h-[56px] px-3.5 py-2 flex-row items-center gap-3 active:bg-muted/40 ${
+                          i > 0 || canAdd ? 'border-t border-border/30' : ''
+                        }`}
+                      >
+                        <ChatAvatar name={p.name} url={p.avatar_url} size={40} />
+                        <View className="flex-1 min-w-0">
+                          <Text className="text-foreground text-[15px] leading-5 font-semibold" numberOfLines={1}>
+                            {me ? 'You' : p.name}
+                          </Text>
+                          {roles ? (
+                            <Text className="text-muted-foreground text-[13px] leading-[18px]" numberOfLines={1}>
+                              {roles}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {p.blocked_by_me ? (
+                          <View className="rounded-full px-2 py-0.5 bg-destructive/10">
+                            <Text className="text-destructive text-[11px] font-bold">Blocked</Text>
+                          </View>
+                        ) : null}
+                        {p.is_admin ? (
+                          <View className="rounded-full px-2.5 py-[3px] bg-muted">
+                            <Text className="text-secondary-foreground text-[12px] font-bold">Admin</Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })
+                )}
+              </View>
+            </View>
+
+            {/* Who can add people (admins), then the ways out. */}
+            <View className="px-5 mt-6">
+              <View className={CARD}>
+                {isAdmin ? (
+                  <Pressable
+                    onPress={() => setPolicyOpen(true)}
+                    disabled={updateGroup.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Who can add people: ${
+                      (conversation?.addPolicy ?? 'everyone') === 'admins' ? 'Admins' : 'Everyone'
+                    }`}
+                    className="min-h-[52px] px-3.5 flex-row items-center gap-3 border-b border-border/30 active:bg-muted/40"
+                  >
+                    <Text className="flex-1 text-foreground text-[15px]">Who can add people</Text>
+                    <Text className="text-secondary-foreground text-[15px] font-semibold">
+                      {(conversation?.addPolicy ?? 'everyone') === 'admins' ? 'Admins' : 'Everyone'}
+                    </Text>
+                    <ChevronRightIcon size={16} className="text-muted-foreground" />
+                  </Pressable>
+                ) : null}
                 <Pressable
-                  onPress={directSafety.confirmUnblock}
-                  disabled={directSafety.pending}
+                  onPress={confirmLeave}
+                  accessibilityRole="button"
+                  className="min-h-[52px] px-3.5 py-2.5 flex-row items-center gap-3 border-b border-border/30 active:bg-muted/40"
+                >
+                  <LogOutIcon size={17} className="text-foreground" />
+                  <View className="flex-1">
+                    <Text className="text-foreground text-[15px]">Leave group</Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">
+                      Removes the group and its history from your chats
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  onPress={confirmDelete}
+                  accessibilityRole="button"
+                  className="min-h-[52px] px-3.5 py-2.5 flex-row items-center gap-3 active:bg-muted/40"
+                >
+                  <Trash2Icon size={17} className="text-destructive" />
+                  <View className="flex-1">
+                    <Text className="text-destructive text-[15px]">Delete conversation</Text>
+                    <Text className="text-muted-foreground text-xs mt-0.5">Clears the history and leaves</Text>
+                  </View>
+                </Pressable>
+              </View>
+            </View>
+          </>
+        ) : (
+          <>
+            {/* Identity */}
+            <View className="items-center px-5 mt-4">
+              {others[0]?.avatar_url ? (
+                <RemoteImage
+                  source={{ uri: others[0].avatar_url }}
+                  style={{ width: 80, height: 80, borderRadius: 40 }}
+                />
+              ) : (
+                <View
+                  className="w-20 h-20 rounded-full items-center justify-center"
+                  style={{ backgroundColor: '#B66A4018' }}
+                >
+                  <Text style={{ color: '#B66A40', fontWeight: '700', fontSize: 30 }}>
+                    {title.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text className="text-foreground text-xl font-bold mt-3 text-center">{title}</Text>
+              <Text className="text-muted-foreground text-sm mt-1">{others[0]?.name ?? ''}</Text>
+            </View>
+
+            {/* Notifications */}
+            <View className="px-5 mt-7">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+                Notifications
+              </Text>
+              <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
+                <Pressable
+                  onPress={() => (muted ? applyMute(0) : setMuteOpen(true))}
+                  disabled={mute.isPending}
                   accessibilityRole="button"
                   className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
                 >
-                  <View className="w-8 h-8 rounded-[10px] bg-muted items-center justify-center">
-                    <BanIcon size={15} className="text-foreground" />
+                  <View
+                    style={{
+                      width: 32, height: 32, borderRadius: 10,
+                      backgroundColor: muted ? '#A8948920' : '#B66A4014',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    {muted ? (
+                      <BellOffIcon size={15} color="#8B7355" />
+                    ) : (
+                      <BellIcon size={15} color="#B66A40" />
+                    )}
                   </View>
                   <View className="flex-1">
                     <Text className="text-foreground text-sm font-semibold">
-                      Unblock {directFirst}
+                      {muted ? 'Unmute' : 'Mute notifications'}
                     </Text>
                     <Text className="text-muted-foreground text-xs mt-0.5">
-                      You’ll be able to message each other in this chat again.
+                      {muted
+                        ? mutedUntilLabel(conversation?.mutedUntil ?? null)
+                        : 'No sounds, banners or badge from this chat'}
                     </Text>
                   </View>
-                  {directSafety.pending && <ActivityIndicator size="small" color={palette.primary} />}
+                  {mute.isPending && <ActivityIndicator size="small" color="#B66A40" />}
                 </Pressable>
-              ) : (
+              </View>
+            </View>
+
+            {/* The contact */}
+            <View className="px-5 mt-6">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+                Contact
+              </Text>
+              <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
+                {isLoading && participants.length === 0 ? (
+                  <View className="py-6 items-center">
+                    <ActivityIndicator size="small" color="#B66A40" />
+                  </View>
+                ) : membersFailed && participants.length === 0 ? (
+                  <LoadFailed what="the members" onRetry={() => void refetchMembers()} compact />
+                ) : (
+                  participants.map((p, i) => (
+                    <View
+                      key={p.id}
+                      className="px-4 py-3 flex-row items-center gap-3"
+                      style={i < participants.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
+                    >
+                      <ChatAvatar name={p.name} url={p.avatar_url} size={40} />
+                      <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                      {p.id === user?.id && (
+                        <View className="rounded-full px-2 py-0.5 bg-muted">
+                          <Text className="text-muted-foreground text-[10px] font-bold">YOU</Text>
+                        </View>
+                      )}
+                      {p.blocked_by_me && (
+                        <View className="rounded-full px-2 py-0.5 bg-destructive/10">
+                          <Text className="text-destructive text-[10px] font-bold">Blocked</Text>
+                        </View>
+                      )}
+                    </View>
+                  ))
+                )}
+              </View>
+            </View>
+
+            {/* Direct-chat shortcuts */}
+            {others[0] && (
+              <View className="px-5 mt-6">
+                <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+                  Shortcuts
+                </Text>
+                <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
+                  {/* Their profile, the obvious next stop from a chat — which was
+                      missing while "who is nearby", unrelated to this person, sat
+                      here. Only when they have a public page to open. */}
+                  {others[0].handle ? (
+                    <Pressable
+                      onPress={() => router.push(`/u/${others[0].handle}`)}
+                      accessibilityRole="button"
+                      className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
+                      style={{ borderBottomWidth: 1, borderBottomColor: border }}
+                    >
+                      <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#B66A4014', alignItems: 'center', justifyContent: 'center' }}>
+                        <UserIcon size={15} color="#A85D35" />
+                      </View>
+                      <Text className="text-foreground text-sm font-semibold flex-1">
+                        View profile
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    onPress={() => goToTab('/(app)/(tabs)/connect?view=people')}
+                    accessibilityRole="button"
+                    className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
+                  >
+                    <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#6B8E4E14', alignItems: 'center', justifyContent: 'center' }}>
+                      <MailIcon size={15} color="#6B8E4E" />
+                    </View>
+                    <Text className="text-foreground text-sm font-semibold flex-1">
+                      Your connections
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {/* Safety, for a direct chat. Its own card rather than a place in
+                Exits: blocking keeps the conversation, so it is not a way out of
+                it, and reporting has nothing to do with leaving. */}
+            {direct && (
+              <View className="px-5 mt-6">
+                <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">
+                  Safety
+                </Text>
+                <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
+                  <Pressable
+                    onPress={directSafety.openReport}
+                    accessibilityRole="button"
+                    className="px-4 py-3.5 flex-row items-center gap-3 border-b border-muted active:bg-muted/30"
+                  >
+                    <View className="w-8 h-8 rounded-[10px] bg-muted items-center justify-center">
+                      <FlagIcon size={15} className="text-foreground" />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-foreground text-sm font-semibold">
+                        Report {directFirst}
+                      </Text>
+                      <Text className="text-muted-foreground text-xs mt-0.5">
+                        {"Tell us something's wrong. They won't know."}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  {direct.blocked_by_me ? (
+                    <Pressable
+                      onPress={directSafety.confirmUnblock}
+                      disabled={directSafety.pending}
+                      accessibilityRole="button"
+                      className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
+                    >
+                      <View className="w-8 h-8 rounded-[10px] bg-muted items-center justify-center">
+                        <BanIcon size={15} className="text-foreground" />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-foreground text-sm font-semibold">
+                          Unblock {directFirst}
+                        </Text>
+                        <Text className="text-muted-foreground text-xs mt-0.5">
+                          You’ll be able to message each other in this chat again.
+                        </Text>
+                      </View>
+                      {directSafety.pending && <ActivityIndicator size="small" color={palette.primary} />}
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      onPress={directSafety.confirmBlock}
+                      disabled={directSafety.pending}
+                      accessibilityRole="button"
+                      className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
+                    >
+                      <View className="w-8 h-8 rounded-[10px] bg-destructive/10 items-center justify-center">
+                        <BanIcon size={15} className="text-destructive" />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-destructive text-sm font-semibold">
+                          Block {directFirst}
+                        </Text>
+                        <Text className="text-muted-foreground text-xs mt-0.5">
+                          {"They can't message you or find you. They won't be told."}
+                        </Text>
+                      </View>
+                      {directSafety.pending && <ActivityIndicator size="small" color={palette.destructive} />}
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* Exits */}
+            <View className="px-5 mt-6">
+              <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
                 <Pressable
-                  onPress={directSafety.confirmBlock}
-                  disabled={directSafety.pending}
+                  onPress={confirmDelete}
                   accessibilityRole="button"
                   className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
                 >
-                  <View className="w-8 h-8 rounded-[10px] bg-destructive/10 items-center justify-center">
-                    <BanIcon size={15} className="text-destructive" />
+                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#C76B4A14', alignItems: 'center', justifyContent: 'center' }}>
+                    <Trash2Icon size={15} color="#C76B4A" />
                   </View>
                   <View className="flex-1">
                     <Text className="text-destructive text-sm font-semibold">
-                      Block {directFirst}
+                      Delete conversation
                     </Text>
                     <Text className="text-muted-foreground text-xs mt-0.5">
-                      {"They can't message you or find you. They won't be told."}
+                      Clears the history for you only
                     </Text>
                   </View>
-                  {directSafety.pending && <ActivityIndicator size="small" color={palette.destructive} />}
                 </Pressable>
-              )}
+              </View>
             </View>
-          </View>
+          </>
         )}
-
-        {/* Exits */}
-        <View className="px-5 mt-6">
-          <View className="bg-card rounded-2xl overflow-hidden" style={cardShadow}>
-            {isGroup && (
-              <Pressable
-                onPress={confirmLeave}
-                accessibilityRole="button"
-                className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-                style={{ borderBottomWidth: 1, borderBottomColor: border }}
-              >
-                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#A8948920', alignItems: 'center', justifyContent: 'center' }}>
-                  <LogOutIcon size={15} color="#8B7355" />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-foreground text-sm font-semibold">Leave group</Text>
-                  <Text className="text-muted-foreground text-xs mt-0.5">
-                    Removes the group and its history from your chats
-                  </Text>
-                </View>
-              </Pressable>
-            )}
-            <Pressable
-              onPress={confirmDelete}
-              accessibilityRole="button"
-              className="px-4 py-3.5 flex-row items-center gap-3 active:bg-muted/30"
-            >
-              <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: '#C76B4A14', alignItems: 'center', justifyContent: 'center' }}>
-                <Trash2Icon size={15} color="#C76B4A" />
-              </View>
-              <View className="flex-1">
-                <Text className="text-destructive text-sm font-semibold">
-                  Delete conversation
-                </Text>
-                <Text className="text-muted-foreground text-xs mt-0.5">
-                  {isGroup ? 'Clears the history and leaves' : 'Clears the history for you only'}
-                </Text>
-              </View>
-            </Pressable>
-          </View>
-        </View>
       </ScrollView>
 
       {/* Mute duration */}
@@ -666,8 +980,7 @@ export default function ConversationInfoScreen() {
                     setAdding(f.friend_user_id!);
                     addMember.mutate(f.friend_user_id!, {
                       onSuccess: () => setAddOpen(false),
-                      onError: (err: any) =>
-                        Alert.alert('Could not add', err?.message || 'Please try again.'),
+                      onError: (err) => Alert.alert('Could not add', groupError(err)),
                       onSettled: () => setAdding(null),
                     });
                   }}
@@ -676,11 +989,7 @@ export default function ConversationInfoScreen() {
                   className="py-3 min-h-[48px] flex-row items-center gap-3 active:opacity-60"
                   style={i < addable.length - 1 ? { borderBottomWidth: 1, borderBottomColor: border } : undefined}
                 >
-                  <View className="w-9 h-9 rounded-full items-center justify-center" style={{ backgroundColor: '#B66A4018' }}>
-                    <Text style={{ color: '#B66A40', fontWeight: '700' }}>
-                      {f.friend_name.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
+                  <ChatAvatar name={f.friend_name} size={36} />
                   <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
                     {f.friend_name}
                   </Text>
@@ -703,9 +1012,42 @@ export default function ConversationInfoScreen() {
         </View>
       </BottomSheet>
 
+      {/* The group photo: choose one, or take it off. The menu is the confirmation. */}
+      <ActionSheet
+        visible={photoMenuOpen}
+        title="Group photo"
+        actions={[
+          { label: conversation?.avatarUrl ? 'Choose a new photo' : 'Choose a photo', onPress: () => void photo.choose() },
+          ...(conversation?.avatarUrl
+            ? [{ label: 'Remove photo', destructive: true, onPress: photo.remove }]
+            : []),
+        ]}
+        onClose={() => setPhotoMenuOpen(false)}
+      />
+
+      <ChoiceSheet
+        visible={policyOpen}
+        title="Who can add people"
+        hint="Admins can always add and remove people."
+        options={ADD_POLICY_OPTIONS}
+        value={conversation?.addPolicy ?? 'everyone'}
+        onChoose={(addPolicy) => {
+          if (addPolicy === (conversation?.addPolicy ?? 'everyone')) return;
+          updateGroup.mutate({ addPolicy }, { onError: (err) => notify(groupError(err)) });
+        }}
+        onClose={() => setPolicyOpen(false)}
+      />
+
+      <GroupMemberSheet
+        member={memberFor}
+        iAmAdmin={isAdmin}
+        onClose={() => setMemberFor(null)}
+        onAction={onMemberAction}
+      />
+
       {directSafety.sheets}
 
-      {/* One menu for every group member, fed whichever row was tapped. */}
+      {/* Report or block, from a member's menu. */}
       <PersonSafetySheet
         visible={!!safetyFor}
         onClose={() => setSafetyFor(null)}
@@ -714,6 +1056,8 @@ export default function ConversationInfoScreen() {
         source="chat"
         blockId={safetyFor?.block_id ?? null}
       />
+
+      {toast.element}
     </SafeAreaView>
   );
 }

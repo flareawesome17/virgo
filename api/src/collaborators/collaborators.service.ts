@@ -2,12 +2,14 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { DatabaseService } from '../database/database.service';
 import { FriendsService } from '../friends/friends.service';
 import { MailConfig } from '../mail/mail.config';
 import { collaboratorInvite } from '../mail/mail.templates';
+import { ChatCrewService } from '../messages/crew/chat-crew.service';
 import { NotifyService } from '../notifications/notify.service';
 import { blockedBetween } from '../safety/block-sql';
 import { BlocksService } from '../safety/blocks.service';
@@ -104,6 +106,9 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
     private readonly mailConfig: MailConfig,
     private readonly feed: WorkspaceActivityService,
     private readonly blocks: BlocksService,
+    // Optional so a module without chat still builds; the team chat then
+    // does not follow joins and removals.
+    @Optional() private readonly crews?: ChatCrewService,
   ) {
     super(collaborators, 'Collaborator');
   }
@@ -294,7 +299,35 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
         subjectId: row.collaborator_user_id,
         data: { name: row.name, role: row.role },
       });
+      // Off the workspace is out of its team chat.
+      if (row.collaborator_user_id) {
+        await this.crews?.workspaceLeft(row.workspace_id, row.collaborator_user_id);
+      }
     }
+  }
+
+  /**
+   * Changes a collaborator, as the owner. Somebody who stops being a client
+   * joins the team chat then, as they would have on joining with that role.
+   * Becoming a client leaves them in it: taking somebody out is an admin's
+   * call, not a side effect of a role.
+   */
+  override async update(
+    userId: string,
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<CollaboratorRow> {
+    const before = await this.collaborators.findOne(userId, id);
+    const row = await super.update(userId, id, data);
+    if (
+      before?.role === 'client' &&
+      row.role !== 'client' &&
+      row.status === 'accepted' &&
+      row.collaborator_user_id
+    ) {
+      await this.crews?.workspaceJoined(row.workspace_id, row.collaborator_user_id);
+    }
+    return row;
   }
 
   /**
@@ -651,6 +684,8 @@ export class CollaboratorsService extends OwnedResourceService<CollaboratorRow> 
       throw new BadRequestException('That invitation has already been answered');
     }
     await this.feed.record(row.workspace_id, userId, accept ? 'joined' : 'declined');
+    // Into the team chat, which this may be the moment to make.
+    if (accept) await this.crews?.workspaceJoined(row.workspace_id, userId);
 
     // The inviter was told nothing at all before this, so a workspace could
     // gain — or fail to gain — a collaborator with no sign either way.

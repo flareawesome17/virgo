@@ -81,6 +81,17 @@ export type ChatRefusal = 'you-blocked' | 'unavailable' | 'group';
  * a 403 without one of these codes — not being friends, say — is a different
  * refusal with its own handling, so it answers null.
  */
+/** A pin refused because the chat has three already: ask which to take down. */
+export function isPinsFull(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 409 &&
+    !!err.body &&
+    typeof err.body === 'object' &&
+    (err.body as { code?: unknown }).code === 'PINS_FULL'
+  );
+}
+
 export function chatRefusal(err: unknown): ChatRefusal | null {
   if (!(err instanceof ApiError) || err.status !== 403) return null;
   const code =

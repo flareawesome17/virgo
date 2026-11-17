@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   AppState,
+  BackHandler,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
@@ -31,6 +32,8 @@ import {
   InfoIcon,
   BellOffIcon,
   WifiOffIcon,
+  PinIcon,
+  PinOffIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -56,6 +59,13 @@ import {
   useReactToMessage,
 } from '@/src/hooks/useChat';
 import { useMediaAutoLoad } from '@/src/hooks/useConnectionQuality';
+import {
+  useChatSearch,
+  usePinMessage,
+  usePins,
+  useThreadAround,
+  useUnpinMessage,
+} from '@/src/hooks/useChatCrew';
 import { PresenceLine, TypingIndicator } from '@/components';
 import { askToUnblock, safetyError } from '@/components/PersonSafetySheet';
 import { buzzForMessage } from '@/src/lib/notifications';
@@ -71,12 +81,19 @@ import {
   ApiError,
   canEditMessage,
   EDIT_WINDOW_MINUTES,
+  groupSubtitle,
+  isNotice,
+  isPinsFull,
+  MAX_PINNED_MESSAGES,
   myReaction,
   type ConversationMessage,
   type ReactionKey,
+  type Thread,
 } from '@/src/api';
 import { LoadFailed } from '@/components/LoadFailed';
 import { Composer, useKeyboardUp, type ComposerHandle } from '@/components/chat/Composer';
+import { ChatAvatar, isTeamChat } from '@/components/chat/ChatAvatar';
+import { ChatSearchCount, ChatSearchFooter, ChatSearchHeader } from '@/components/chat/ChatSearch';
 import { chatError, editMinutesLeft, firstNameOf } from '@/components/chat/chat-words';
 import { useChatToast } from '@/components/chat/ChatToast';
 import { ForwardSheet } from '@/components/chat/ForwardSheet';
@@ -89,6 +106,8 @@ import { SharePlusSheet, type ShareChoice } from '@/components/chat/SharePlusShe
 import { ShareListSheet, type ShareListKind } from '@/components/chat/ShareListSheet';
 import { cardSendError, type ChatPeople } from '@/components/chat/cards/card-words';
 import { PayPickSheet } from '@/components/money/PayPickSheet';
+import { PinnedStrip, PinReplaceSheet, PinsSheet } from '@/components/chat/PinsSheet';
+import { takeThreadRequest } from '@/components/chat/thread-requests';
 import {
   buildThreadRows,
   DaySeparator,
@@ -102,7 +121,7 @@ import {
 
 for (const Icon of [
   ArrowDownIcon, ArrowLeftIcon, UsersIcon, ReplyIcon, ForwardIcon, CopyIcon, PencilIcon,
-  Trash2Icon, InfoIcon, BellOffIcon, WifiOffIcon,
+  Trash2Icon, InfoIcon, BellOffIcon, WifiOffIcon, PinIcon, PinOffIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -341,14 +360,49 @@ export default function ConversationScreen() {
   const mentionNames = useMemo(() => participants.map((p) => p.name), [participants]);
   const matcher = useMentionMatcher(mentionNames);
 
+  // ── Opening at one message: a search match or a pin ───────────────────────
+
+  /** The message the thread is opened around. Null is the live thread. */
+  const [windowAt, setWindowAt] = useState<string | null>(null);
+  /** The message ringed: the match you are on, or the pin you jumped to. */
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const around = useThreadAround(id, windowAt);
+  /*
+   * The window on screen. The last one stays while the next loads, so
+   * stepping to a match further back does not blank the thread.
+   */
+  const [shownWindow, setShownWindow] = useState<Thread | null>(null);
+  const aroundData = windowAt ? around.data : undefined;
+  if (aroundData && shownWindow !== aroundData) setShownWindow(aroundData);
+  if (!windowAt && shownWindow) setShownWindow(null);
+
+  const liveById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+  /** The window's messages, as the live thread has them where it has them: a reaction lands in both. */
+  const windowMessages = useMemo(
+    () => (shownWindow ? shownWindow.data.map((m) => liveById.get(m.id) ?? m) : null),
+    [shownWindow, liveById],
+  );
+  const inWindow = windowMessages !== null;
+  const shownMessages = windowMessages ?? messages;
+
   const rows = useMemo(
-    () => buildThreadRows({ messages, outbox, lastReadAt, meId: user?.id, isGroup }),
-    [messages, outbox, lastReadAt, user?.id, isGroup],
+    () =>
+      buildThreadRows({
+        messages: shownMessages,
+        // The window is history: nothing waiting to send, and no divider.
+        outbox: inWindow ? [] : outbox,
+        lastReadAt: inWindow ? null : lastReadAt,
+        meId: user?.id,
+        isGroup,
+      }),
+    [shownMessages, inWindow, outbox, lastReadAt, user?.id, isGroup],
   );
 
   // ── Scrolling ─────────────────────────────────────────────────────────────
 
   const listRef = useRef<FlatList<ThreadRow>>(null);
+  /** Where scrollToIndex puts a row: the unread divider low down, a jump mid-screen. */
+  const indexPosition = useRef(0.85);
   const [away, setAway] = useState(false);
   const awayRef = useRef(false);
   const [newWhileAway, setNewWhileAway] = useState(0);
@@ -387,6 +441,7 @@ export default function ConversationScreen() {
     const index = rows.findIndex((r) => r.kind === 'divider');
     if (index < 12) return;
     const timer = setTimeout(() => {
+      indexPosition.current = 0.85;
       listRef.current?.scrollToIndex({ index, viewPosition: 0.85, animated: false });
     }, 60);
     return () => clearTimeout(timer);
@@ -399,11 +454,156 @@ export default function ConversationScreen() {
         animated: false,
       });
       setTimeout(() => {
-        listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.85, animated: false });
+        listRef.current?.scrollToIndex({
+          index: info.index,
+          viewPosition: indexPosition.current,
+          animated: false,
+        });
       }, 120);
     },
     [],
   );
+
+  /** Where the list goes next: to this message, once it is drawn. `n` makes a second jump to it count. */
+  const [scrollTarget, setScrollTarget] = useState<{ id: string; n: number } | null>(null);
+  const scrolledFor = useRef(0);
+  useEffect(() => {
+    if (!scrollTarget || scrolledFor.current === scrollTarget.n) return undefined;
+    const index = rows.findIndex((r) => r.kind === 'message' && r.message.id === scrollTarget.id);
+    // Not drawn yet: its window is on the way, and this runs again when it lands.
+    if (index < 0) return undefined;
+    const timer = setTimeout(() => {
+      scrolledFor.current = scrollTarget.n;
+      indexPosition.current = 0.5;
+      listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [scrollTarget, rows]);
+
+  /**
+   * Goes to one message. Already drawn — in the window, or the live thread —
+   * it only scrolls there; otherwise the twenty either side of it load.
+   */
+  const jumpTo = useCallback(
+    (messageId: string) => {
+      setFocusId(messageId);
+      const drawn = (windowMessages ?? messages).some((m) => m.id === messageId);
+      if (!drawn) setWindowAt(messageId);
+      setScrollTarget((prev) => ({ id: messageId, n: (prev?.n ?? 0) + 1 }));
+    },
+    [windowMessages, messages],
+  );
+
+  // ── Searching this chat ───────────────────────────────────────────────────
+
+  const [searching, setSearching] = useState(false);
+  /** Whether the box takes the keyboard: from info's tile it does, from the list it does not. */
+  const [searchFocus, setSearchFocus] = useState(false);
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  // Debounced: every keystroke would be a search on the server.
+  useEffect(() => {
+    if (!searching) return undefined;
+    const timer = setTimeout(() => setSearchTerm(searchDraft.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchDraft, searching]);
+  const found = useChatSearch(id, searching ? searchTerm : '');
+  const matches = found.matches;
+  /** Which match is showing, from 0, the newest. */
+  const [matchAt, setMatchAt] = useState(0);
+  /** From the list's search: the match to start on once the matches arrive. */
+  const startMatch = useRef<string | null>(null);
+  /** The term whose first answer has been jumped to, so a refetch does not jump again. */
+  const answeredFor = useRef<string | null>(null);
+
+  // A new term's matches: go to the newest, or to the one the list found.
+  useEffect(() => {
+    if (!searching || !searchTerm) {
+      answeredFor.current = null;
+      return;
+    }
+    if (!found.data || answeredFor.current === searchTerm) return;
+    answeredFor.current = searchTerm;
+    if (matches.length === 0) {
+      setFocusId(null);
+      return;
+    }
+    let start = 0;
+    if (startMatch.current) {
+      const at = matches.findIndex((m) => m.id === startMatch.current);
+      if (at >= 0) start = at;
+      startMatch.current = null;
+    }
+    setMatchAt(start);
+    jumpTo(matches[start].id);
+  }, [searching, searchTerm, found.data, matches, jumpTo]);
+
+  const stepMatch = useCallback(
+    (by: 1 | -1) => {
+      const next = matchAt + by;
+      if (next < 0 || next >= matches.length) return;
+      setMatchAt(next);
+      jumpTo(matches[next].id);
+    },
+    [matchAt, matches, jumpTo],
+  );
+
+  const openSearch = useCallback(
+    (q?: string, matchId?: string | null) => {
+      const term = (q ?? '').trim();
+      setSearching(true);
+      setSearchFocus(!term);
+      setSearchDraft(q ?? '');
+      setSearchTerm(term);
+      setMatchAt(0);
+      answeredFor.current = null;
+      startMatch.current = matchId ?? null;
+      // Straight there: the matches only say which number it is.
+      if (matchId) jumpTo(matchId);
+    },
+    [jumpTo],
+  );
+
+  /** Done, or Back to the latest: the live thread again, at the bottom. */
+  const backToLatest = useCallback(() => {
+    setSearching(false);
+    setSearchDraft('');
+    setSearchTerm('');
+    setMatchAt(0);
+    answeredFor.current = null;
+    startMatch.current = null;
+    setWindowAt(null);
+    setFocusId(null);
+    setScrollTarget(null);
+    Keyboard.dismiss();
+    setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: false }), 0);
+  }, []);
+
+  // Android's back button closes the search, or leaves the pin you jumped to,
+  // before it leaves the chat. Only while this screen has focus: under group
+  // info it would swallow info's own back.
+  useEffect(() => {
+    if (!focused || (!searching && !windowAt && !focusId)) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      backToLatest();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [focused, searching, windowAt, focusId, backToLatest]);
+
+  /** After sending: what you sent is what you want to see, wherever you were. */
+  const toLatest = useCallback(() => {
+    if (windowAt || focusId) backToLatest();
+    else listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [windowAt, focusId, backToLatest]);
+
+  // A window that could not load leaves you where you were, saying so.
+  const aroundFailed = !!windowAt && around.loadFailed && !around.data;
+  useEffect(() => {
+    if (!aroundFailed) return;
+    setWindowAt(null);
+    showToast("Couldn't open that message. Check your connection and try again.");
+  }, [aroundFailed, showToast]);
 
   // ── Sending ───────────────────────────────────────────────────────────────
 
@@ -432,9 +632,9 @@ export default function ConversationScreen() {
       setReplyTo(null);
       void flushOutbox(queryClient);
       // What you just sent is what you want to see, wherever you had scrolled.
-      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      toLatest();
     },
-    [id, replyTo, queryClient],
+    [id, replyTo, queryClient, toLatest],
   );
 
   const retry = useCallback(
@@ -469,7 +669,10 @@ export default function ConversationScreen() {
   // ── Holding a message ─────────────────────────────────────────────────────
 
   /** Every loaded message by id, so a sheet reads the latest of the one it is about. */
-  const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+  const byId = useMemo(
+    () => new Map([...(windowMessages ?? []), ...messages].map((m) => [m.id, m])),
+    [windowMessages, messages],
+  );
 
   const onHold = useCallback(
     (message: ConversationMessage, rect: HeldRect) => {
@@ -511,6 +714,123 @@ export default function ConversationScreen() {
   const showSeenByFor = useCallback((message: ConversationMessage) => {
     setSeenByFor(message.id);
   }, []);
+
+  // ── Pins ──────────────────────────────────────────────────────────────────
+
+  const pinsQuery = usePins(id);
+  const pins = pinsQuery.pins;
+  const { mutate: pinMessage } = usePinMessage(id ?? '');
+  const { mutate: unpinMessage } = useUnpinMessage(id ?? '');
+  const [pinsOpen, setPinsOpen] = useState(false);
+  /** What to do once the Pinned sheet has gone: jump to the pin picked. */
+  const afterPins = useRef<(() => void) | null>(null);
+  /** Waiting to go up while the chat's three pins are offered to take one down. */
+  const [pinWaiting, setPinWaiting] = useState<ConversationMessage | null>(null);
+  const [replacing, setReplacing] = useState<string | null>(null);
+  const [unpinning, setUnpinning] = useState<string | null>(null);
+  const pinnedIds = useMemo(() => new Set(pins.map((p) => p.id)), [pins]);
+  const pinsKnown = pinsQuery.data !== undefined;
+  /** By the pins once they have loaded — they move under a message's feet — and by the message till then. */
+  const isPinned = useCallback(
+    (m: ConversationMessage) => (pinsKnown ? pinnedIds.has(m.id) : !!m.pinned_at),
+    [pinsKnown, pinnedIds],
+  );
+
+  const togglePin = useCallback(
+    (m: ConversationMessage) => {
+      if (isPinned(m)) {
+        unpinMessage(m.id, {
+          onSuccess: () => showToast('Unpinned for everyone'),
+          onError: (err) => showToast(chatError(err)),
+        });
+        return;
+      }
+      // Three already: ask which comes down, without a refusal first.
+      if (pinsKnown && pins.length >= MAX_PINNED_MESSAGES) {
+        setPinWaiting(m);
+        return;
+      }
+      pinMessage(
+        { messageId: m.id },
+        {
+          onSuccess: () => showToast('Pinned for everyone here'),
+          onError: (err) => {
+            if (isPinsFull(err)) {
+              // Somebody else filled it meanwhile: the pins as they are now.
+              void pinsQuery.refetch();
+              setPinWaiting(m);
+              return;
+            }
+            showToast(chatError(err));
+          },
+        },
+      );
+    },
+    [isPinned, pinsKnown, pins.length, pinMessage, unpinMessage, showToast, pinsQuery],
+  );
+
+  const replacePin = useCallback(
+    (old: ConversationMessage) => {
+      const m = pinWaiting;
+      if (!m) return;
+      setReplacing(old.id);
+      pinMessage(
+        { messageId: m.id, replace: old.id },
+        {
+          onSuccess: () => {
+            setPinWaiting(null);
+            showToast('Pinned for everyone here');
+          },
+          onError: (err) => {
+            setPinWaiting(null);
+            showToast(chatError(err));
+          },
+          onSettled: () => setReplacing(null),
+        },
+      );
+    },
+    [pinWaiting, pinMessage, showToast],
+  );
+
+  const unpinFromSheet = useCallback(
+    (m: ConversationMessage) => {
+      setUnpinning(m.id);
+      unpinMessage(m.id, {
+        onError: (err) => {
+          setPinsOpen(false);
+          showToast(chatError(err));
+        },
+        onSettled: () => setUnpinning(null),
+      });
+    },
+    [unpinMessage, showToast],
+  );
+
+  /** A pin tapped in the sheet: the chat opens around it once the sheet has gone. */
+  const jumpToPin = useCallback(
+    (m: ConversationMessage) => {
+      afterPins.current = () => {
+        setSearching(false);
+        jumpTo(m.id);
+      };
+      setPinsOpen(false);
+    },
+    [jumpTo],
+  );
+  const pinsClosed = useCallback(() => {
+    const next = afterPins.current;
+    afterPins.current = null;
+    next?.();
+  }, []);
+
+  // Asked for from group info (Search, Pinned) or the list's search.
+  useEffect(() => {
+    if (!id || !focused) return;
+    const request = takeThreadRequest(id);
+    if (!request) return;
+    if (request.kind === 'pins') setPinsOpen(true);
+    else openSearch(request.q, request.matchId);
+  }, [id, focused, openSearch]);
 
   // ── Editing ───────────────────────────────────────────────────────────────
 
@@ -654,6 +974,17 @@ export default function ConversationScreen() {
         },
       });
     }
+    // For everyone in the chat, words and cards alike. Never a notice, which
+    // has no hold at all, and never one that was unsent.
+    if (!heldDeleted && canSend && !isNotice(m)) {
+      const pinned = isPinned(m);
+      holdEntries.push({
+        key: 'pin',
+        label: pinned ? 'Unpin' : 'Pin',
+        Icon: pinned ? PinOffIcon : PinIcon,
+        onPress: () => closeHoldThen(() => togglePin(m)),
+      });
+    }
     holdEntries.push({
       key: 'delete',
       label: 'Delete',
@@ -737,10 +1068,19 @@ export default function ConversationScreen() {
   const cardSent = useCallback(() => {
     setListing(null);
     // What you just shared is what you want to see, wherever you had scrolled.
-    listRef.current?.scrollToOffset({ offset: 0, animated: true });
-  }, []);
+    toLatest();
+  }, [toLatest]);
 
   const editingId = editing?.id ?? null;
+  /** Searching: the term, picked out in every bubble on screen. */
+  const highlight = searching && searchTerm ? searchTerm : null;
+  /** Jumped to a pin (or opened around one): the way back to the newest. */
+  const showBackToLatest = !searching && (inWindow || focusId !== null);
+  const subtitle = isGroup
+    ? (conversation ? groupSubtitle(conversation) : null) ??
+      `${participants.length} ${participants.length === 1 ? 'person' : 'people'}`
+    : null;
+  const headerPhoto = isGroup ? conversation?.avatarUrl : (others[0]?.avatar_url ?? conversation?.avatarUrl);
 
   const renderItem = useCallback(
     ({ item }: { item: ThreadRow }) => {
@@ -784,6 +1124,8 @@ export default function ConversationScreen() {
               autoLoadMedia={autoLoad}
               people={people}
               notify={showToast}
+              highlight={highlight}
+              lit={item.message.id === focusId}
             />
           );
         }
@@ -792,7 +1134,7 @@ export default function ConversationScreen() {
     [
       user?.id, deliveryOf, showSeenBy, matcher, isDark, isOffline, retry, unsentActions,
       onHold, canSend, toggleReaction, showReactions, showSeenByFor, editingId, pendingEdits,
-      autoLoad, people, showToast,
+      autoLoad, people, showToast, highlight, focusId,
     ],
   );
 
@@ -810,55 +1152,89 @@ export default function ConversationScreen() {
         className="flex-1"
         keyboardVerticalOffset={screenTop}
       >
-        {/* Header */}
-        <View
-          className="px-3 pt-1 pb-2 flex-row items-center gap-2 border-b border-border/50"
-          style={{ borderBottomColor: border }}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            onPress={() => router.back()}
-            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+        {/* Header, or the search box while searching this chat */}
+        {searching ? (
+          <>
+            <ChatSearchHeader
+              value={searchDraft}
+              onChangeText={setSearchDraft}
+              onDone={backToLatest}
+              autoFocus={searchFocus}
+            />
+            <ChatSearchCount
+              where={title}
+              term={searchTerm}
+              total={matches.length}
+              at={matchAt}
+              loading={found.isFetching || (!!windowAt && around.isFetching && !around.data)}
+              failed={found.loadFailed}
+              onOlder={() => stepMatch(1)}
+              onNewer={() => stepMatch(-1)}
+            />
+          </>
+        ) : (
+          <View
+            className="px-3 pt-1 pb-2 flex-row items-center gap-2 border-b border-border/50"
+            style={{ borderBottomColor: border }}
           >
-            <ArrowLeftIcon size={22} className="text-foreground" />
-          </Pressable>
-          {/* The whole title opens info, the way a chat header usually does. */}
-          <Pressable
-            onPress={() => router.push(`/chat/${id}/info`)}
-            accessibilityRole="button"
-            accessibilityLabel={`${title}${conversation?.muted ? ', muted' : ''}`}
-            accessibilityHint="Opens the conversation details"
-            className="flex-1 min-w-0 min-h-[44px] justify-center active:opacity-70"
-          >
-            <View className="flex-row items-center gap-1.5">
-              <Text className="text-foreground text-[16px] leading-5 font-bold" numberOfLines={1}>
-                {title}
-              </Text>
-              {conversation?.muted && <BellOffIcon size={12} className="text-muted-foreground" />}
-            </View>
-            {isGroup ? (
-              <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-                {participants.map((p) => p.name).join(', ')}
-              </Text>
-            ) : canSend ? (
-              <View className="mt-0.5">
-                {/* Online / last seen, kept current by the socket. Not in a
-                    frozen thread, where the server has stopped sending it and
-                    whatever the store last held would be stale. */}
-                <PresenceLine userId={others[0]?.id} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              onPress={() => router.back()}
+              className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            >
+              <ArrowLeftIcon size={22} className="text-foreground" />
+            </Pressable>
+            {/* The whole title opens info, the way a chat header usually does. */}
+            <Pressable
+              onPress={() => router.push(`/chat/${id}/info`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${title}${conversation?.muted ? ', muted' : ''}`}
+              accessibilityHint="Opens the conversation details"
+              className="flex-1 min-w-0 min-h-[44px] flex-row items-center gap-2.5 active:opacity-70"
+            >
+              <ChatAvatar
+                name={title}
+                url={headerPhoto}
+                size={36}
+                group={isGroup}
+                square={isGroup && isTeamChat(conversation)}
+              />
+              <View className="flex-1 min-w-0 justify-center">
+                <View className="flex-row items-center gap-1.5">
+                  <Text className="text-foreground text-[16px] leading-5 font-bold" numberOfLines={1}>
+                    {title}
+                  </Text>
+                  {conversation?.muted && <BellOffIcon size={12} className="text-muted-foreground" />}
+                </View>
+                {isGroup ? (
+                  // "Team chat · 6 people", "5 people · From the Santos Wedding job".
+                  <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+                    {subtitle}
+                  </Text>
+                ) : canSend ? (
+                  <View className="mt-0.5">
+                    {/* Online / last seen, kept current by the socket. Not in a
+                        frozen thread, where the server has stopped sending it and
+                        whatever the store last held would be stale. */}
+                    <PresenceLine userId={others[0]?.id} />
+                  </View>
+                ) : null}
               </View>
-            ) : null}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Conversation details"
-            onPress={() => router.push(`/chat/${id}/info`)}
-            className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
-          >
-            <InfoIcon size={20} className="text-foreground" />
-          </Pressable>
-        </View>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Conversation details"
+              onPress={() => router.push(`/chat/${id}/info`)}
+              className="w-11 h-11 rounded-2xl bg-card items-center justify-center active:scale-[0.94]"
+            >
+              <InfoIcon size={20} className="text-foreground" />
+            </Pressable>
+          </View>
+        )}
+
+        {/* What is pinned here, under the header. Words only. */}
+        {!searching ? <PinnedStrip pins={pins} onPress={() => setPinsOpen(true)} /> : null}
 
         {isOffline && (
           <View
@@ -905,10 +1281,14 @@ export default function ConversationScreen() {
               // The list is inverted, so its *header* renders at the visual
               // bottom — which is where a typing bubble belongs, under the
               // newest message.
-              ListHeaderComponent={<TypingIndicator conversationId={id} meId={user?.id} />}
+              ListHeaderComponent={
+                // Typing is now, not then: not under a window of history.
+                inWindow ? null : <TypingIndicator conversationId={id} meId={user?.id} />
+              }
               // Inverted, so the end is the top: the oldest message loaded.
+              // A window is the forty around one message, and pages no further.
               onEndReached={() => {
-                if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) {
+                if (!inWindow && hasNextPage && !isFetchingNextPage && !isFetchNextPageError) {
                   void fetchNextPage();
                 }
               }}
@@ -945,8 +1325,34 @@ export default function ConversationScreen() {
               }
             />
 
+            {/* Opened at a pin: the way back to the newest, always in reach. */}
+            {showBackToLatest ? (
+              <Pressable
+                onPress={backToLatest}
+                accessibilityRole="button"
+                className="absolute self-center bottom-3 min-h-[44px] px-4 rounded-full bg-card flex-row items-center justify-center gap-1.5 active:scale-[0.96]"
+                style={{
+                  shadowColor: '#000',
+                  shadowOpacity: 0.15,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 2 },
+                  elevation: 4,
+                }}
+              >
+                <ArrowDownIcon size={16} className="text-foreground" />
+                <Text className="text-foreground text-[14px] font-semibold">Back to the latest</Text>
+              </Pressable>
+            ) : null}
+
+            {/* A window loading over the thread still on screen. */}
+            {windowAt && !around.data && around.isFetching ? (
+              <View className="absolute self-center top-3 px-3 py-2 rounded-full bg-card" pointerEvents="none">
+                <ActivityIndicator size="small" color="#A85D35" />
+              </View>
+            ) : null}
+
             {/* Back to the newest, once you have scrolled away from it. */}
-            {away && (
+            {away && !showBackToLatest && !searching && (
               <Pressable
                 onPress={jumpToLatest}
                 accessibilityRole="button"
@@ -979,7 +1385,9 @@ export default function ConversationScreen() {
         {/* Composer, or why there is none. A frozen thread keeps its
             history but takes no new messages, and a composer that fails every
             send is worse than a plain line saying so. */}
-        {canSend && id ? (
+        {searching ? (
+          <ChatSearchFooter bottomInset={keyboardUp ? 0 : insets.bottom} />
+        ) : canSend && id ? (
           <Composer
             ref={composerRef}
             conversationId={id}
@@ -1045,6 +1453,29 @@ export default function ConversationScreen() {
         onReact={reactFromHold}
         onClose={closeHold}
         onClosed={onHoldClosed}
+      />
+
+      <PinsSheet
+        visible={pinsOpen}
+        pins={pins}
+        loading={pinsQuery.isLoading}
+        failed={pinsQuery.loadFailed}
+        onRetry={() => void pinsQuery.refetch()}
+        myId={user?.id}
+        unpinning={unpinning}
+        onJump={jumpToPin}
+        onUnpin={unpinFromSheet}
+        onClose={() => setPinsOpen(false)}
+        onClosed={pinsClosed}
+      />
+
+      <PinReplaceSheet
+        visible={!!pinWaiting}
+        pins={pins}
+        myId={user?.id}
+        replacing={replacing}
+        onPick={replacePin}
+        onClose={() => setPinWaiting(null)}
       />
 
       <ReactionsSheet
@@ -1114,7 +1545,7 @@ export default function ConversationScreen() {
           sendPayCard(
             { conversationId: id, payMethodId: method.id },
             {
-              onSuccess: () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
+              onSuccess: toLatest,
               onError: (err) => showToast(cardSendError(err, 'pay-card')),
             },
           );

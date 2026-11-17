@@ -77,6 +77,32 @@ function escapeForRegex(value: string): string {
 }
 
 /**
+ * Every place a search term appears, marked (board 140). Case is ignored, as
+ * the server's search ignores it, and the words are taken as typed, not as a
+ * pattern.
+ */
+export function MarkTerm({ text, term }: { text: string; term?: string | null }) {
+  const t = term?.trim();
+  if (!t) return <>{text}</>;
+  const pieces = text.split(new RegExp(`(${escapeForRegex(t)})`, 'gi'));
+  if (pieces.length === 1) return <>{text}</>;
+  return (
+    <>
+      {pieces.map((piece, i) =>
+        // split with a group puts each match at an odd index.
+        i % 2 === 1 ? (
+          <mark key={i} className="rounded-[4px] bg-amber-200 px-0.5 text-stone-900">
+            {piece}
+          </mark>
+        ) : (
+          <Fragment key={i}>{piece}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
  * A message's words, with its links and its @mentions drawn.
  *
  * Mentions are matched by participant name, not by stored offsets, as they
@@ -86,11 +112,14 @@ export function MessageBody({
   body,
   names,
   mine,
+  highlight,
 }: {
   body: string;
   /** Everyone in the chat, for highlighting @mentions. */
   names: string[];
   mine: boolean;
+  /** What a search in this chat is looking for, marked wherever it appears. */
+  highlight?: string | null;
 }) {
   const parts = useMemo(() => splitLinks(body), [body]);
   const mention = useMemo(() => {
@@ -103,14 +132,14 @@ export function MessageBody({
   }, [names]);
 
   const words = (text: string, at: number) => {
-    if (!mention || !text.includes('@')) return text;
+    if (!mention || !text.includes('@')) return <MarkTerm text={text} term={highlight} />;
     return text.split(mention.pattern).map((piece, i) =>
       mention.known.has(piece) ? (
         <strong key={`${at}-${i}`} className="font-bold">
-          {piece}
+          <MarkTerm text={piece} term={highlight} />
         </strong>
       ) : (
-        <Fragment key={`${at}-${i}`}>{piece}</Fragment>
+        <MarkTerm key={`${at}-${i}`} text={piece} term={highlight} />
       ),
     );
   };
@@ -127,7 +156,7 @@ export function MessageBody({
               mine ? 'decoration-current/70' : 'text-primary',
             )}
           >
-            {part.text}
+            <MarkTerm text={part.text} term={highlight} />
           </ChatLink>
         ) : (
           <Fragment key={i}>{words(part.text, i)}</Fragment>

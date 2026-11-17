@@ -300,7 +300,15 @@ export class ChatCardsService implements CardFiller, OnModuleInit {
   async fill(rows: MessageRow[]): Promise<void> {
     const byKind = new Map<CardKind, MessageRow[]>();
     for (const row of rows) {
-      if (!row.kind || row.kind === 'text' || row.kind === 'job-accepted' || row.kind === 'pay-card') continue;
+      if (
+        !row.kind ||
+        row.kind === 'text' ||
+        row.kind === 'job-accepted' ||
+        row.kind === 'pay-card' ||
+        row.kind === 'notice'
+      ) {
+        continue;
+      }
       // Deleted for everyone keeps nothing, as a pay card does.
       if (row.deleted_at) {
         row.context = null;
