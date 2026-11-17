@@ -1,9 +1,11 @@
-import { Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { ChevronRightIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { payMethodName, type MoneyPayMethod } from '@/src/api';
 import { BottomSheet } from '@/components/BottomSheet';
 import { PayQr } from '@/components/money/PayQr';
+import { useTheme } from '@/src/hooks';
+import { PALETTES } from '@/theme';
 
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -25,9 +27,19 @@ export function PayPickSheet({
   onClosed,
   onPick,
   onEdit,
+  title = 'Show a QR',
+  hint = 'Tap one to show it',
+  footnote = 'With just one saved, Show QR opens it straight away.',
+  loading = false,
 }: {
   visible: boolean;
   payMethods: MoneyPayMethod[];
+  /** The sheet's name, its hint and the line at its foot: a chat sends one rather than shows it. */
+  title?: string;
+  hint?: string;
+  footnote?: string;
+  /** The list is still on its way: a spinner in place of the tiles. */
+  loading?: boolean;
   onClose: () => void;
   /**
    * Once the sheet has fully gone: where to open the next screen. iOS will
@@ -38,6 +50,7 @@ export function PayPickSheet({
   onEdit: () => void;
 }) {
   const { width } = useWindowDimensions();
+  const { isDark } = useTheme();
   // Two columns inside 20pt margins and a 12pt gap; the tile pads by 14.
   const tile = Math.floor((Math.min(width, 480) - 40 - 12) / 2);
   const qrSize = Math.min(tile - 28, 140);
@@ -46,11 +59,16 @@ export function PayPickSheet({
     <BottomSheet visible={visible} onClose={onClose} onClosed={onClosed}>
       <View className="flex-row items-baseline justify-between px-5">
         <Text className="text-foreground text-[18px] font-bold" accessibilityRole="header">
-          Show a QR
+          {title}
         </Text>
-        <Text className="text-muted-foreground text-[13px]">Tap one to show it</Text>
+        <Text className="text-muted-foreground text-[13px]">{hint}</Text>
       </View>
 
+      {loading && payMethods.length === 0 ? (
+        <View className="items-center py-10">
+          <ActivityIndicator size="small" color={(isDark ? PALETTES.dark : PALETTES.light).primary} />
+        </View>
+      ) : null}
       <View className="flex-row flex-wrap gap-3 px-5 pt-4">
         {payMethods.map((m, i) => (
           <Pressable
@@ -89,7 +107,7 @@ export function PayPickSheet({
 
       <View className="flex-row items-center justify-between px-5 pt-3">
         <Text className="flex-1 text-muted-foreground text-[12px] leading-4 pr-3">
-          With just one saved, Show QR opens it straight away.
+          {footnote}
         </Text>
         <Pressable
           onPress={onEdit}

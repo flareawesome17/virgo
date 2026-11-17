@@ -38,12 +38,14 @@ import {
   useConversation,
   useDeleteMessage,
   useMarkThreadRead,
+  useMoneyPayMethods,
   useOffline,
   useParticipants,
   useTheme,
   useThread,
   useUnblock,
 } from '@/src/hooks';
+import { useSendPayCard } from '@/src/hooks/usePayCards';
 import {
   flushOutbox,
   retryOutboxItem,
@@ -83,6 +85,10 @@ import { MessageHold, type HeldMessage } from '@/components/chat/MessageHold';
 import { ReactionsSheet } from '@/components/chat/ReactionsSheet';
 import { SavedRepliesSheet } from '@/components/chat/SavedRepliesSheet';
 import { SeenBySheet } from '@/components/chat/SeenBySheet';
+import { SharePlusSheet, type ShareChoice } from '@/components/chat/SharePlusSheet';
+import { ShareListSheet, type ShareListKind } from '@/components/chat/ShareListSheet';
+import { cardSendError, type ChatPeople } from '@/components/chat/cards/card-words';
+import { PayPickSheet } from '@/components/money/PayPickSheet';
 import {
   buildThreadRows,
   DaySeparator,
@@ -201,6 +207,12 @@ export default function ConversationScreen() {
   const [savedOpen, setSavedOpen] = useState(false);
   /** Set when a saved reply was picked, so the box takes focus once the sheet has gone. */
   const pickedReply = useRef(false);
+  /** The composer's +: what can be shared here, and the list or picker it leads to. */
+  const [shareOpen, setShareOpen] = useState(false);
+  const [listing, setListing] = useState<ShareListKind | null>(null);
+  const [payPicking, setPayPicking] = useState(false);
+  /** What to open once the + sheet (or the pay picker) has gone: iOS will not present over a leaving one. */
+  const afterShare = useRef<(() => void) | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
   // Just above the composer, inside the thread.
   const toast = useChatToast(12);
@@ -266,6 +278,16 @@ export default function ConversationScreen() {
     : (others[0]?.name ?? conversation?.title ?? 'Conversation');
   /** Who the frozen-thread notice names. */
   const noticeName = (!isGroup ? others[0]?.name : undefined) ?? conversation?.title ?? title;
+
+  /** Who is here, as the shared cards say it: "Ana can save them", "Bea can't". */
+  const people = useMemo<ChatPeople>(
+    () => ({
+      isGroup,
+      otherFirst: !isGroup && others[0] ? firstNameOf(others[0].name) : null,
+      byId: new Map(participants.map((p) => [p.id, p])),
+    }),
+    [isGroup, others, participants],
+  );
 
   const unblockFromNotice = () => {
     if (!blockId) return;
@@ -586,7 +608,9 @@ export default function ConversationScreen() {
   const holdEntries: HoldMenuEntry[] = [];
   if (heldMessage) {
     const m = heldMessage;
-    const card = m.kind === 'job-accepted';
+    // Every card: the app's own, a pay card, and the Virgo things shared
+    // here. Forward and Edit are for typed words only, on the server too.
+    const card = (m.kind ?? 'text') !== 'text';
     if (!heldDeleted && canSend) {
       holdEntries.push({
         key: 'reply',
@@ -647,10 +671,7 @@ export default function ConversationScreen() {
 
   // ── Saved replies ─────────────────────────────────────────────────────────
 
-  const openSaved = useCallback(() => {
-    Keyboard.dismiss();
-    setSavedOpen(true);
-  }, []);
+  // Opened from the + sheet, once it has gone (see pickShare).
   const pickSaved = useCallback((body: string) => {
     pickedReply.current = true;
     composerRef.current?.insert(body);
@@ -660,6 +681,63 @@ export default function ConversationScreen() {
     if (!pickedReply.current) return;
     pickedReply.current = false;
     composerRef.current?.focus();
+  }, []);
+
+  // ── Sharing from Virgo ────────────────────────────────────────────────────
+
+  // Fetched while the + sheet is up, so "How to pay" knows at once whether
+  // there is anything to send.
+  const {
+    payMethods,
+    isLoading: payMethodsLoading,
+    loadFailed: payMethodsFailed,
+  } = useMoneyPayMethods({ enabled: shareOpen || payPicking });
+  const { mutate: sendPayCard } = useSendPayCard();
+
+  const openShare = useCallback(() => {
+    Keyboard.dismiss();
+    setShareOpen(true);
+  }, []);
+
+  /** What a choice on the + sheet opens, once the sheet has gone. */
+  const pickShare = useCallback(
+    (choice: ShareChoice) => {
+      if (!id) return;
+      afterShare.current = () => {
+        switch (choice) {
+          case 'album-photos':
+            router.push(`/chat/${id}/share-album`);
+            return;
+          case 'date-plan':
+            router.push(`/chat/${id}/plan-date`);
+            return;
+          case 'saved-replies':
+            setSavedOpen(true);
+            return;
+          case 'pay-card':
+            if (payMethods.length > 0 || payMethodsLoading) setPayPicking(true);
+            else if (payMethodsFailed) showToast("Couldn't load your ways to pay. Check your connection and try again.");
+            // Nothing saved yet: adding one is the way to send one.
+            else router.push('/money/pay-methods/edit');
+            return;
+          default:
+            setListing(choice);
+        }
+      };
+      setShareOpen(false);
+    },
+    [id, payMethods.length, payMethodsLoading, payMethodsFailed, showToast],
+  );
+  const runAfterShare = useCallback(() => {
+    const next = afterShare.current;
+    afterShare.current = null;
+    next?.();
+  }, []);
+
+  const cardSent = useCallback(() => {
+    setListing(null);
+    // What you just shared is what you want to see, wherever you had scrolled.
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
 
   const editingId = editing?.id ?? null;
@@ -704,6 +782,8 @@ export default function ConversationScreen() {
               beingEdited={item.message.id === editingId}
               waiting={pendingEdits.has(item.message.id)}
               autoLoadMedia={autoLoad}
+              people={people}
+              notify={showToast}
             />
           );
         }
@@ -712,7 +792,7 @@ export default function ConversationScreen() {
     [
       user?.id, deliveryOf, showSeenBy, matcher, isDark, isOffline, retry, unsentActions,
       onHold, canSend, toggleReaction, showReactions, showSeenByFor, editingId, pendingEdits,
-      autoLoad,
+      autoLoad, people, showToast,
     ],
   );
 
@@ -913,7 +993,7 @@ export default function ConversationScreen() {
             onCancelEdit={cancelEdit}
             onSaveEdit={saveEdit}
             onEditExpired={editExpired}
-            onPlus={openSaved}
+            onPlus={openShare}
           />
         ) : !threadReady ? null : (
           <View
@@ -1001,6 +1081,48 @@ export default function ConversationScreen() {
         onClose={() => setSavedOpen(false)}
         onClosed={savedClosed}
         onPick={pickSaved}
+      />
+
+      <SharePlusSheet
+        visible={shareOpen}
+        onClose={() => setShareOpen(false)}
+        onClosed={runAfterShare}
+        onPick={pickShare}
+      />
+
+      {id ? (
+        <ShareListSheet
+          conversationId={id}
+          kind={listing}
+          onClose={() => setListing(null)}
+          onSent={cardSent}
+        />
+      ) : null}
+
+      <PayPickSheet
+        visible={payPicking}
+        payMethods={payMethods}
+        loading={payMethodsLoading}
+        title="Send how to pay"
+        hint="Tap one to send it"
+        footnote="It goes as a card they can open full size."
+        onClose={() => setPayPicking(false)}
+        onClosed={runAfterShare}
+        onPick={(method) => {
+          setPayPicking(false);
+          if (!id) return;
+          sendPayCard(
+            { conversationId: id, payMethodId: method.id },
+            {
+              onSuccess: () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
+              onError: (err) => showToast(cardSendError(err, 'pay-card')),
+            },
+          );
+        }}
+        onEdit={() => {
+          afterShare.current = () => router.push('/money/pay-methods');
+          setPayPicking(false);
+        }}
       />
     </SafeAreaView>
   );

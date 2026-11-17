@@ -52,6 +52,8 @@ const CREATE_FORMS = [
   'money/savings/new',
   'money/pay-methods/edit',
   'hire/[handle]',
+  // A date planned in a chat, from the composer's +.
+  'chat/[id]/plan-date',
   // Not a form, but held up to a client the same way: it rises over
   // whatever you were doing and closes with an X, back to it.
   'money/pay-methods/show',

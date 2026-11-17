@@ -4,9 +4,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
+import { MoneyPayMethodsService, type PayCardMethod } from '../money/money-pay-methods.service';
 import { NotifyService } from '../notifications/notify.service';
 import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
 import { isPastCalendarDate } from '../common/validators/calendar-date';
@@ -53,6 +55,13 @@ export interface Booking {
   conversationId: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * How to pay the creative, for the poster who owes them: their main way to
+   * pay, once they have confirmed and while the booking stands. Null when
+   * they have none yet. Absent on a list, on the creative's own view, and
+   * before confirming — a way to pay is shown to who pays, when they owe.
+   */
+  payTo?: PayCardMethod | null;
 }
 
 interface BookingRow {
@@ -100,6 +109,8 @@ export class BookingsService {
   constructor(
     private readonly db: DatabaseService,
     private readonly notifier: NotifyService,
+    // Optional so a module without Money still builds; payTo is then absent.
+    @Optional() private readonly payMethods?: MoneyPayMethodsService,
   ) {}
 
   /**
@@ -246,7 +257,18 @@ export class BookingsService {
       [userId, id],
     );
     if (!row) throw new NotFoundException('Booking not found');
-    return this.present(row, userId);
+    const booking = this.present(row, userId);
+    // The poster pays: once the creative has confirmed, and while it stands,
+    // the poster sees the creative's main way to pay. Nobody else does.
+    if (
+      this.payMethods &&
+      booking.yourSide === 'poster' &&
+      booking.confirmed &&
+      !booking.cancelledAt
+    ) {
+      booking.payTo = await this.payMethods.mainCardOf(row.creative_id);
+    }
+    return booking;
   }
 
   private async requireOpen(userId: string, id: string): Promise<BookingRow> {

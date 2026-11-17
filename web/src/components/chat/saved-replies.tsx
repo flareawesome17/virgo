@@ -1,14 +1,13 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Dialog,
   DialogContent,
@@ -35,33 +34,155 @@ import { chatProblem } from '@/components/chat/chat-errors';
 const MAX_TITLE = 60;
 const MAX_BODY = 2000;
 
-type Draft = { id?: string; title: string; body: string };
+/** A saved reply being written or changed; no id is a new one. */
+export type SavedReplyDraft = { id?: string; title: string; body: string };
 
 /**
- * The round + at the left of the composer, opening your saved replies
- * (board 127). A reply goes into the message box at the caret, never
+ * Your saved replies (board 127), as the Saved replies tile of the composer's
+ * + menu shows them. A reply goes into the message box at the caret, never
  * straight to the chat, so it can be changed before it is sent.
  *
- * Phase 2 turns this button into the share menu, with Saved replies one of
- * its tiles; the popover below is what that tile will open.
+ * Writing, changing and deleting one happen in dialogs the menu keeps open
+ * after it closes (SavedReplyDialogs), so this only asks for them.
  */
-export function SavedRepliesButton({ onInsert }: { onInsert: (body: string) => void }) {
-  const [open, setOpen] = useState(false);
+export function SavedRepliesPanel({
+  onInsert,
+  onBack,
+  onStartDraft,
+  onAskDelete,
+}: {
+  onInsert: (body: string) => void;
+  /** Back to the rest of the menu. */
+  onBack: () => void;
+  onStartDraft: (draft: SavedReplyDraft) => void;
+  onAskDelete: (reply: SavedReply) => void;
+}) {
   const [managing, setManaging] = useState(false);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [deleting, setDeleting] = useState<SavedReply | null>(null);
-  /** Set as a reply goes in, so closing hands focus to the box, not the button. */
-  const inserted = useRef(false);
-
-  const { replies, isLoading, loadFailed, refetch } = useSavedReplies(open || draft !== null);
-  const save = useSaveReply();
-  const remove = useDeleteSavedReply();
+  const { replies, isLoading, loadFailed, refetch } = useSavedReplies(true);
   const full = replies.length >= MAX_SAVED_REPLIES;
 
-  const startDraft = (next: Draft) => {
-    setOpen(false);
-    setDraft(next);
-  };
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          onClick={onBack}
+          aria-label="Back to Share in this chat"
+          className="-ml-1"
+          // The tile that opened this has gone; focus lands here instead of
+          // falling out of the menu.
+          autoFocus
+        >
+          <ArrowLeft className="size-4" />
+        </Button>
+        <p className="flex-1 text-sm font-bold">Saved replies</p>
+        {replies.length > 0 && (
+          <Button size="xs" variant="ghost" onClick={() => setManaging((m) => !m)}>
+            {managing ? 'Done' : 'Manage'}
+          </Button>
+        )}
+      </div>
+      <p className="-mt-2 text-xs text-muted-foreground">
+        {managing
+          ? 'Rename, change or delete them.'
+          : 'Click one to put it in your message. Change anything before you send.'}
+      </p>
+
+      {isLoading && replies.length === 0 ? (
+        <div className="grid place-items-center py-6">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Loading" />
+        </div>
+      ) : loadFailed && replies.length === 0 ? (
+        <p className="py-4 text-center text-sm text-muted-foreground">
+          Couldn&apos;t load your saved replies.{' '}
+          <button type="button" className="underline" onClick={() => void refetch()}>
+            Try again
+          </button>
+        </p>
+      ) : replies.length === 0 ? (
+        <p className="py-4 text-center text-sm text-muted-foreground">
+          Nothing saved yet. Keep the answers you give most — your rates, what&apos;s
+          included — and drop them into any chat.
+        </p>
+      ) : (
+        <ul className="-mx-1 flex max-h-72 flex-col gap-0.5 overflow-y-auto">
+          {replies.map((reply) => (
+            <li key={reply.id} className="flex items-start gap-1">
+              <button
+                type="button"
+                disabled={managing}
+                onClick={() => onInsert(reply.body)}
+                className={cn(
+                  'flex min-w-0 flex-1 flex-col rounded-xl px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  !managing && 'hover:bg-accent',
+                )}
+              >
+                <span className="truncate text-sm font-semibold">{reply.title}</span>
+                <span className="line-clamp-2 text-xs text-muted-foreground">{reply.body}</span>
+              </button>
+              {managing && (
+                <div className="flex shrink-0 items-center gap-0.5 pt-1.5">
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Edit ${reply.title}`}
+                    onClick={() => onStartDraft({ id: reply.id, title: reply.title, body: reply.body })}
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Delete ${reply.title}`}
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => onAskDelete(reply)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex flex-col gap-1.5 border-t pt-3">
+        <Button
+          variant="outline"
+          className="w-full"
+          disabled={full}
+          onClick={() => onStartDraft({ title: '', body: '' })}
+        >
+          <Plus className="size-4" />
+          New saved reply
+        </Button>
+        <p className="text-center text-xs text-muted-foreground">
+          Up to {MAX_SAVED_REPLIES}. They follow you to the phone too.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Writing or changing a saved reply, and deleting one. Outside the menu, so
+ * they stay open once it has closed.
+ */
+export function SavedReplyDialogs({
+  draft,
+  onDraftChange,
+  deleting,
+  onDeletingChange,
+}: {
+  draft: SavedReplyDraft | null;
+  onDraftChange: (draft: SavedReplyDraft | null) => void;
+  deleting: SavedReply | null;
+  onDeletingChange: (reply: SavedReply | null) => void;
+}) {
+  const save = useSaveReply();
+  const remove = useDeleteSavedReply();
 
   const submitDraft = () => {
     if (!draft) return;
@@ -72,7 +193,7 @@ export function SavedRepliesButton({ onInsert }: { onInsert: (body: string) => v
       { id: draft.id, title, body },
       {
         onSuccess: () => {
-          setDraft(null);
+          onDraftChange(null);
           toast.success(draft.id ? 'Saved reply changed' : 'Saved reply added');
         },
         onError: (err) => toast.error('Could not save it', { description: chatProblem(err) }),
@@ -83,7 +204,7 @@ export function SavedRepliesButton({ onInsert }: { onInsert: (body: string) => v
   const confirmDelete = () => {
     if (!deleting) return;
     const target = deleting;
-    setDeleting(null);
+    onDeletingChange(null);
     remove.mutate(target.id, {
       onError: (err) => toast.error('Could not delete it', { description: chatProblem(err) }),
     });
@@ -91,135 +212,7 @@ export function SavedRepliesButton({ onInsert }: { onInsert: (body: string) => v
 
   return (
     <>
-      <Popover
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) setManaging(false);
-        }}
-      >
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="secondary"
-            aria-label="Saved replies"
-            title="Saved replies"
-            className="shrink-0 rounded-full"
-          >
-            {open ? <X className="size-4" /> : <Plus className="size-4" />}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          side="top"
-          align="start"
-          sideOffset={8}
-          className="w-[min(24rem,calc(100vw-2rem))] gap-3 rounded-2xl p-3"
-          // Once a reply is in, the box has focus and its caret; the button
-          // taking focus back would pull it away.
-          onCloseAutoFocus={(event) => {
-            if (!inserted.current) return;
-            inserted.current = false;
-            event.preventDefault();
-          }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-bold">Saved replies</p>
-            {replies.length > 0 && (
-              <Button size="xs" variant="ghost" onClick={() => setManaging((m) => !m)}>
-                {managing ? 'Done' : 'Manage'}
-              </Button>
-            )}
-          </div>
-          <p className="-mt-2 text-xs text-muted-foreground">
-            {managing
-              ? 'Rename, change or delete them.'
-              : 'Click one to put it in your message. Change anything before you send.'}
-          </p>
-
-          {isLoading && replies.length === 0 ? (
-            <div className="grid place-items-center py-6">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Loading" />
-            </div>
-          ) : loadFailed && replies.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">
-              Couldn&apos;t load your saved replies.{' '}
-              <button type="button" className="underline" onClick={() => void refetch()}>
-                Try again
-              </button>
-            </p>
-          ) : replies.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">
-              Nothing saved yet. Keep the answers you give most — your rates, what&apos;s
-              included — and drop them into any chat.
-            </p>
-          ) : (
-            <ul className="-mx-1 flex max-h-72 flex-col gap-0.5 overflow-y-auto">
-              {replies.map((reply) => (
-                <li key={reply.id} className="flex items-start gap-1">
-                  <button
-                    type="button"
-                    disabled={managing}
-                    onClick={() => {
-                      inserted.current = true;
-                      setOpen(false);
-                      onInsert(reply.body);
-                    }}
-                    className={cn(
-                      'flex min-w-0 flex-1 flex-col rounded-xl px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      !managing && 'hover:bg-accent',
-                    )}
-                  >
-                    <span className="truncate text-sm font-semibold">{reply.title}</span>
-                    <span className="line-clamp-2 text-xs text-muted-foreground">{reply.body}</span>
-                  </button>
-                  {managing && (
-                    <div className="flex shrink-0 items-center gap-0.5 pt-1.5">
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`Edit ${reply.title}`}
-                        onClick={() => startDraft({ id: reply.id, title: reply.title, body: reply.body })}
-                      >
-                        <Pencil className="size-3.5" />
-                      </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`Delete ${reply.title}`}
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => {
-                          setOpen(false);
-                          setDeleting(reply);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="flex flex-col gap-1.5 border-t pt-3">
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={full}
-              onClick={() => startDraft({ title: '', body: '' })}
-            >
-              <Plus className="size-4" />
-              New saved reply
-            </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              Up to {MAX_SAVED_REPLIES}. They follow you to the phone too.
-            </p>
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      <Dialog open={draft !== null} onOpenChange={(next) => !next && setDraft(null)}>
+      <Dialog open={draft !== null} onOpenChange={(next) => !next && onDraftChange(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{draft?.id ? 'Edit saved reply' : 'New saved reply'}</DialogTitle>
@@ -247,7 +240,7 @@ export function SavedRepliesButton({ onInsert }: { onInsert: (body: string) => v
                 maxLength={MAX_TITLE}
                 autoFocus
                 placeholder="e.g. Wedding rates 2027"
-                onChange={(e) => setDraft((d) => (d ? { ...d, title: e.target.value } : d))}
+                onChange={(e) => draft && onDraftChange({ ...draft, title: e.target.value })}
               />
             </div>
             <div className="grid gap-1.5">
@@ -264,11 +257,11 @@ export function SavedRepliesButton({ onInsert }: { onInsert: (body: string) => v
                 rows={6}
                 placeholder="What you'd type every time"
                 className="max-h-72 min-h-32 resize-none"
-                onChange={(e) => setDraft((d) => (d ? { ...d, body: e.target.value } : d))}
+                onChange={(e) => draft && onDraftChange({ ...draft, body: e.target.value })}
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDraft(null)}>
+              <Button type="button" variant="outline" onClick={() => onDraftChange(null)}>
                 Cancel
               </Button>
               <Button
@@ -283,7 +276,7 @@ export function SavedRepliesButton({ onInsert }: { onInsert: (body: string) => v
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleting !== null} onOpenChange={(next) => !next && setDeleting(null)}>
+      <AlertDialog open={deleting !== null} onOpenChange={(next) => !next && onDeletingChange(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete “{deleting?.title}”?</AlertDialogTitle>

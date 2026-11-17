@@ -1,6 +1,6 @@
 # How clients pay you: review and plan
 
-Status: **approved 2026-11-17 as "A with safety"** (boards 109–117 and 150–152), built on branch `feat/pay-methods`, uncommitted. The chat pay card and booking pay details (118–119) are not built.
+Status: **approved 2026-11-17 as "A with safety"** (boards 109–117 and 150–152), built on branch `feat/pay-methods` and opened as PR #241. The chat pay card and booking pay details (118–119) were then approved and built on the same branch: a `pay-card` message kind (migration 110), `POST /messages/:id/pay-card`, the card in both apps' threads, the Send how to pay sheet with "A Virgo chat", and `payTo` on a confirmed booking for the poster.
 
 > "you fill out the fields, add your account then can even attach your bank's QR but I don't get how this works, like what was the QR for? when it won't let you show it for the clients to scan? it just doesn't make sense."
 
