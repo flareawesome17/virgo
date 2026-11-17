@@ -31,8 +31,12 @@ function messageOf(err: unknown): string {
  * Both apps' delete dialogs draw their fields from this and call `submit`
  * with the delete itself; the steps and what each server refusal means for
  * the form live here once.
+ *
+ * `purpose` 'pay_details' asks the same before a way clients pay is added,
+ * changed or removed: those details decide where a client's money goes.
+ * The emailed code is asked for that purpose, and is good for nothing else.
  */
-export function useDeleteProof() {
+export function useDeleteProof(purpose: 'delete' | 'pay_details' = 'delete') {
   const { profile } = useAuth();
   const twoFactor = !!profile?.twoFactorEnabled;
 
@@ -56,7 +60,7 @@ export function useDeleteProof() {
   }, []);
 
   const askForCode = async () => {
-    const started = await authApi.beginTwoFactorSecurityAction(password, 'delete');
+    const started = await authApi.beginTwoFactorSecurityAction(password, purpose);
     setChallenge({ token: started.challengeToken, email: started.email });
     setCode('');
     setStep('code');
@@ -109,7 +113,9 @@ export function useDeleteProof() {
         setError(
           refusal === 'CODE_EXPIRED'
             ? 'That code expired. Enter your password to get a new one.'
-            : 'Enter your password to delete this.',
+            : purpose === 'pay_details'
+              ? 'Enter your password to change how clients pay you.'
+              : 'Enter your password to delete this.',
         );
         return false;
       }

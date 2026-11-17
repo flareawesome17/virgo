@@ -1,5 +1,8 @@
 import type { ConfigService } from '@nestjs/config';
+import type { ReauthService } from '../auth/reauth.service';
 import type { DatabaseService } from '../database/database.service';
+import type { MailConfig } from '../mail/mail.config';
+import type { MailService } from '../mail/mail.service';
 import type { NotifyService } from '../notifications/notify.service';
 import type { ReceiptFilesService } from '../storage/receipt-files.service';
 import { MoneyNudgesService } from './money-nudges.service';
@@ -208,37 +211,158 @@ describe('MoneyPackagesService sharing and removal', () => {
 });
 
 describe('MoneyPayMethodsService', () => {
-  function methodsOver(count = 0) {
-    const tx = { query: jest.fn(async () => ({ rows: [{ id: 'm1', user_id: ME, kind: 'gcash', label: null, account_name: 'Ana Reyes', account_number: '0917 000 0000' }] })) };
+  const CHANGED = new Date('2026-11-03T02:00:00Z');
+  const PROOF = { proof: { password: 'hunter2' }, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0' };
+  const methodRow = {
+    id: 'm1',
+    user_id: ME,
+    kind: 'gcash',
+    label: null,
+    account_name: 'Ana Reyes',
+    account_number: '0917 000 0000',
+    details_changed_at: CHANGED,
+  };
+
+  function methodsOver(options: { count?: number; current?: Record<string, unknown> | null; qr?: { id: string } | null } = {}) {
+    const tx = {
+      query: jest.fn(async (sql: string, args?: unknown[]) => {
+        if (sql.startsWith('update money_pay_methods')) {
+          return { rows: [{ ...methodRow, ...options.current, account_number: args?.[5], details_changed_at: args?.[6] ? new Date() : CHANGED }] };
+        }
+        return { rows: [methodRow] };
+      }),
+    };
     const db = {
-      queryOne: jest.fn(async () => ({ n: count })),
-      query: jest.fn(async () => []),
+      queryOne: jest.fn(async (sql: string) => {
+        if (sql.includes('count(*)::int as n')) return { n: options.count ?? 0 };
+        if (sql.startsWith('select email from users')) return { email: 'ana@example.test' };
+        if (sql.includes('from money_pay_methods where id = $1')) {
+          return options.current === null ? null : { ...methodRow, ...options.current };
+        }
+        return null;
+      }),
+      query: jest.fn(async (sql: string) => (sql.startsWith('delete from money_pay_methods') ? [{ id: 'm1' }] : [])),
       transaction: jest.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
     };
     const receipts = {
       verify: jest.fn(async () => undefined),
       attach: jest.fn(async () => undefined),
-      forPayMethods: jest.fn(async () => new Map()),
+      forPayMethods: jest.fn(async () => (options.qr ? new Map([['m1', options.qr]]) : new Map())),
     };
-    const service = new MoneyPayMethodsService(db as unknown as DatabaseService, receipts as unknown as ReceiptFilesService);
-    return { service, receipts, tx };
+    const reauth = { confirm: jest.fn(async () => undefined) };
+    const mail = { send: jest.fn(async () => true) };
+    const mailConfig = { appUrl: 'https://app.virgo.test' };
+    const notifier = { notify: jest.fn(async () => undefined) };
+    const service = new MoneyPayMethodsService(
+      db as unknown as DatabaseService,
+      receipts as unknown as ReceiptFilesService,
+      reauth as unknown as ReauthService,
+      mail as unknown as MailService,
+      mailConfig as unknown as MailConfig,
+      notifier as unknown as NotifyService,
+    );
+    return { service, receipts, tx, db, reauth, mail, notifier };
   }
 
+  /** The alert is not waited on; let it finish. */
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+
   it(`stops at ${MAX_PAY_METHODS} ways to pay`, async () => {
-    const { service } = methodsOver(MAX_PAY_METHODS);
-    await expect(service.create(ME, { kind: 'gcash', accountNumber: '0917' })).rejects.toThrow('up to 4');
+    const { service } = methodsOver({ count: MAX_PAY_METHODS });
+    await expect(service.create(ME, { kind: 'gcash', accountNumber: '0917' }, PROOF)).rejects.toThrow('up to 4');
   });
 
   it('needs a number or a QR code a client can use', async () => {
     const { service } = methodsOver();
-    await expect(service.create(ME, { kind: 'maya', accountName: 'Ana' })).rejects.toThrow('Add the number, or a QR code');
+    await expect(service.create(ME, { kind: 'maya', accountName: 'Ana' }, PROOF)).rejects.toThrow(
+      'Add the number, or a QR code',
+    );
   });
 
   it('puts a QR code on the method, checked first', async () => {
     const { service, receipts, tx } = methodsOver();
-    await service.create(ME, { kind: 'gcash', qrReceiptId: 'qr-1' });
+    await service.create(ME, { kind: 'gcash', qrReceiptId: 'qr-1' }, PROOF);
     expect(receipts.verify).toHaveBeenCalledWith(ME, 'qr-1', { payMethodId: 'm1' });
     expect(receipts.attach).toHaveBeenCalledWith(tx, ME, { payMethodId: 'm1' }, 'qr-1');
+  });
+
+  it('asks for the password before a way to pay is added, and writes nothing when it is refused', async () => {
+    const { service, reauth, db } = methodsOver();
+    reauth.confirm.mockRejectedValueOnce(new Error('That password is not correct.'));
+    await expect(service.create(ME, { kind: 'gcash', accountNumber: '0917 555 0199' }, PROOF)).rejects.toThrow(
+      'not correct',
+    );
+    expect(reauth.confirm).toHaveBeenCalledWith(ME, { password: 'hunter2' }, 'pay_details');
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('emails and notifies the owner when one is added, with only the end of the number', async () => {
+    const { service, mail, notifier } = methodsOver();
+    await service.create(ME, { kind: 'gcash', accountNumber: '0917 000 0000' }, PROOF);
+    await settle();
+    const [to, email] = mail.send.mock.calls[0] as unknown as [string, { subject: string; text: string }];
+    expect(to).toBe('ana@example.test');
+    expect(email.subject).toBe('GCash was added to how clients pay you');
+    expect(email.text).toContain('Number now ends in 0000');
+    expect(email.text).not.toContain('0917 000 0000');
+    expect(email.text).toContain('https://app.virgo.test/settings/devices');
+    expect(notifier.notify).toHaveBeenCalledWith(
+      [ME],
+      expect.objectContaining({ topic: 'money', data: { type: 'money', payMethods: true } }),
+    );
+  });
+
+  it('marks the details changed, and says so, when a number is swapped', async () => {
+    const { service, tx, mail } = methodsOver();
+    await service.update(ME, 'm1', { accountNumber: '0917 555 0199' }, PROOF);
+    const [, args] = tx.query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(args[6]).toBe(true);
+    await settle();
+    const [, email] = mail.send.mock.calls[0] as unknown as [string, { subject: string; text: string }];
+    expect(email.subject).toBe('Your GCash pay details changed');
+    expect(email.text).toContain('Number now ends in 0199');
+  });
+
+  it('says when a QR code is replaced', async () => {
+    const { service, mail } = methodsOver({ qr: { id: 'qr-old' } });
+    await service.update(ME, 'm1', { qrReceiptId: 'qr-new' }, PROOF);
+    await settle();
+    const [, email] = mail.send.mock.calls[0] as unknown as [string, { text: string }];
+    expect(email.text).toContain('QR code replaced');
+  });
+
+  it('leaves the date alone, and says nothing, when a save changes nothing', async () => {
+    const { service, tx, mail } = methodsOver();
+    await service.update(ME, 'm1', { accountName: 'Ana Reyes', accountNumber: '0917 000 0000' }, PROOF);
+    const [, args] = tx.query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(args[6]).toBe(false);
+    await settle();
+    expect(mail.send).not.toHaveBeenCalled();
+  });
+
+  it('asks for the password before one is removed, and tells the owner', async () => {
+    const { service, reauth, mail } = methodsOver();
+    await service.remove(ME, 'm1', PROOF);
+    expect(reauth.confirm).toHaveBeenCalledWith(ME, { password: 'hunter2' }, 'pay_details');
+    await settle();
+    const [, email] = mail.send.mock.calls[0] as unknown as [string, { subject: string }];
+    expect(email.subject).toBe('GCash was removed from how clients pay you');
+  });
+
+  it('makes one the main way to pay without a password, and only for its owner', async () => {
+    const { service, reauth, db } = methodsOver({ current: null });
+    await expect(service.makeMain(ME, 'm1')).rejects.toThrow('not found');
+    expect(reauth.confirm).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('never lets a failed email undo the change', async () => {
+    const { service, mail } = methodsOver();
+    mail.send.mockRejectedValueOnce(new Error('SMTP down'));
+    await expect(service.create(ME, { kind: 'gcash', accountNumber: '0917' }, PROOF)).resolves.toMatchObject({
+      id: 'm1',
+    });
+    await settle();
   });
 });
 
@@ -255,17 +379,44 @@ describe('renderStatement', () => {
     payments: [{ date: '2026-10-08', amountMinor: 1_500_000, withheldMinor: 75_000, method: 'gcash' }],
     due: [{ date: '2026-11-14', amountMinor: 3_500_000, overdue: false }],
     payMethods: [
-      { id: 'm1', kind: 'gcash', label: null, accountName: 'Ana Reyes', accountNumber: '0917 000 0000', qr: { id: 'q', name: 'qr.png', contentType: 'image/png', sizeBytes: 1, url: 'https://bucket.test/qr.png?sig=1&x=2' } },
+      { id: 'm1', kind: 'gcash', label: null, accountName: 'Ana Reyes', accountNumber: '0917 000 0000', qr: { id: 'q', name: 'qr.png', contentType: 'image/png', sizeBytes: 1, url: 'https://bucket.test/qr.png?sig=1&x=2' }, detailsChangedAt: '2026-11-03T02:00:00.000Z' },
+      { id: 'm2', kind: 'bank', label: 'BPI', accountName: 'Ana Reyes', accountNumber: '1234 5678 90', qr: null, detailsChangedAt: '2026-10-01T02:00:00.000Z' },
     ],
   };
+  const LATER = new Date('2026-11-17T02:00:00Z');
 
   it('shows the balance, the next payment, and how to pay', () => {
-    const html = renderStatement(view);
+    const html = renderStatement(view, LATER);
     expect(html).toContain('₱35,000');
     expect(html).toContain('Next payment: ₱35,000 due Sat, Nov 14, 2026');
     expect(html).toContain('0917 000 0000');
     expect(html).toContain('incl. ₱750 tax withheld (BIR 2307)');
     expect(html).toContain('not an official receipt or a BIR invoice');
+  });
+
+  it('leads with the amount to send and the main way to pay, and folds the rest', () => {
+    const html = renderStatement(view, LATER);
+    expect(html).toContain('Send ₱35,000 to Ana Reyes');
+    expect(html.indexOf('How to pay')).toBeLessThan(html.indexOf('Still to pay'));
+    expect(html).toContain('Open the QR to save it');
+    expect(html).toContain('Paying from this phone?');
+    expect(html).toContain('check that your app shows the name <strong>Ana Reyes</strong>');
+    expect(html).toContain('<summary>Other ways to pay: BPI</summary>');
+    expect(html.indexOf('0917 000 0000')).toBeLessThan(html.indexOf('1234 5678 90'));
+  });
+
+  it('says when the details last changed, and warns for a day after a change', () => {
+    const settled = renderStatement(view, LATER);
+    expect(settled).toContain('These pay details last changed Tue, Nov 3, 2026');
+    expect(settled).not.toContain('These pay details are new');
+
+    const fresh = renderStatement(view, new Date('2026-11-03T20:00:00Z'));
+    expect(fresh).toContain('These pay details are new');
+    expect(fresh).toContain('changed how to pay on Tue, Nov 3, 2026');
+  });
+
+  it('says the link is private', () => {
+    expect(renderStatement(view, LATER)).toContain('Only people with this link can open it');
   });
 
   it('escapes everything it is given and runs no script', () => {

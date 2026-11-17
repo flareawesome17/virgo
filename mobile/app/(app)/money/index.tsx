@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, RefreshControl, ScrollView, SectionList, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -35,12 +35,14 @@ import {
   useMoneyEntries,
   useMoneyExport,
   useMoneyPackages,
+  useMoneyPayMethods,
   useMoneySavings,
   useMoneySuggestions,
   useMoneySummary,
   useTheme,
   useUpdateMoneyEntry,
 } from '@/src/hooks';
+import { PayPickSheet } from '@/components/money/PayPickSheet';
 import { CardListSkeleton, EmptyState, FilterChip, ScreenHeader } from '@/components';
 import { DateTile } from '@/components/DateTile';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -236,6 +238,19 @@ export default function MoneyScreen() {
   const dismiss = useDismissMoneySuggestion();
   const update = useUpdateMoneyEntry();
   const exporter = useMoneyExport();
+  const { payMethods } = useMoneyPayMethods();
+  const [picking, setPicking] = useState(false);
+  // Where to go once the picker has fully closed: iOS will not present the
+  // full-screen QR over a sheet that is still on its way down.
+  const afterPick = useRef<string | null>(null);
+
+  // Show QR: straight to the code with one saved, a choice with more, and
+  // the form with none, since there is nothing yet to show.
+  const showQr = () => {
+    if (payMethods.length === 0) router.push('/money/pay-methods/edit');
+    else if (payMethods.length === 1) router.push(`/money/pay-methods/show?id=${payMethods[0].id}`);
+    else setPicking(true);
+  };
 
   // Soonest due first; the list arrives newest first.
   const waiting = useMemo(
@@ -451,7 +466,9 @@ export default function MoneyScreen() {
         </Pressable>
       ) : null}
 
-      {/* Adding is the point of the page: one filled button, two quiet ones. */}
+      {/* Adding is the point of the page: one filled button. Show QR beside it,
+          labelled and quiet, for a quick send: a client in front of you
+          scans the account you pick. */}
       <View className="flex-row gap-2.5 mt-3">
         <Pressable
           onPress={() => router.push(`/money/new?kind=${filter === 'expense' ? 'expense' : 'income'}`)}
@@ -462,20 +479,21 @@ export default function MoneyScreen() {
           <Text className="text-action-foreground text-[15px] font-semibold">Add entry</Text>
         </Pressable>
         <Pressable
+          onPress={showQr}
+          accessibilityRole="button"
+          accessibilityLabel="Show QR: your GCash, Maya or bank code for a client to scan"
+          className="flex-1 h-11 rounded-[14px] bg-secondary flex-row items-center justify-center gap-2 active:opacity-70"
+        >
+          <QrCodeIcon size={18} className="text-foreground" />
+          <Text className="text-foreground text-[15px] font-semibold">Show QR</Text>
+        </Pressable>
+        <Pressable
           onPress={() => router.push('/money/packages/new')}
           accessibilityRole="button"
           accessibilityLabel="New package: a total, a deposit and a balance"
           className="w-11 h-11 rounded-[14px] bg-secondary items-center justify-center active:opacity-70"
         >
           <PackagePlusIcon size={19} className="text-foreground" />
-        </Pressable>
-        <Pressable
-          onPress={() => router.push('/money/pay-methods')}
-          accessibilityRole="button"
-          accessibilityLabel="How clients pay you"
-          className="w-11 h-11 rounded-[14px] bg-secondary items-center justify-center active:opacity-70"
-        >
-          <QrCodeIcon size={19} className="text-foreground" />
         </Pressable>
       </View>
 
@@ -717,6 +735,24 @@ export default function MoneyScreen() {
         )}
       </View>
       <SetAsideSheet offer={asking} savings={saved.savings} onClose={setAsidePrompt.clear} />
+      <PayPickSheet
+        visible={picking}
+        payMethods={payMethods}
+        onClose={() => setPicking(false)}
+        onClosed={() => {
+          const next = afterPick.current;
+          afterPick.current = null;
+          if (next) router.push(next);
+        }}
+        onPick={(m) => {
+          afterPick.current = `/money/pay-methods/show?id=${m.id}`;
+          setPicking(false);
+        }}
+        onEdit={() => {
+          afterPick.current = '/money/pay-methods';
+          setPicking(false);
+        }}
+      />
     </SafeAreaView>
   );
 }

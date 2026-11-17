@@ -8,15 +8,17 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Trash2Icon } from 'lucide-react-native';
+import { StarIcon, Trash2Icon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { ApiError, PAY_METHOD_KINDS, type PayMethodKind } from '@/src/api';
+import { ApiError, PAY_METHOD_KINDS, type DeleteProof, type PayMethodKind } from '@/src/api';
 import {
   useCreateMoneyPayMethod,
   useDeleteMoneyPayMethod,
+  useMakeMainMoneyPayMethod,
   useMoneyPayMethods,
   useUpdateMoneyPayMethod,
 } from '@/src/hooks';
+import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
 import { FormHeader } from '@/components/FormHeader';
 import { InsetFrame } from '@/components/InsetFrame';
 import { CARD_SHADOW, Choice, Label, FormSaveBar } from '@/components/money/FormBits';
@@ -24,7 +26,9 @@ import { ReceiptField, draftOf, receiptBusy, type ReceiptDraft } from '@/compone
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { useKeyboardAwareScroll } from '@/src/lib/keyboard';
 
-cssInterop(Trash2Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+for (const Icon of [StarIcon, Trash2Icon]) {
+  cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
+}
 
 const NUMBER_HINT: Record<PayMethodKind, string> = {
   gcash: 'The GCash number, e.g. 0917 123 4567',
@@ -36,6 +40,11 @@ const NUMBER_HINT: Record<PayMethodKind, string> = {
 /**
  * One way clients can pay you, new or an edit (?id=<id>): which wallet or
  * bank, the account name and number, and the QR code to scan.
+ *
+ * Saving or removing asks for the password first, or with two-factor on the
+ * emailed code: these details decide where a client's money goes, and a
+ * stranger in the account swapping in their own QR code is the harm here.
+ * Making one the main way to pay asks for nothing; it moves no money.
  */
 export default function PayMethodForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -43,12 +52,14 @@ export default function PayMethodForm() {
   const keyboard = useKeyboardAwareScroll();
   const { payMethods } = useMoneyPayMethods();
   const existing = isEdit ? payMethods.find((m) => m.id === id) : undefined;
+  const isMain = isEdit && payMethods[0]?.id === id;
 
   const [kind, setKind] = useState<PayMethodKind>('gcash');
   const [label, setLabel] = useState('');
   const [accountName, setAccountName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [qr, setQr] = useState<ReceiptDraft | null>(null);
+  const [confirm, setConfirm] = useState<'save' | 'remove' | null>(null);
   const savedQrId = useRef<string | null>(null);
 
   const filled = useRef(false);
@@ -71,6 +82,7 @@ export default function PayMethodForm() {
   const create = useCreateMoneyPayMethod();
   const update = useUpdateMoneyPayMethod();
   const remove = useDeleteMoneyPayMethod();
+  const makeMain = useMakeMainMoneyPayMethod();
   const saving = create.isPending || update.isPending;
   const needsLabel = kind === 'bank' || kind === 'other';
 
@@ -78,11 +90,26 @@ export default function PayMethodForm() {
     allowLeave();
     router.back();
   };
-  const failed = (err: unknown) =>
-    Alert.alert(
-      "Couldn't save it",
-      err instanceof ApiError && err.status !== 0 ? err.message : 'Check your connection and try again.',
+
+  const fields = () => ({
+    kind,
+    label: needsLabel ? label.trim() || null : null,
+    accountName: accountName.trim() || null,
+    accountNumber: accountNumber.trim() || null,
+  });
+
+  /** An edit that changes nothing a client pays to needs no password: it just closes. */
+  const unchanged = () => {
+    if (!existing) return false;
+    const f = fields();
+    return (
+      f.kind === existing.kind &&
+      f.label === (needsLabel ? existing.label : null) &&
+      f.accountName === existing.accountName &&
+      f.accountNumber === existing.accountNumber &&
+      (qr?.id ?? null) === savedQrId.current
     );
+  };
 
   const save = () => {
     if (saving) return;
@@ -98,33 +125,38 @@ export default function PayMethodForm() {
       Alert.alert('Add the number or a QR code', 'Something a client can pay to.');
       return;
     }
-    const fields = {
-      kind,
-      label: needsLabel ? label.trim() || null : null,
-      accountName: accountName.trim() || null,
-      accountNumber: accountNumber.trim() || null,
-    };
-    const qrId = qr?.id ?? null;
-    if (isEdit && id) {
-      update.mutate(
-        { id, ...fields, ...(qrId !== savedQrId.current ? { qrReceiptId: qrId } : {}) },
-        { onSuccess: leave, onError: failed },
-      );
+    if (isEdit && unchanged()) {
+      leave();
       return;
     }
-    create.mutate({ ...fields, ...(qrId ? { qrReceiptId: qrId } : {}) }, { onSuccess: leave, onError: failed });
+    setConfirm('save');
   };
 
-  const confirmDelete = () =>
+  /** The save itself, once the sheet has the password or the code. */
+  const performSave = (proof: DeleteProof) => {
+    const qrId = qr?.id ?? null;
+    if (isEdit && id) {
+      return update.mutateAsync({
+        id,
+        ...fields(),
+        ...(qrId !== savedQrId.current ? { qrReceiptId: qrId } : {}),
+        proof,
+      });
+    }
+    return create.mutateAsync({ ...fields(), ...(qrId ? { qrReceiptId: qrId } : {}), proof });
+  };
+
+  const performRemove = (proof: DeleteProof) => remove.mutateAsync({ id: id as string, proof });
+
+  const setAsMain = () =>
     id &&
-    Alert.alert('Remove this way to pay?', 'Statements stop showing it, including ones already shared.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => remove.mutate(id, { onSuccess: leave, onError: failed }),
-      },
-    ]);
+    makeMain.mutate(id, {
+      onError: (err) =>
+        Alert.alert(
+          "Couldn't change it",
+          err instanceof ApiError && err.status !== 0 ? err.message : 'Check your connection and try again.',
+        ),
+    });
 
   return (
     <InsetFrame>
@@ -209,14 +241,41 @@ export default function PayMethodForm() {
             />
           </View>
 
+          {isEdit ? (
+            <View className="px-5 mt-5">
+              {isMain ? (
+                <View className="flex-row items-center gap-2 px-1">
+                  <StarIcon size={15} className="text-action" />
+                  <Text className="text-muted-foreground text-[13px]">
+                    Your main way to pay: first on Show QR and on statements.
+                  </Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={setAsMain}
+                  disabled={makeMain.isPending || makeMain.isSuccess}
+                  accessibilityRole="button"
+                  className="min-h-12 flex-row items-center gap-3 rounded-2xl bg-card px-4 active:opacity-70"
+                  style={CARD_SHADOW}
+                >
+                  <StarIcon size={17} className="text-action" />
+                  <Text className="flex-1 text-foreground text-[15px] font-semibold">
+                    {makeMain.isSuccess ? 'This is now your main way to pay' : 'Make this my main way to pay'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
+
           <Text className="text-muted-foreground text-[12px] leading-[17px] px-6 mt-5">
-            Shown only on statements you share. Virgo never takes or holds a payment.
+            Saving asks for your password, and we email you when these details change. Virgo never takes or
+            holds a payment.
           </Text>
 
           {isEdit ? (
             <View className="px-5 mt-8">
               <Pressable
-                onPress={confirmDelete}
+                onPress={() => setConfirm('remove')}
                 disabled={remove.isPending}
                 accessibilityRole="button"
                 className="min-h-12 flex-row items-center justify-center gap-2 rounded-2xl active:bg-destructive/10"
@@ -234,6 +293,34 @@ export default function PayMethodForm() {
           busy={saving}
         />
       </View>
+
+      <DeleteConfirmSheet
+        visible={confirm === 'save'}
+        purpose="pay_details"
+        tone="action"
+        title="Confirm it's you"
+        message="This decides where your clients' money goes, so changing it needs your password. We'll email you when it changes."
+        confirmLabel="Confirm and save"
+        onCancel={() => setConfirm(null)}
+        onConfirm={performSave}
+        onDone={() => {
+          setConfirm(null);
+          leave();
+        }}
+      />
+      <DeleteConfirmSheet
+        visible={confirm === 'remove'}
+        purpose="pay_details"
+        title="Remove this way to pay?"
+        message="Statements stop showing it, including ones already shared. Enter your password to remove it."
+        confirmLabel="Remove"
+        onCancel={() => setConfirm(null)}
+        onConfirm={performRemove}
+        onDone={() => {
+          setConfirm(null);
+          leave();
+        }}
+      />
     </InsetFrame>
   );
 }

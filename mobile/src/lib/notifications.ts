@@ -775,6 +775,8 @@ export interface NotificationPayload {
   packageId?: string;
   /** For 'money': the month a recap is for, YYYY-MM; it opens Insights there. */
   recap?: string;
+  /** For 'money': a way clients pay was added, changed or removed; it opens them. */
+  payMethods?: boolean;
   /** For 'job_application': the post it is on, opened with its applicants. */
   postId?: string;
   /** The stored notification this push is, to mark read when it is opened. */

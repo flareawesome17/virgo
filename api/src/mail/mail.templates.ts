@@ -116,7 +116,7 @@ function layout(options: {
 /** A short-lived second factor sent only after the password has been checked. */
 export function twoFactorCode(options: {
   code: string;
-  purpose: 'setup' | 'login' | 'disable' | 'recovery' | 'delete';
+  purpose: 'setup' | 'login' | 'disable' | 'recovery' | 'delete' | 'pay_details';
   expiresInMinutes: number;
 }): RenderedEmail {
   const descriptions = {
@@ -125,6 +125,7 @@ export function twoFactorCode(options: {
     disable: 'turning off two-factor authentication',
     recovery: 'replacing your recovery codes',
     delete: 'deleting a workspace or an album',
+    pay_details: 'changing how clients pay you',
   } as const;
   const action = descriptions[options.purpose];
   const intro = `Use this six-digit code to finish ${action} for your Virgo account.`;
@@ -311,6 +312,62 @@ export function newSignIn(options: {
       ...fineprint,
       ...(outro ? ['', outro] : []),
     ].join('\n'),
+  };
+}
+
+/**
+ * Sent whenever a way clients pay is added, changed or removed. Those
+ * details decide where a client's money goes, so a change the owner did not
+ * make is the one to hear about at once.
+ */
+export function payDetailsChanged(options: {
+  /** "GCash", "BPI". */
+  method: string;
+  change: 'added' | 'changed' | 'removed';
+  /** The last four of the number now on it, when it has one. */
+  numberEnding: string | null;
+  /** What happened to its QR code, if anything did. */
+  qr: 'added' | 'replaced' | 'removed' | null;
+  when: string;
+  /** "Virgo app · iPhone or iPad", when it can be told. */
+  device: string | null;
+  /** Settings → Devices, in the web app. */
+  devicesUrl: string;
+}): RenderedEmail {
+  const { method, change } = options;
+  const heading =
+    change === 'added'
+      ? `${method} was added to how clients pay you`
+      : change === 'removed'
+        ? `${method} was removed from how clients pay you`
+        : `Your ${method} pay details changed`;
+  const intro =
+    change === 'removed'
+      ? `Clients no longer see ${method} as a way to pay you. If this was you, there is nothing to do.`
+      : `The ${method} details your clients pay to were just ${change}. If this was you, there is nothing to do.`;
+  const details = [
+    ...(change !== 'removed' && options.numberEnding ? [`Number now ends in ${options.numberEnding}`] : []),
+    ...(options.qr ? [`QR code ${options.qr}`] : []),
+    options.when,
+    ...(options.device ? [options.device] : []),
+  ].join('\n');
+  const fineprint = [
+    ...(change === 'removed' ? [] : ['For the next day, your statements tell clients these details are new.']),
+    `Every device signed in to your account: ${options.devicesUrl}`,
+  ];
+  const outro = 'Not you? Change your password, then sign out the devices you don’t know.';
+
+  return {
+    subject: heading,
+    html: layout({
+      heading,
+      intro,
+      quote: details,
+      cta: { label: 'Open Devices', url: options.devicesUrl },
+      fineprint,
+      outro,
+    }),
+    text: [heading, '', intro, '', details, '', outro, '', ...fineprint].join('\n'),
   };
 }
 

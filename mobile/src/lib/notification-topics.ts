@@ -86,9 +86,11 @@ const TOPICS: Record<
     href: (d) =>
       typeof d.recap === 'string'
         ? `/money/insights?year=${d.recap.slice(0, 4)}&month=${d.recap}`
-        : typeof d.packageId === 'string'
-          ? `/money/packages/${d.packageId}`
-          : '/money',
+        : d.payMethods === true
+          ? '/money/pay-methods'
+          : typeof d.packageId === 'string'
+            ? `/money/packages/${d.packageId}`
+            : '/money',
   },
   reminder: {
     icon: CalendarIcon,
