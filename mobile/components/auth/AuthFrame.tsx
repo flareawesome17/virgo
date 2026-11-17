@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeftIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -42,7 +43,7 @@ export function AuthFrame({
 }) {
   return (
     <InsetFrame edges={['top']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+      <KeyboardFrame>
         {onBack ? (
           <View className="h-12 flex-row items-center justify-between px-2">
             <Pressable
@@ -61,7 +62,7 @@ export function AuthFrame({
           </View>
         ) : null}
 
-        <ScrollView
+        <KeyboardScroll
           className="flex-1"
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -91,10 +92,10 @@ export function AuthFrame({
             </View>
           ) : null}
           {children}
-        </ScrollView>
+        </KeyboardScroll>
 
         {footer}
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
     </InsetFrame>
   );
 }

@@ -13,6 +13,7 @@ import { ChevronRightIcon, type LucideIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useTheme } from '@/src/hooks';
 import { PALETTES } from '@/theme';
+import { useKeyboardReveal } from '@/components/KeyboardForm';
 
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -97,6 +98,7 @@ export function FormInput({
   minHeight = 96,
   onFocus,
   onBlur,
+  onContentSizeChange,
   style,
   ...props
 }: TextInputProps & {
@@ -108,6 +110,8 @@ export function FormInput({
 }) {
   const [focused, setFocused] = useState(false);
   const placeholder = usePlaceholderColor();
+  // Inside a KeyboardFrame: kept above the keyboard while typed in.
+  const keyboard = useKeyboardReveal();
   return (
     <View
       className={`flex-row gap-2.5 px-4 rounded-[14px] bg-card ${multiline ? 'items-start' : 'items-center'} ${
@@ -123,11 +127,17 @@ export function FormInput({
         {...props}
         onFocus={(event) => {
           setFocused(true);
+          keyboard.onFocus?.(event);
           onFocus?.(event);
         }}
         onBlur={(event) => {
           setFocused(false);
           onBlur?.(event);
+        }}
+        onContentSizeChange={(event) => {
+          // A note's new line can drop below the keyboard as it is typed.
+          if (multiline && focused) keyboard.onGrow?.();
+          onContentSizeChange?.(event);
         }}
         className="flex-1 min-w-0 text-foreground text-[16px] leading-[22px]"
         style={[{ paddingVertical: multiline ? 14 : 0, minHeight: multiline ? minHeight - 2 : 50 }, style]}

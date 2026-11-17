@@ -1,7 +1,7 @@
 import {
-  View, Text, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform,
-  Switch, useWindowDimensions,
+  View, Text, Pressable, TextInput, Alert, Switch, useWindowDimensions,
 } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -290,12 +290,9 @@ export default function ProfileSettingsScreen() {
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
+      <KeyboardFrame>
 
-      <ScrollView keyboardDismissMode="on-drag"
+      <KeyboardScroll keyboardDismissMode="on-drag"
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140 }}
@@ -579,7 +576,7 @@ export default function ProfileSettingsScreen() {
             </Text>
           )}
         </View>
-      </ScrollView>
+      </KeyboardScroll>
 
       {/* Save FAB */}
       <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
@@ -610,7 +607,7 @@ export default function ProfileSettingsScreen() {
           </Text>
         </Pressable>
       </View>
-          </KeyboardAvoidingView>
+          </KeyboardFrame>
       {cover.dialog}
     </SafeAreaView>
   );

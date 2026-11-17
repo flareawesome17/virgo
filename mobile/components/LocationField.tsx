@@ -5,6 +5,7 @@ import { cssInterop } from 'nativewind';
 import { useTheme } from '@/src/hooks';
 import { suggestLocations } from '@/src/lib/ph-locations';
 import { usePlaceholderColor } from '@/components/Form';
+import { useKeyboardReveal } from '@/components/KeyboardForm';
 
 cssInterop(MapPinIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -33,6 +34,7 @@ export function LocationField({
 }) {
   const [focused, setFocused] = useState(false);
   const quiet = usePlaceholderColor();
+  const keyboard = useKeyboardReveal();
 
   return (
     <View>
@@ -50,7 +52,10 @@ export function LocationField({
           placeholder={placeholder}
           placeholderTextColor={form ? quiet : '#9ca3af'}
           maxLength={120}
-          onFocus={() => setFocused(true)}
+          onFocus={(event) => {
+            setFocused(true);
+            keyboard.onFocus?.(event);
+          }}
           // Closes when the field is left, a beat late: tapping a suggestion
           // blurs the input first, and closing at once meant the tap landed on
           // nothing. Without it the list stayed open over the form below.

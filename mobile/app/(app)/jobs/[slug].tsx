@@ -1,7 +1,7 @@
 import {
-  View, Text, ScrollView, Pressable, Alert, Share,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
-} from 'react-native';
+  View, Text, Pressable, Alert, Share,
+  ActivityIndicator, } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -219,12 +219,8 @@ export default function JobDetailScreen() {
         )}
       </View>
 
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={8}
-      >
-        <ScrollView keyboardDismissMode="on-drag"
+      <KeyboardFrame>
+        <KeyboardScroll keyboardDismissMode="on-drag"
           contentContainerStyle={{ padding: 20, paddingTop: 8, paddingBottom: insets.bottom + 40, gap: 28 }}
           keyboardShouldPersistTaps="handled"
         >
@@ -455,7 +451,7 @@ export default function JobDetailScreen() {
               </View>
             </View>
           )}
-        </ScrollView>
+        </KeyboardScroll>
 
         {/* The screen's one action, in reach at any scroll position. It was
             the last thing on the page, under everything there is to read. */}
@@ -490,7 +486,7 @@ export default function JobDetailScreen() {
             )}
           </View>
         )}
-      </KeyboardAvoidingView>
+      </KeyboardFrame>
 
       {/* The post and the person are reported separately: a fake listing
           and a person who is a problem are different things to act on. */}

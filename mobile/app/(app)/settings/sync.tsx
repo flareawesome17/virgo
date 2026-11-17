@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, Pressable, Alert, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, Pressable, Alert, TextInput, ActivityIndicator } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -112,12 +113,9 @@ export default function SyncStorageScreen() {
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       {/* Lifts the form above the keyboard. Without this the fields nearest
           the bottom sat underneath it on iOS with no way to scroll to them. */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
+      <KeyboardFrame>
 
-      <ScrollView
+      <KeyboardScroll
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 60 }}
@@ -375,8 +373,8 @@ export default function SyncStorageScreen() {
             )}
           </View>
         </View>
-      </ScrollView>
-          </KeyboardAvoidingView>
+      </KeyboardScroll>
+          </KeyboardFrame>
     </SafeAreaView>
   );
 }

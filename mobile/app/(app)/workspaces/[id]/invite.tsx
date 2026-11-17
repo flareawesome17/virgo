@@ -1,15 +1,13 @@
 import {
   View,
   Text,
-  ScrollView,
   Pressable,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   Switch,
   TextInput,
 } from 'react-native';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROLE_DEFAULT_ACCESS, type CollaboratorRole, type MediaAccess } from '@/src/api';
 import {
@@ -137,7 +135,7 @@ export default function InviteCollaboratorsScreen() {
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
       {/* Lifts the search above the keyboard on iOS. */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+      <KeyboardFrame>
         <View className="px-2 pt-1 flex-row items-center gap-1">
           <Pressable
             onPress={() => router.back()}
@@ -152,7 +150,7 @@ export default function InviteCollaboratorsScreen() {
           </Text>
         </View>
 
-        <ScrollView
+        <KeyboardScroll
           className="flex-1"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -364,8 +362,8 @@ export default function InviteCollaboratorsScreen() {
               {create.isPending ? 'Sending…' : 'Send invite'}
             </Text>
           </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardScroll>
+      </KeyboardFrame>
 
       <ChoiceSheet<Level>
         visible={!!choosingAlbum}
