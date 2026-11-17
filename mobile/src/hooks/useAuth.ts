@@ -9,6 +9,7 @@
 
 import { clearReminderNotifications, knownPushToken, setAppBadgeCount } from '@/src/lib/notifications';
 import { forgetUploadQueue } from '@/src/lib/upload-queue-storage';
+import { readLastAccount } from '@/src/lib/last-account';
 import { useEffect, useMemo } from 'react';
 import { setAppleFinishing, type AppleProof } from '@/src/lib/apple-sign-in';
 import {
@@ -183,6 +184,28 @@ export function useAuth() {
       await hydrateTokens();
       if (!getAccessToken()) return null;
 
+      /*
+       * On a launch, open on the account this phone last knew while the
+       * server is asked (lib/last-account).
+       *
+       * Waiting for the answer is what stranded a phone opened offline on
+       * "Can't reach the server", and what held the splash for the whole
+       * round trip on a slow connection, up to the 20-second timeout. Now the
+       * app opens on the saved screens at once. What the server says still
+       * wins: a fresh account replaces this one, a refused session signs out
+       * (null, below, and forgetSession), and no answer at all leaves this
+       * one standing, flagged as an error, to be asked again on reconnect.
+       *
+       * Marked as written at time zero, so it counts as stale from the start
+       * and the reconnect refetch is not skipped as "fresh enough".
+       */
+      if (queryClient.getQueryData(queryKeys.auth.session) === undefined) {
+        const known = await readLastAccount();
+        if (known && queryClient.getQueryData(queryKeys.auth.session) === undefined) {
+          queryClient.setQueryData(queryKeys.auth.session, known, { updatedAt: 0 });
+        }
+      }
+
       try {
         return await authApi.me();
       } catch (err) {
@@ -202,8 +225,9 @@ export function useAuth() {
      * Coming back to the app refetches regardless of age: that is when the
      * account can have changed somewhere else — an email confirmed from the
      * mail app, a plan bought on the web — and the banner or the guard should
-     * know straight away, not a minute later. Nothing here is persisted, so a
-     * cold start always asks.
+     * know straight away, not a minute later. The session is not in the
+     * persisted cache, so a cold start always asks; it only opens on the
+     * saved account while it does.
      */
     staleTime: 60_000,
     refetchOnWindowFocus: 'always',
