@@ -18,6 +18,7 @@ import { getConnectionQuality } from '@/src/hooks/useConnectionQuality';
 import { useTheme } from '@/src/hooks';
 import { useKeyboardUp } from '@/src/lib/keyboard';
 import { PALETTES } from '@/theme';
+import { quoteLine } from './files/files-words';
 
 for (const Icon of [AtSignIcon, CheckIcon, PencilIcon, PlusIcon, ReplyIcon, SendIcon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -315,7 +316,7 @@ export const Composer = memo(function Composer({
               Replying to {replyTo.sender_name}
             </Text>
             <Text className="text-muted-foreground text-xs" numberOfLines={1}>
-              {replyTo.body}
+              {quoteLine(replyTo)}
             </Text>
           </View>
           <Pressable
@@ -367,7 +368,7 @@ export const Composer = memo(function Composer({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Share something"
-            accessibilityHint="Album photos, a date, a booking, a job post, a post, a package, how to pay, or a saved reply"
+            accessibilityHint="Photos or a file from your phone, album photos, a date, a booking, a job post, a post, a package, how to pay, or a saved reply"
             onPress={onPlus}
             className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.94]"
           >

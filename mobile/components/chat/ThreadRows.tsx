@@ -11,13 +11,19 @@ import { cssInterop } from 'nativewind';
 import {
   firstVirgoLink,
   isCardKind,
+  isFilesMessage,
   isNotice,
   splitLinks,
+  type ChatAttachment,
   type ConversationMessage,
   type JobAcceptedContext,
   type ReactionKey,
 } from '@/src/api';
 import type { OutboxItem } from '@/src/lib/outbox';
+import type { UploadJob } from '@/src/lib/chat-uploads';
+import { Image } from 'expo-image';
+import { chatPhotoKey, FilesMessage } from './files/FilesMessage';
+import { quoteFromBody, quoteLine } from './files/files-words';
 import { JobAcceptedCard } from '@/components/JobAcceptedCard';
 import { PayChatCard } from '@/components/money/PayChatCard';
 import { PALETTES } from '@/theme';
@@ -50,6 +56,8 @@ export type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
 export type ThreadRow =
   | { kind: 'message'; key: string; message: ConversationMessage; showName: boolean }
   | { kind: 'outgoing'; key: string; item: OutboxItem }
+  // Photos or a file of yours whose message hasn't reached the chat yet.
+  | { kind: 'uploading'; key: string; upload: UploadJob }
   | { kind: 'divider'; key: string }
   | { kind: 'day'; key: string; label: string };
 
@@ -89,26 +97,36 @@ export function dayKey(iso: string): string {
 export function buildThreadRows({
   messages,
   outbox,
+  uploads = [],
   lastReadAt,
   meId,
   isGroup,
 }: {
   messages: readonly ConversationMessage[];
   outbox: readonly OutboxItem[];
+  /** Photos and files of yours on their way: those not in the chat yet get a row. */
+  uploads?: readonly UploadJob[];
   lastReadAt: string | null;
   meId: string | undefined;
   isGroup: boolean;
 }): ThreadRow[] {
   type Entry =
     | { kind: 'message'; at: string; message: ConversationMessage }
-    | { kind: 'outgoing'; at: string; item: OutboxItem };
+    | { kind: 'outgoing'; at: string; item: OutboxItem }
+    | { kind: 'uploading'; at: string; upload: UploadJob };
 
-  // The queue is oldest first and always newer than anything stored.
+  // Not yet a message here. The socket's copy can land before the send's
+  // answer does, and it carries the same client id.
+  const arrived = new Set(messages.map((m) => m.client_id).filter(Boolean));
+  const pendingUploads = uploads.filter((u) => !u.messageId && !arrived.has(u.clientId));
+
+  // The queues are oldest first and always newer than anything stored.
+  const queued: Entry[] = [
+    ...outbox.map((item): Entry => ({ kind: 'outgoing', at: item.createdAt, item })),
+    ...pendingUploads.map((upload): Entry => ({ kind: 'uploading', at: upload.createdAt, upload })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
   const entries: Entry[] = [
-    ...outbox
-      .slice()
-      .reverse()
-      .map((item): Entry => ({ kind: 'outgoing', at: item.createdAt, item })),
+    ...queued,
     ...messages.map((message): Entry => ({ kind: 'message', at: message.created_at, message })),
   ];
 
@@ -139,6 +157,8 @@ export function buildThreadRows({
 
     if (entry.kind === 'outgoing') {
       rows.push({ kind: 'outgoing', key: entry.item.clientId, item: entry.item });
+    } else if (entry.kind === 'uploading') {
+      rows.push({ kind: 'uploading', key: `up-${entry.upload.clientId}`, upload: entry.upload });
     } else {
       const m = entry.message;
       // A name over the first of a run from one person, in a group. The
@@ -365,6 +385,24 @@ export function MessageBody({
   );
 }
 
+/** A tiny copy of the first photo a reply answers, when it has one ready. */
+function QuotedPhoto({ quoted, autoLoad }: { quoted: ConversationMessage | null | undefined; autoLoad: boolean }) {
+  if (!quoted || quoted.deleted_at || quoted.kind !== 'photos') return null;
+  const first = quoted.attachments?.find((a) => a.status === 'ready');
+  if (!first) return null;
+  const uri = autoLoad && first.thumbUrl ? first.thumbUrl : first.blur;
+  if (!uri) return null;
+  return (
+    <Image
+      source={uri === first.thumbUrl ? { uri, cacheKey: chatPhotoKey(first.id, 'thumb') } : { uri }}
+      cachePolicy={uri === first.thumbUrl ? 'memory-disk' : 'memory'}
+      contentFit="cover"
+      style={{ width: 32, height: 32, borderRadius: 6 }}
+      accessibilityIgnoresInvertColors
+    />
+  );
+}
+
 interface MessageBubbleProps {
   message: ConversationMessage;
   mine: boolean;
@@ -399,6 +437,28 @@ interface MessageBubbleProps {
   highlight?: string | null;
   /** The search match you are on, or the pin you jumped to: ringed. */
   lit?: boolean;
+  /** Your send of it from this phone, while its photos or file are still going. */
+  upload?: UploadJob | null;
+  isOffline?: boolean;
+  /**
+   * The message it answers, when that is loaded: photos and a file quote as
+   * what they are ("4 photos: …"), with a tiny photo, rather than as the
+   * plain line stored for older apps.
+   */
+  quoted?: ConversationMessage | null;
+  onOpenPhoto?: (message: ConversationMessage, index: number) => void;
+  onOpenFile?: (message: ConversationMessage, attachment: ChatAttachment) => void;
+  /** A tap on a send of yours that is waiting or failed. */
+  onSendingPress?: (upload: UploadJob) => void;
+}
+
+const noop = () => undefined;
+
+/** The one line a reply quotes. */
+function replyLineOf(message: ConversationMessage, quoted: ConversationMessage | null | undefined): string {
+  if (message.reply_to_deleted) return 'Message deleted';
+  if (quoted && !quoted.deleted_at) return quoteLine(quoted);
+  return message.reply_to_body != null ? quoteFromBody(message.reply_to_body) : 'Message unavailable';
 }
 
 /**
@@ -430,6 +490,12 @@ export const MessageBubble = memo(function MessageBubble({
   notify,
   highlight = null,
   lit = false,
+  upload = null,
+  isOffline = false,
+  quoted = null,
+  onOpenPhoto = noop,
+  onOpenFile = noop,
+  onSendingPress,
 }: MessageBubbleProps) {
   const bubbleRef = useRef<View>(null);
   const hold = useCallback(() => {
@@ -520,6 +586,41 @@ export const MessageBubble = memo(function MessageBubble({
         </Pressable>
         {pills}
       </View>,
+    );
+  }
+
+  // Photos or a PDF from somebody's phone: the grid or the file, then the caption.
+  if (isFilesMessage(message)) {
+    const seen =
+      state === 'read'
+        ? 'Seen'
+        : showSeenBy && seenBy > 0
+          ? `Seen by ${seenBy}`
+          : DELIVERY_WORDS[state];
+    return (
+      <FilesMessage
+        message={message}
+        mine={mine}
+        showName={showName}
+        meta={mine ? `${time} · ${seen}` : time}
+        upload={upload}
+        isOffline={isOffline}
+        autoLoadMedia={autoLoadMedia}
+        quote={
+          message.reply_to_id
+            ? { sender: message.reply_to_sender ?? 'Message', line: replyLineOf(message, quoted) }
+            : null
+        }
+        bubbleRef={bubbleRef}
+        onHold={hold}
+        onOpenPhoto={onOpenPhoto}
+        onOpenFile={onOpenFile}
+        onSendingPress={onSendingPress}
+        pills={pills}
+        lit={lit}
+        accessibilityActions={actions}
+        onAccessibilityAction={onAction}
+      />
     );
   }
 
@@ -645,27 +746,28 @@ export const MessageBubble = memo(function MessageBubble({
             deleted, so a reply never reads as a non-sequitur. */}
         {message.reply_to_id ? (
           <View
-            className="rounded-lg px-2 py-1.5 mb-1.5"
+            className="rounded-lg px-2 py-1.5 mb-1.5 flex-row items-center gap-2"
             style={{
               backgroundColor: mine ? '#00000026' : isDark ? '#00000033' : '#0000000A',
               borderLeftWidth: 2,
               borderLeftColor: mine ? '#FFFFFF' : '#A85D35',
             }}
           >
-            <Text
-              className={`text-[11px] font-bold ${mine ? 'text-action-foreground' : 'text-primary'}`}
-              numberOfLines={1}
-            >
-              {message.reply_to_sender ?? 'Message'}
-            </Text>
-            <Text
-              className={`text-xs ${mine ? 'text-action-foreground' : 'text-muted-foreground'}`}
-              numberOfLines={1}
-            >
-              {message.reply_to_deleted
-                ? 'Message deleted'
-                : (message.reply_to_body ?? 'Message unavailable')}
-            </Text>
+            <View className="flex-1 min-w-0">
+              <Text
+                className={`text-[11px] font-bold ${mine ? 'text-action-foreground' : 'text-primary'}`}
+                numberOfLines={1}
+              >
+                {message.reply_to_sender ?? 'Message'}
+              </Text>
+              <Text
+                className={`text-xs ${mine ? 'text-action-foreground' : 'text-muted-foreground'}`}
+                numberOfLines={1}
+              >
+                {replyLineOf(message, quoted)}
+              </Text>
+            </View>
+            <QuotedPhoto quoted={quoted} autoLoad={autoLoadMedia} />
           </View>
         ) : null}
 

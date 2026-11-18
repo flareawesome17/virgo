@@ -99,7 +99,9 @@ export const queryClient = new QueryClient({
 // v15: crew chats. Chats carry About, admins, who can add people and what made
 // them (a workspace or a job), messages can be notices and carry when they
 // were pinned, and people carry admin, joined and roles.
-const CACHE_VERSION = 'v15-chat-crew';
+// v16: messages can carry photos and a file from somebody's device, with
+// their attachments; storage counts what you sent in chats.
+const CACHE_VERSION = 'v16-chat-files';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

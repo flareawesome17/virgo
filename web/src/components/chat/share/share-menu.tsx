@@ -5,7 +5,9 @@ import {
   Briefcase,
   CalendarPlus,
   ClipboardCheck,
+  FileText,
   GalleryVerticalEnd,
+  ImageIcon,
   Images,
   MessageSquareText,
   Plus,
@@ -41,7 +43,8 @@ const LIST_PICKERS: ListPickerKind[] = ['booking', 'job-post', 'post', 'package'
 /**
  * The round + at the left of the composer (boards ChatPlus, ChatWeb): Share
  * in this chat. Virgo things go as cards that use none of your storage, and
- * Saved replies opens your saved replies in the same place.
+ * Saved replies opens your saved replies in the same place. Under them,
+ * photos and a PDF from this computer, which do use your storage (phase 4).
  *
  * Each choice opens a dialog once the menu has closed, so focus goes back to
  * this button when the dialog is done with, not to the page.
@@ -51,6 +54,7 @@ export function ShareMenu({
   audience,
   onInsertSaved,
   onSent,
+  onPickFiles,
 }: {
   conversationId: string;
   audience: Audience;
@@ -58,6 +62,8 @@ export function ShareMenu({
   onInsertSaved: (body: string) => void;
   /** A card went: show the newest end of the thread. */
   onSent: () => void;
+  /** Photos or a PDF picked from this computer, to check before they go. */
+  onPickFiles: (files: File[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'menu' | 'saved'>('menu');
@@ -70,6 +76,20 @@ export function ShareMenu({
   /** Set as a saved reply goes in, so focus stays in the message box. */
   const inserted = useRef(false);
   const savedTile = useRef<HTMLButtonElement>(null);
+  const photosInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  /** Opens the computer's own picker straight from the click, then closes the menu. */
+  const pickFrom = (input: HTMLInputElement | null) => {
+    input?.click();
+    setOpen(false);
+  };
+  const picked = (input: HTMLInputElement) => {
+    const files = Array.from(input.files ?? []);
+    // Cleared, so picking the same file again still counts as a change.
+    input.value = '';
+    if (files.length > 0) onPickFiles(files);
+  };
 
   /** Back from Saved replies, with focus on the tile that opened them. */
   const backToMenu = () => {
@@ -166,10 +186,51 @@ export function ShareMenu({
                   </li>
                 ))}
               </ul>
+              <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                From this computer · uses your storage
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => pickFrom(photosInput.current)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full bg-secondary px-3.5 text-[13px] font-semibold text-secondary-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ImageIcon className="size-4" aria-hidden />
+                  Photos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => pickFrom(fileInput.current)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full bg-secondary px-3.5 text-[13px] font-semibold text-secondary-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <FileText className="size-4" aria-hidden />
+                  A file
+                </button>
+                <span className="text-xs text-muted-foreground pointer-coarse:hidden">or drag them into the chat</span>
+              </div>
             </div>
           )}
         </PopoverContent>
       </Popover>
+
+      {/* Outside the menu, which unmounts as it closes. */}
+      <input
+        ref={photosInput}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        data-files-input="photos"
+        onChange={(event) => picked(event.currentTarget)}
+      />
+      <input
+        ref={fileInput}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        data-files-input="file"
+        onChange={(event) => picked(event.currentTarget)}
+      />
 
       <SavedReplyDialogs
         draft={draft}

@@ -74,13 +74,6 @@ export function extractMessage(body: unknown, fallback: string): string {
  */
 export type ChatRefusal = 'you-blocked' | 'unavailable' | 'group';
 
-/**
- * Reads the refusal off a 403, by its code rather than its text.
- *
- * The code is what stays stable: the message is copy and can be reworded, and
- * a 403 without one of these codes — not being friends, say — is a different
- * refusal with its own handling, so it answers null.
- */
 /** A pin refused because the chat has three already: ask which to take down. */
 export function isPinsFull(err: unknown): boolean {
   return (
@@ -92,6 +85,38 @@ export function isPinsFull(err: unknown): boolean {
   );
 }
 
+/**
+ * An upload refused because the account is out of storage. Photos and files
+ * from your phone stop; messages, album photos, cards and dates still go.
+ */
+export function isStorageFull(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 403 &&
+    !!err.body &&
+    typeof err.body === 'object' &&
+    (err.body as { code?: unknown }).code === 'STORAGE_FULL'
+  );
+}
+
+/** A chat photo or file finished before its bytes arrived: upload it, then finish again. */
+export function isNotUploaded(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 409 &&
+    !!err.body &&
+    typeof err.body === 'object' &&
+    (err.body as { code?: unknown }).code === 'NOT_UPLOADED'
+  );
+}
+
+/**
+ * Reads the refusal off a 403, by its code rather than its text.
+ *
+ * The code is what stays stable: the message is copy and can be reworded, and
+ * a 403 without one of these codes — not being friends, say — is a different
+ * refusal with its own handling, so it answers null.
+ */
 export function chatRefusal(err: unknown): ChatRefusal | null {
   if (!(err instanceof ApiError) || err.status !== 403) return null;
   const code =
