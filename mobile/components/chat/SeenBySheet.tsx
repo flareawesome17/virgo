@@ -7,6 +7,7 @@ import { useOpenDirectChat } from '@/src/hooks/useChat';
 import { lastSeenLabel, usePresence } from '@/src/lib/presence-store';
 import { ChatAvatar } from './ChatAvatar';
 import { chatError, firstNameOf, momentLabel } from './chat-words';
+import { quoteLine } from './files/files-words';
 
 const at = (iso: string | null) => (iso ? new Date(iso).getTime() : -1);
 
@@ -120,7 +121,7 @@ export function SeenBySheet({
         </Text>
         {message?.body ? (
           <Text className="text-muted-foreground text-[13px] leading-[18px] px-5 mt-0.5" numberOfLines={2}>
-            {message.body}
+            {quoteLine(message)}
           </Text>
         ) : null}
         <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingBottom: 4 }}>

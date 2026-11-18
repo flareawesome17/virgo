@@ -20,6 +20,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
+import * as WebBrowser from 'expo-web-browser';
 import {
   ArrowDownIcon,
   ArrowLeftIcon,
@@ -81,15 +82,32 @@ import {
   ApiError,
   canEditMessage,
   EDIT_WINDOW_MINUTES,
+  filesCaption,
   groupSubtitle,
+  isFilesMessage,
   isNotice,
   isPinsFull,
+  MAX_CHAT_PHOTOS,
   MAX_PINNED_MESSAGES,
   myReaction,
+  type ChatAttachment,
   type ConversationMessage,
   type ReactionKey,
   type Thread,
 } from '@/src/api';
+import { attachmentLink } from '@/src/hooks/useChatFiles';
+import { pickChatPdf, pickChatPhotos } from '@/src/lib/chat-files';
+import {
+  discardUpload,
+  onUploadFailure,
+  retryUpload,
+  useChatUploads,
+  type UploadJob,
+} from '@/src/lib/chat-uploads';
+import { PendingFilesBubble } from '@/components/chat/files/FilesMessage';
+import { alertStorageFull, quoteLine, tell } from '@/components/chat/files/files-words';
+import { handOffPicked } from '@/components/chat/files/picked';
+import { showChatPhoto } from '@/components/chat/files/viewer-handoff';
 import { LoadFailed } from '@/components/LoadFailed';
 import { Composer, useKeyboardUp, type ComposerHandle } from '@/components/chat/Composer';
 import { ChatAvatar, isTeamChat } from '@/components/chat/ChatAvatar';
@@ -203,6 +221,17 @@ export default function ConversationScreen() {
   const { participants } = useParticipants(id);
   const { conversation } = useConversation(id);
   const outbox = useOutbox(id);
+  /** Photos and files of yours on their way out of this phone. */
+  const uploads = useChatUploads(id);
+  /** Each send by the message it became, and by its client id until then. */
+  const uploadFor = useMemo(() => {
+    const map = new Map<string, UploadJob>();
+    for (const u of uploads) {
+      map.set(u.clientId, u);
+      if (u.messageId) map.set(u.messageId, u);
+    }
+    return map;
+  }, [uploads]);
   const remove = useDeleteMessage(id);
   const markRead = useMarkThreadRead();
   const unblock = useUnblock();
@@ -391,11 +420,12 @@ export default function ConversationScreen() {
         messages: shownMessages,
         // The window is history: nothing waiting to send, and no divider.
         outbox: inWindow ? [] : outbox,
+        uploads: inWindow ? [] : uploads,
         lastReadAt: inWindow ? null : lastReadAt,
         meId: user?.id,
         isGroup,
       }),
-    [shownMessages, inWindow, outbox, lastReadAt, user?.id, isGroup],
+    [shownMessages, inWindow, outbox, uploads, lastReadAt, user?.id, isGroup],
   );
 
   // ── Scrolling ─────────────────────────────────────────────────────────────
@@ -622,7 +652,8 @@ export default function ConversationScreen() {
         conversationId: id,
         body,
         replyToId: replyTo?.id,
-        replyToBody: replyTo?.body ?? null,
+        // Photos and a file quote as what they are, not as "Sent 4 photos".
+        replyToBody: replyTo ? quoteLine(replyTo) : null,
         replyToSender: replyTo?.sender_name ?? null,
         mentionIds,
         status: 'sending',
@@ -665,6 +696,103 @@ export default function ConversationScreen() {
   );
 
   const cancelReply = useCallback(() => setReplyTo(null), []);
+
+  // ── Photos and files from this phone ──────────────────────────────────────
+
+  /** A photo tapped in the thread: full screen, at that photo. */
+  const openPhoto = useCallback(
+    (message: ConversationMessage, index: number) => {
+      if (!id) return;
+      Keyboard.dismiss();
+      showChatPhoto(message);
+      router.push({
+        pathname: '/chat/[id]/photo',
+        params: { id, messageId: message.id, index: String(index) },
+      });
+    },
+    [id],
+  );
+
+  /**
+   * A PDF tapped: an hour's link, asked for now (never ahead: it is a
+   * download), opened where the phone opens PDFs, as support files are.
+   */
+  const openFile = useCallback(
+    (message: ConversationMessage, attachment: ChatAttachment) => {
+      if (!id) return;
+      attachmentLink(id, message.id, attachment.id)
+        .then(({ url }) => WebBrowser.openBrowserAsync(url))
+        .catch((err: unknown) => showToast(chatError(err)));
+    },
+    [id, showToast],
+  );
+
+  /** A tap on a send of yours that is waiting, or that the server turned down. */
+  const onSendingPress = useCallback(
+    (upload: UploadJob) => {
+      const again = () => retryUpload(queryClient, upload.clientId);
+      const discard = () => discardUpload(upload.clientId);
+      if (upload.status === 'failed' && upload.failure === 'storage-full') {
+        alertStorageFull([
+          { text: 'Discard', onPress: discard, destructive: true },
+          { text: 'Try again', onPress: again },
+        ]);
+        return;
+      }
+      if (upload.status === 'failed') {
+        Alert.alert("Didn't send", upload.failureText ?? 'Something went wrong. Please try again.', [
+          { text: 'Close', style: 'cancel' },
+          { text: 'Try again', onPress: again },
+          { text: 'Discard', style: 'destructive', onPress: discard },
+        ]);
+        return;
+      }
+      // Waiting for a connection: once more, now.
+      again();
+    },
+    [queryClient],
+  );
+
+  // A send refused before it went: out of storage, or another no. Said once,
+  // here; the bubble keeps saying it until it is retried or discarded.
+  useEffect(() => {
+    if (!id) return undefined;
+    return onUploadFailure((failure) => {
+      if (failure.conversationId !== id) return;
+      if (failure.failure === 'storage-full') alertStorageFull();
+      else tell("Didn't send", failure.text ?? 'Something went wrong. Please try again.');
+    });
+  }, [id]);
+
+  /** Photos from the phone's library, then the check screen (board 141). */
+  const pickPhotosForChat = useCallback(async () => {
+    if (!id) return;
+    try {
+      const assets = await pickChatPhotos(MAX_CHAT_PHOTOS);
+      if (!assets) return;
+      handOffPicked(id, { kind: 'photos', assets, replyTo });
+      router.push(`/chat/${id}/send-files`);
+    } catch {
+      showToast("Couldn't open your photos. Try again.");
+    }
+  }, [id, replyTo, showToast]);
+
+  /** A PDF from the phone's files, refused before any upload when it's too big. */
+  const pickFileForChat = useCallback(async () => {
+    if (!id) return;
+    try {
+      const picked = await pickChatPdf();
+      if (!picked) return;
+      if (picked.kind !== 'file') {
+        tell(picked.kind === 'too-big' ? 'That file is too big' : "That can't be sent", picked.words);
+        return;
+      }
+      handOffPicked(id, { kind: 'file', file: picked.file, replyTo });
+      router.push(`/chat/${id}/send-files`);
+    } catch {
+      showToast("Couldn't open your files. Try again.");
+    }
+  }, [id, replyTo, showToast]);
 
   // ── Holding a message ─────────────────────────────────────────────────────
 
@@ -829,8 +957,19 @@ export default function ConversationScreen() {
     const request = takeThreadRequest(id);
     if (!request) return;
     if (request.kind === 'pins') setPinsOpen(true);
-    else openSearch(request.q, request.matchId);
-  }, [id, focused, openSearch]);
+    else if (request.kind === 'reply') {
+      // From a photo's viewer: answer it, as Reply in the hold menu does.
+      const m = byId.get(request.messageId);
+      if (m && canSend) {
+        setReplyTo(m);
+        setTimeout(() => composerRef.current?.focus(), 250);
+      }
+    } else if (request.kind === 'files-sent') {
+      // Sent from the check screen: the reply is answered, and the new one is the one to see.
+      setReplyTo(null);
+      toLatest();
+    } else openSearch(request.q, request.matchId);
+  }, [id, focused, openSearch, byId, canSend, toLatest]);
 
   // ── Editing ───────────────────────────────────────────────────────────────
 
@@ -904,10 +1043,13 @@ export default function ConversationScreen() {
       });
     }
 
+    const what = message.kind === 'photos' ? 'the photos' : message.kind === 'file' ? 'the file' : null;
     Alert.alert(
       'Delete message',
       mine
-        ? 'Deleting for everyone removes the text from this conversation for all participants.'
+        ? what
+          ? `Deleting for everyone takes ${what} back from everyone here and frees the storage ${message.kind === 'photos' ? 'they' : 'it'} used.`
+          : 'Deleting for everyone removes the text from this conversation for all participants.'
         : 'This removes the message from your view only. Everyone else still sees it.',
       options,
     );
@@ -931,6 +1073,12 @@ export default function ConversationScreen() {
     // Every card: the app's own, a pay card, and the Virgo things shared
     // here. Forward and Edit are for typed words only, on the server too.
     const card = (m.kind ?? 'text') !== 'text';
+    // Photos and a file go on as the forwarder's own copies, once every one is in.
+    const files = isFilesMessage(m);
+    const allIn = (m.attachments ?? []).length > 0 && (m.attachments ?? []).every((a) => a.status === 'ready');
+    const forwardable = !card || (files && allIn);
+    // A caption is what there is to copy on photos; with none there is nothing.
+    const copyText = files ? filesCaption(m) : m.body;
     if (!heldDeleted && canSend) {
       holdEntries.push({
         key: 'reply',
@@ -942,7 +1090,7 @@ export default function ConversationScreen() {
         },
       });
     }
-    if (!heldDeleted && canSend && !card) {
+    if (!heldDeleted && canSend && forwardable) {
       holdEntries.push({
         key: 'forward',
         label: 'Forward',
@@ -950,14 +1098,14 @@ export default function ConversationScreen() {
         onPress: () => closeHoldThen(() => setForwarding(m)),
       });
     }
-    if (!heldDeleted) {
+    if (!heldDeleted && copyText) {
       holdEntries.push({
         key: 'copy',
         label: 'Copy',
         Icon: CopyIcon,
         onPress: () => {
           closeHold();
-          void Clipboard.setStringAsync(m.body).then(() => showToast('Copied'));
+          void Clipboard.setStringAsync(copyText).then(() => showToast('Copied'));
         },
       });
     }
@@ -1045,6 +1193,12 @@ export default function ConversationScreen() {
           case 'saved-replies':
             setSavedOpen(true);
             return;
+          case 'photos':
+            void pickPhotosForChat();
+            return;
+          case 'file':
+            void pickFileForChat();
+            return;
           case 'pay-card':
             if (payMethods.length > 0 || payMethodsLoading) setPayPicking(true);
             else if (payMethodsFailed) showToast("Couldn't load your ways to pay. Check your connection and try again.");
@@ -1057,7 +1211,7 @@ export default function ConversationScreen() {
       };
       setShareOpen(false);
     },
-    [id, payMethods.length, payMethodsLoading, payMethodsFailed, showToast],
+    [id, payMethods.length, payMethodsLoading, payMethodsFailed, showToast, pickPhotosForChat, pickFileForChat],
   );
   const runAfterShare = useCallback(() => {
     const next = afterShare.current;
@@ -1089,6 +1243,8 @@ export default function ConversationScreen() {
           return <DaySeparator label={item.label} />;
         case 'divider':
           return <UnreadDivider />;
+        case 'uploading':
+          return <PendingFilesBubble upload={item.upload} isOffline={isOffline} onPress={onSendingPress} />;
         case 'outgoing':
           return (
             <OutgoingBubble
@@ -1126,6 +1282,18 @@ export default function ConversationScreen() {
               notify={showToast}
               highlight={highlight}
               lit={item.message.id === focusId}
+              upload={
+                mine
+                  ? (uploadFor.get(item.message.id) ??
+                    (item.message.client_id ? uploadFor.get(item.message.client_id) : undefined) ??
+                    null)
+                  : null
+              }
+              isOffline={isOffline}
+              quoted={item.message.reply_to_id ? (byId.get(item.message.reply_to_id) ?? null) : null}
+              onOpenPhoto={openPhoto}
+              onOpenFile={openFile}
+              onSendingPress={onSendingPress}
             />
           );
         }
@@ -1134,7 +1302,8 @@ export default function ConversationScreen() {
     [
       user?.id, deliveryOf, showSeenBy, matcher, isDark, isOffline, retry, unsentActions,
       onHold, canSend, toggleReaction, showReactions, showSeenByFor, editingId, pendingEdits,
-      autoLoad, people, showToast, highlight, focusId,
+      autoLoad, people, showToast, highlight, focusId, uploadFor, byId, openPhoto, openFile,
+      onSendingPress,
     ],
   );
 

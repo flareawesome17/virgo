@@ -351,7 +351,7 @@ export interface ConversationMessage {
    * The rest (CardKind) are Virgo things somebody shared: album photos, a
    * booking, a job post, a post, a package, a date.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | CardKind;
+  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | 'photos' | 'file' | CardKind;
   /** What the card needs. Null on a typed message. Read it by `kind`. */
   context?:
     | JobAcceptedContext
@@ -363,6 +363,7 @@ export interface ConversationMessage {
     | PackageCardContext
     | DatePlanCardContext
     | NoticeContext
+    | FilesContext
     | null;
   /**
    * The id the sender's app gave this message before sending it — how that app
@@ -380,6 +381,13 @@ export interface ConversationMessage {
   pinned_at?: string | null;
   /** Who pinned it. Only on the pins list. */
   pinned_by_name?: string | null;
+  /**
+   * Photos or a file from somebody's device, in order: on 'photos' and 'file'
+   * messages only. One can still be uploading (the words go first on a weak
+   * signal); it turns ready through a `message-edited` frame. Empty once
+   * unsent. Absent from an older API.
+   */
+  attachments?: ChatAttachment[];
 }
 
 /**
@@ -399,6 +407,151 @@ export interface NoticeContext {
 
 export function isNotice(m: Pick<ConversationMessage, 'kind'>): boolean {
   return m.kind === 'notice';
+}
+
+// ─── Photos and files from your device (phase 4) ────────────────────────────
+
+/**
+ * What a photo may be sent as: what both apps make of it once shrunk. The
+ * phone turns HEIC into JPEG first; the server can't read HEIC.
+ */
+export const CHAT_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+/** A file is a PDF: a call sheet, a contract, a mood board. */
+export const CHAT_FILE_TYPES = ['application/pdf'] as const;
+export const MAX_CHAT_PHOTOS = 10;
+export const MAX_CHAT_PHOTO_BYTES = 15 * 1024 * 1024;
+export const MAX_CHAT_FILE_BYTES = 20 * 1024 * 1024;
+export const MAX_CHAT_CAPTION = 1000;
+
+/**
+ * The long edge photos are shrunk to before they go: about 2,000 px (around
+ * 0.5 MB), or 1,280 px on a slow line (around 200 KB). Full size goes
+ * through an album. The server keeps at most 2,048 px either way.
+ */
+export const CHAT_PHOTO_EDGE = 2000;
+export const CHAT_PHOTO_EDGE_SLOW = 1280;
+export function chatPhotoEdge(quality: ConnectionQuality): number {
+  return quality === 'slow' ? CHAT_PHOTO_EDGE_SLOW : CHAT_PHOTO_EDGE;
+}
+
+export type ChatAttachmentKind = 'photo' | 'file';
+export type ChatAttachmentStatus = 'uploading' | 'ready' | 'failed';
+
+/** A photo or a file on a message. */
+export interface ChatAttachment {
+  id: string;
+  kind: ChatAttachmentKind;
+  /**
+   * 'uploading' until its bytes arrive and are checked; 'failed' if they
+   * never did (a day on) or could not be read. Only 'ready' has links.
+   */
+  status: ChatAttachmentStatus;
+  /** A file's name, and what either saves as. */
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  /** A photo's size in pixels, for drawing its box before it loads. */
+  width: number | null;
+  height: number | null;
+  /** A PDF's page count, when it could be read. */
+  pages: number | null;
+  /** About 300 bytes: paint it first, and instead of the photo on a slow line. */
+  blur: string | null;
+  /** The photo's 640 px copy, for the thread. Signed for half a day. */
+  thumbUrl: string | null;
+  /** The photo or PDF itself, signed for half a day. */
+  url: string | null;
+}
+
+/** A photos or file message's own words, drawn under the photos or the file. */
+export interface FilesContext {
+  caption: string | null;
+}
+
+export function isFilesMessage(m: Pick<ConversationMessage, 'kind'>): boolean {
+  return m.kind === 'photos' || m.kind === 'file';
+}
+
+/** The caption the sender typed, or null. */
+export function filesCaption(m: Pick<ConversationMessage, 'kind' | 'context'>): string | null {
+  if (!isFilesMessage(m)) return null;
+  const caption = (m.context as FilesContext | null | undefined)?.caption;
+  return typeof caption === 'string' && caption.trim() ? caption : null;
+}
+
+/** "4 photos", "Photo". */
+export function photoCountLabel(count: number): string {
+  return count === 1 ? 'Photo' : `${count} photos`;
+}
+
+/** "1.2 MB", "340 KB", "12 KB": what a file or a set of photos costs to load. */
+export function chatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/** The line under a file's name: "3 pages · 1.2 MB", or "PDF · 1.2 MB". */
+export function fileDetailLine(a: Pick<ChatAttachment, 'pages' | 'sizeBytes'>): string {
+  const pages = a.pages ? (a.pages === 1 ? '1 page' : `${a.pages} pages`) : 'PDF';
+  return `${pages} · ${chatFileSize(a.sizeBytes)}`;
+}
+
+/**
+ * Whether an attachment's picture loads on its own. A photo's small copy is
+ * well under AUTO_DOWNLOAD_MAX_BYTES, so it follows the setting; the full
+ * photo and a PDF only ever load when tapped.
+ */
+export function shouldAutoLoadThumb(setting: MediaAutoLoad, quality: ConnectionQuality): boolean {
+  return shouldAutoLoadMedia(setting, quality);
+}
+
+/** What an upload link is for: one photo or one file of a message. */
+export interface ChatUploadTicket {
+  /** The attachment's id: what the message names, and what is finished. */
+  id: string;
+  uploadUrl: string;
+  /** Send exactly these with the PUT: the type and size are signed in. */
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
+/** One photo or file about to be sent: what it is, and how big. */
+export interface NewChatFile {
+  contentType: string;
+  contentLength: number;
+  name?: string;
+}
+
+export interface SendFilesInput {
+  /** The uploads, in the order they show. */
+  attachmentIds: string[];
+  caption?: string;
+  /** As on a typed message: the same one again returns what was stored. */
+  clientId?: string;
+  replyToId?: string;
+}
+
+/** What your chat photos and files use, and where, for the storage screen. */
+export interface ChatFilesUsage {
+  bytes: number;
+  files: number;
+  /** Largest first, up to twenty. Includes chats you have left. */
+  chats: {
+    conversationId: string;
+    title: string;
+    isGroup: boolean;
+    /** False for a chat you have left: what you sent there still counts. */
+    member: boolean;
+    bytes: number;
+    files: number;
+  }[];
+}
+
+/** Whether an upload link is about to lapse, and should be asked for again. */
+export function uploadTicketExpired(ticket: Pick<ChatUploadTicket, 'expiresAt'>, now = Date.now()): boolean {
+  const at = Date.parse(ticket.expiresAt);
+  return !Number.isFinite(at) || at - now < 60_000;
 }
 
 /** One line for a pin in the strip and the Pinned sheet: its words, or what the card is. */
@@ -693,6 +846,15 @@ export function cardSummary(
       const p = (message.context as DatePlanCardContext | null)?.plan;
       return { label: 'Date', title: p ? [p.title, planDayLabel(p.date)].filter(Boolean).join(' · ') : fallback };
     }
+    case 'photos': {
+      const count = (message as Pick<ConversationMessage, 'attachments'>).attachments?.length ?? 0;
+      const caption = filesCaption(message);
+      return { label: count > 0 ? photoCountLabel(count) : 'Photos', title: caption ?? '' };
+    }
+    case 'file': {
+      const file = (message as Pick<ConversationMessage, 'attachments'>).attachments?.[0];
+      return { label: 'File', title: file?.name ?? fallback.replace(/^Sent a file: /, '') };
+    }
     default:
       return null;
   }
@@ -894,6 +1056,69 @@ export const chatApi = {
   /** Starts the crew chat for one of your job posts, or opens the one it has. */
   startCrew(postId: string): Promise<{ id: string }> {
     return api.post('/messages/crews', { body: { postId } });
+  },
+
+  /**
+   * Upload links for one message's photos (up to ten) or one PDF, in order.
+   * Each ticket's id is the attachment: name it in sendFiles, and finish it
+   * once its bytes are up. STORAGE_FULL (isStorageFull) when it won't fit.
+   */
+  createUploads(id: string, files: NewChatFile[]): Promise<ChatUploadTicket[]> {
+    return api.post(`/messages/${id}/uploads`, { body: { files } });
+  },
+
+  /** A fresh link for an upload still on its way, after a long drop. */
+  resignUpload(id: string, attachmentId: string): Promise<ChatUploadTicket> {
+    return api.post(`/messages/${id}/uploads/${attachmentId}/url`);
+  },
+
+  /**
+   * The bytes are up: checked and made ready, and everyone in the chat gets
+   * the message again as an edit frame. 409 NOT_UPLOADED (isNotUploaded)
+   * while they are not there yet.
+   */
+  finishUpload(id: string, attachmentId: string): Promise<ChatAttachment> {
+    return api.post(`/messages/${id}/uploads/${attachmentId}/done`);
+  },
+
+  /** Sends the uploads as one message, before they finish: the words go first. */
+  sendFiles(id: string, input: SendFilesInput): Promise<ConversationMessage> {
+    return api.post(`/messages/${id}/files`, { body: input });
+  },
+
+  /** An hour's link that saves a photo or file under its own name. */
+  attachmentLink(id: string, messageId: string, attachmentId: string): Promise<{ url: string }> {
+    return api.get(`/messages/${id}/messages/${messageId}/files/${attachmentId}/link`);
+  },
+
+  /** Files a copy of a chat photo or PDF into one of your albums, counted there. */
+  addToAlbum(
+    id: string,
+    messageId: string,
+    attachmentId: string,
+    albumId: string,
+  ): Promise<{ added: boolean }> {
+    return api.post(`/messages/${id}/messages/${messageId}/files/${attachmentId}/album`, {
+      body: { albumId },
+    });
+  },
+
+  /** What your chat photos and files use, and in which chats. */
+  filesUsage(): Promise<ChatFilesUsage> {
+    return api.get('/messages/files/usage');
+  },
+
+  /** Your own photo and file messages in one chat, newest first, 60 a page. */
+  sentFiles(
+    conversationId: string,
+    before?: string,
+  ): Promise<{ data: ConversationMessage[]; total: number }> {
+    return api.get(`/messages/files/sent/${conversationId}`, before ? { query: { before } } : {});
+  },
+
+  /** Unsends your own photo and file messages, from the storage screen, even in a chat you left. */
+  unsendFiles(messageIds: string[]): Promise<{ unsent: number }> {
+    return api.post('/messages/files/unsend', { body: { messageIds } });
   },
 
   participants(id: string): Promise<{ data: Participant[]; total: number }> {

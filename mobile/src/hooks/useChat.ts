@@ -578,6 +578,21 @@ export function useThread(conversationId: string | undefined) {
 
   const first = query.data?.pages[0];
   const pages = query.data?.pages;
+
+  /*
+   * Opened on what this phone held from before, with photos or a file still
+   * on their way then: whatever finished meanwhile came as a frame nobody
+   * heard, and a thread read under half a minute ago is not read again. So
+   * once, on opening, it is — only then, and only while one was pending.
+   */
+  const openedAt = useRef(Date.now());
+  const checkedPending = useRef<string | null>(null);
+  const { data: held, dataUpdatedAt, refetch } = query;
+  useEffect(() => {
+    if (!conversationId || !held || checkedPending.current === conversationId) return;
+    checkedPending.current = conversationId;
+    if (dataUpdatedAt < openedAt.current && hasPendingAttachments(held)) void refetch();
+  }, [conversationId, held, dataUpdatedAt, refetch]);
   const messages = useMemo(() => {
     const seen = new Set<string>();
     const rows: ConversationMessage[] = [];
@@ -1280,6 +1295,13 @@ export function catchUpChats(queryClient: QueryClient, openId: string | null): v
   void catchUpThread(queryClient, openId);
 }
 
+/** Whether a held thread has a photo or file still uploading, as last read. */
+function hasPendingAttachments(cached: { pages?: ThreadPage[] } | undefined): boolean {
+  return !!cached?.pages?.some((p) =>
+    p.data.some((m) => !m.deleted_at && m.attachments?.some((a) => a.status === 'uploading')),
+  );
+}
+
 async function catchUpThread(queryClient: QueryClient, conversationId: string): Promise<void> {
   const key = chatKeys.thread(conversationId);
   const cached = queryClient.getQueryData<ThreadPages>(key);
@@ -1306,6 +1328,13 @@ async function catchUpThread(queryClient: QueryClient, conversationId: string): 
     } catch {
       await queryClient.invalidateQueries({ queryKey: key });
     }
+    return;
+  }
+  // Photos or a file that were still on their way: whatever finished while the
+  // socket was down came as a frame nobody heard. `after` only brings what is
+  // newer, so the thread is read again — rare, and only while one is pending.
+  if (hasPendingAttachments(cached)) {
+    await queryClient.invalidateQueries({ queryKey: key });
     return;
   }
   queryClient.setQueryData<ThreadPages>(key, (old) => {

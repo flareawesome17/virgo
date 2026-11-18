@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Check, Loader2, Quote, Search, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -16,8 +17,22 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useConversations, useForwardMessage } from '@/hooks/useChat';
-import { MAX_FORWARD_TARGETS, type ConversationMessage } from '@/api';
+import {
+  MAX_FORWARD_TARGETS,
+  cardSummary,
+  isFilesMessage,
+  isStorageFull,
+  type ConversationMessage,
+} from '@/api';
 import { chatProblem } from '@/components/chat/chat-errors';
+import { STORAGE_FULL_TEXT } from '@/components/chat/files/send-queue';
+
+/** What is going, quoted: the words, or for photos or a file what was sent. */
+function forwardQuote(message: ConversationMessage): string {
+  if (!isFilesMessage(message)) return message.body;
+  const card = cardSummary(message);
+  return card ? (card.title ? `${card.label}: ${card.title}` : card.label) : message.body;
+}
 
 /**
  * Forward, from a message's ⋯ (board 128): what is going, quoted; your
@@ -40,6 +55,7 @@ export function ForwardDialog({
   const [picked, setPicked] = useState<string[]>([]);
   const { conversations, loadingFirst, loadFailed, refetch } = useConversations();
   const forward = useForwardMessage(conversationId);
+  const router = useRouter();
 
   const choices = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -77,7 +93,15 @@ export function ForwardDialog({
                 : undefined,
           });
         },
-        onError: (err) => toast.error('Could not forward it', { description: chatProblem(err) }),
+        onError: (err) =>
+          // Forwarded photos and files are the forwarder's own copies, so
+          // they need room in the forwarder's storage.
+          isStorageFull(err)
+            ? toast.error('Could not forward it', {
+                description: STORAGE_FULL_TEXT,
+                action: { label: 'Open storage', onClick: () => router.push('/settings/storage') },
+              })
+            : toast.error('Could not forward it', { description: chatProblem(err) }),
       },
     );
   };
@@ -97,7 +121,7 @@ export function ForwardDialog({
         {message && (
           <div className="flex gap-2.5 rounded-xl bg-muted px-3 py-2.5">
             <Quote className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-            <p className="line-clamp-3 whitespace-pre-wrap text-sm wrap-anywhere">{message.body}</p>
+            <p className="line-clamp-3 whitespace-pre-wrap text-sm wrap-anywhere">{forwardQuote(message)}</p>
           </div>
         )}
 
@@ -192,7 +216,11 @@ export function ForwardDialog({
         </ul>
 
         <DialogFooter className="items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">Sent as your own message, marked Forwarded</p>
+          <p className="text-xs text-muted-foreground">
+            {message && isFilesMessage(message)
+              ? 'Sent as your own copies, from your storage'
+              : 'Sent as your own message, marked Forwarded'}
+          </p>
           <Button onClick={send} disabled={picked.length === 0 || forward.isPending}>
             {forward.isPending && <Loader2 className="size-4 animate-spin" />}
             {picked.length === 0

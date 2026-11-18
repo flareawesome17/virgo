@@ -16,7 +16,7 @@ import { EventAttendeesService } from '../../schedule-events/event-attendees.ser
 import { ScheduleEventsService } from '../../schedule-events/schedule-events.service';
 import { ShowcasesService } from '../../showcases/showcases.service';
 import { MessagesService, type CardFiller, type MessageRow } from '../messages.service';
-import { MAX_CARD_FILES, type CardKind, type PlanType } from './card-kinds';
+import { CARD_KINDS, MAX_CARD_FILES, type CardKind, type PlanType } from './card-kinds';
 
 /** What a person sends: which thing, by kind. Validated by the controller's DTO. */
 export type SendCardInput =
@@ -300,13 +300,9 @@ export class ChatCardsService implements CardFiller, OnModuleInit {
   async fill(rows: MessageRow[]): Promise<void> {
     const byKind = new Map<CardKind, MessageRow[]>();
     for (const row of rows) {
-      if (
-        !row.kind ||
-        row.kind === 'text' ||
-        row.kind === 'job-accepted' ||
-        row.kind === 'pay-card' ||
-        row.kind === 'notice'
-      ) {
+      // Only the cards this service fills. Typed words, notices, the app's own
+      // cards, pay cards, and photos and files (ChatFilesService) are not its.
+      if (!row.kind || !(CARD_KINDS as readonly string[]).includes(row.kind)) {
         continue;
       }
       // Deleted for everyone keeps nothing, as a pay card does.
@@ -314,9 +310,10 @@ export class ChatCardsService implements CardFiller, OnModuleInit {
         row.context = null;
         continue;
       }
-      const list = byKind.get(row.kind) ?? [];
+      const kind = row.kind as CardKind;
+      const list = byKind.get(kind) ?? [];
       list.push(row);
-      byKind.set(row.kind, list);
+      byKind.set(kind, list);
     }
 
     const fillers: Record<CardKind, (cards: MessageRow[]) => Promise<void>> = {

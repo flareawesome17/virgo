@@ -10,7 +10,12 @@
  */
 export type ThreadRequest =
   | { kind: 'search'; q?: string; matchId?: string | null }
-  | { kind: 'pins' };
+  | { kind: 'pins' }
+  // From a chat photo's viewer: answer this message.
+  | { kind: 'reply'; messageId: string }
+  // Photos or a file were just sent from the check screen: the reply they
+  // answered is done with, and what was sent is what to see.
+  | { kind: 'files-sent' };
 
 const pending = new Map<string, ThreadRequest>();
 

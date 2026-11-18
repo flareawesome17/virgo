@@ -1,6 +1,6 @@
 # Chat: what it does today, and how it could do more
 
-Status: **all five phases approved (2026-11-17), designs approved (boards 120–148).** Phase 1 is PR #244. Phase 2 is PR #245, on top of Phase 1 and the pay card (PR #243). Phase 3 is being built on `feat/chat-crew`, on top of Phase 2. See *Phase 2 as built* and *Phase 3 as built* at the end.
+Status: **all five phases approved (2026-11-17), designs approved (boards 120–148).** Phase 1 is PR #244. Phase 2 is PR #245, on top of Phase 1 and the pay card (PR #243). Phase 3 is PR #246, on top of Phase 2. Phase 4 is being built on `feat/chat-files`, on top of Phase 3. See *Phase 2 as built*, *Phase 3 as built* and *Phase 4 as built* at the end.
 
 > "elevate the features for the chat too, be able to do more"
 
@@ -242,4 +242,85 @@ On `feat/chat-crew`, which starts from Phase 2 (`feat/chat-cards`, PR #245). Mer
 - Ordinary groups keep "everyone can add people", as before; team and crew chats start with "admins".
 - The team chat doesn't follow a block. A block only cancels pending workspace invitations, and inside a group two people across a block are already silenced towards each other.
 
-**Found, not fixed (outside this phase):** applying for a job still treats a role as filled after its booking was cancelled. `HiringService.apply` counts accepted applications, not `HOLDS_ROLE`, unlike the board and the job page.
+**Found, not fixed (outside this phase):** applying for a job still treats a role as filled after its booking was cancelled. `HiringService.apply` counts accepted applications, not `HOLDS_ROLE`, unlike the board and the job page. Fixed separately in PR #247.
+
+## Phase 4 as built
+
+On `feat/chat-files`, which starts from Phase 3 (`feat/chat-crew`, PR #246). Merge #244, #243, #245 and #246 first; then this one's diff is only Phase 4.
+
+**Server**
+- **Migration `114_chat_files.sql`.**
+  - Two message kinds, `photos` (1–10) and `file` (one PDF).
+  - A `message_attachments` table. It is its own table rather than `user_files`, like receipts and support files: `user_files` is the album library, and everything that walks it would have to learn to step round chat.
+- **Counted toward the sender's storage** (`QuotaService.storageUsed`).
+  - Counting starts the moment an upload is signed, at the size declared, so a burst of upload links buys no room the account doesn't have. Once the bytes are checked, the stored size replaces it.
+  - The console's storage figures count chat too.
+  - A full account gets the usual 403 `STORAGE_FULL`.
+- **Words first, on a weak signal.**
+  - `POST /messages/:id/uploads` signs one message's worth of uploads.
+  - `POST /messages/:id/files` sends the message straight away, with each attachment `uploading`.
+  - Each photo fills in when its `POST …/uploads/:aid/done` lands, through a `message-edited` frame. `…/url` re-signs a link that lapsed during a long drop.
+- **On arrival.**
+  - A photo is re-encoded as a WebP of at most 2,048 px. That strips the camera's EXIF and GPS, whichever app sent it.
+  - It gets a 640 px copy and a ~300-byte blurred stand-in.
+  - A PDF is checked to be one, and its pages are counted from its page tree, inflating object streams; no PDF library.
+- **The body is the plain line** for the list, pushes and older apps ("Sent 4 photos", then the caption). The caption is also kept in `context`. Search inside a chat matches a photo's caption and a file's name, never "Sent 4 photos".
+- **Forward** gives the forwarder their own copies, made inside the store and counted to them, so the sender unsending takes nothing from where they went. **Add to album** files a copy into an album the same way, billed like an upload there.
+- **Removing.**
+  - Files go when their message is unsent.
+  - They also go when nobody in the chat can see them any more: everyone left, cleared the chat past them, or deleted them for themselves. An hourly sweep does this.
+  - Uploads signed and never sent, and those never finished, go a day on. The never-finished ones are marked failed, so the thread can say "Didn't arrive".
+  - They go with the sender's account (`ChatFilesService.eraseFor`, in account deletion).
+  - **An open report holds them** until it is closed, even after an unsend.
+- **The storage screen.**
+  - `GET /messages/files/usage` gives the bytes by chat, including chats you've left.
+  - `GET /messages/files/sent/:conversationId` lists your photo and file messages there.
+  - `POST /messages/files/unsend` takes them back from the storage screen, even in a chat you've left or across a block. It's your own storage, and a retraction reveals nothing.
+
+**Phone and web**
+- **The + sheet** gains "From your phone" ("From this computer" on web), with Photos and A file. The phone's Camera is there but disabled, marked "Next app update". Web also takes photos dropped onto the chat or pasted into it.
+- **Check, then send** (board 141): a big preview with the selected photo removable, a strip that adds up to ten, a caption, the storage note, and **Send N photos** (or **Send file**).
+  - Photos are shrunk on the device first: 2,000 px, or 1,280 px on a slow line.
+  - A PDF over 20 MB is refused before anything uploads.
+  - On web, a HEIC the browser can't open says so in plain words.
+- **Sending is words first, and queued.** The message is in the thread at once, and each photo fills in as it lands, live for everyone.
+  - Offline, it says "Waiting for a connection" and goes when the connection is back.
+  - The phone keeps its queue on disk, with copies of the photos, so a closed app picks up where it stopped. Web keeps it for as long as the page is open.
+  - Something that will never send says so, with a retry.
+- **In the thread** (board 142): the 1, 2, 3, 4 and 5+ photo grids, the caption under them, and the file card.
+  - Each photo's box is drawn at its own shape over its blurred stand-in.
+  - With "Only when I tap", photos wait for a tap.
+  - Full photos and PDFs load only when opened.
+  - Reply quotes show "4 photos: …" or "File: …" with a tiny photo.
+- **The viewer** (board 143) pages through a message's photos, with Reply, Forward, Save and Add to album. The phone reuses the album viewer's save to Photos.
+- **Storage** (board 144) shows "Sent in chats" and "Chats using the most", including chats you've left. Opening one shows **What you sent there**, where you choose photos and files and delete them for everyone, behind a confirm. There's no Posts row, because no figure for it exists yet.
+- **Out of storage** says what still sends (messages, album photos, cards and dates) and offers a way to the storage screen.
+- `CACHE_VERSION` is v18 on the phone and v16 on web.
+- **Every phone module used is already in the installed builds**, so the phone half ships by OTA. The phone's upload reuses `putFileToBucket`, which is unchanged since `d5f7bfd`.
+
+**Checked**
+- **API:** 1,341 tests pass (25 new in `chat-files.service.spec.ts`), and tsc is clean.
+- **Real Postgres 18,** with a bucket stand-in that stores uploads, through a private API: every rule above end to end, including the report hold and the sweep's selection.
+- **Phone and web:** both typecheck, lint is clean on the changed files, and client sync passes.
+- **Both apps were driven end to end in previews:**
+  - picking, checking and sending;
+  - the other person seeing the words first and then the photos;
+  - the viewer and its four actions;
+  - a PDF;
+  - offline and resumed sends;
+  - "Only when I tap";
+  - storage, What you sent, and delete for everyone;
+  - out of storage;
+  - web at 390 px.
+
+**Not checked**
+- **On a real phone:** the native upload from disk, picking up after the app is killed, HEIC turned into JPEG, saving a WebP to Photos, the keyboard, and Android back.
+- **Opening a PDF on Android** probably downloads it rather than showing it.
+- **The confirm steps that use the phone's system alert.** The web preview can't show those.
+- **The desktop app's own shell:** dropping files, saving, and opening a PDF in the system browser.
+
+**Decided while building**
+- **Photos travel as WebP**, like profile covers. Saving one keeps the .webp name.
+- **No video in chat.** A film goes through an album card, as the plan said.
+- **The words go before the photos.** A message can sit in the thread with photos still on their way. The alternative was a caption held back until every photo had landed.
+- **Reports keep the files on the server, but the console doesn't show them yet.** `report_evidence` copies the body ("Sent 4 photos" and the caption); showing the photos themselves in the console is a follow-up.

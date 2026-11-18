@@ -6,9 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type KeyboardEvent,
   useCallback,
 } from 'react';
+import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -80,6 +82,20 @@ import { SeenBy } from '@/components/chat/seen-by';
 import { ShareMenu } from '@/components/chat/share/share-menu';
 import { ChatCard, cardIsCentred, cardReadout, type CardEnv } from '@/components/chat/cards';
 import { ForwardDialog } from '@/components/chat/forward-dialog';
+import { useMediaAutoLoad } from '@/components/chat/connection';
+import { FilesContent, type TileModel } from '@/components/chat/files/files-message';
+import { PhotoViewer } from '@/components/chat/files/photo-viewer';
+import { AddToAlbumDialog } from '@/components/chat/files/add-to-album-dialog';
+import { SendFilesDialog, type FilesPick } from '@/components/chat/files/send-files-dialog';
+import {
+  discardFilesSend,
+  retryFilesSend,
+  useUnsentFiles,
+  type FilesSend,
+  type LocalUpload,
+} from '@/components/chat/files/send-queue';
+import { filesKeys } from '@/hooks/useChatFiles';
+import { usageQueryKey } from '@/hooks/useUsage';
 import { PayChatCard } from '@/components/money/pay-card';
 import { chatProblem } from '@/components/chat/chat-errors';
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -97,12 +113,16 @@ import {
 import {
   ApiError,
   cardSummary,
+  filesCaption,
   firstVirgoLink,
   groupSubtitle,
   isCardKind,
+  isFilesMessage,
   isNotice,
   isPinsFull,
   myReaction,
+  photoCountLabel,
+  type ChatAttachment,
   type CardKind,
   type ConversationMessage,
   type JobAcceptedContext,
@@ -115,6 +135,8 @@ type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
 type Row =
   | { kind: 'message'; message: ConversationMessage }
   | { kind: 'outgoing'; outgoing: OutboxItem }
+  /** Photos or a PDF from this computer that have not become a message yet. */
+  | { kind: 'files-out'; send: FilesSend }
   | { kind: 'divider' };
 
 /** The most matches a search in one chat answers with; past it the count says "200+". */
@@ -149,11 +171,92 @@ function firstName(name: string): string {
 /**
  * A message as a quote: its words, or for a shared card what it is —
  * "Album photos · 12 photos · Santos Wedding" rather than the card's
- * stored text and link.
+ * stored text and link — and for photos or a file what was sent: "4 photos:
+ * Reference for the entrance shot", "File: Call sheet.pdf".
  */
 function quoteOf(message: ConversationMessage): string {
   const card = cardSummary(message);
-  return card ? `${card.label} · ${card.title}` : message.body;
+  if (!card) return message.body;
+  if (isFilesMessage(message)) return card.title ? `${card.label}: ${card.title}` : card.label;
+  return `${card.label} · ${card.title}`;
+}
+
+/**
+ * A reply's quote when the message it answers is not loaded: a photos or
+ * file message's plain line ("Sent 4 photos", its caption under it) said the
+ * way a loaded one is quoted.
+ */
+function quotedBody(body: string): string {
+  const photos = /^Sent (a photo|\d+ photos)(?:\n([\s\S]*))?$/.exec(body);
+  if (photos) {
+    const label = photos[1] === 'a photo' ? 'Photo' : photos[1];
+    const caption = photos[2]?.trim();
+    return caption ? `${label}: ${caption}` : label;
+  }
+  const file = /^Sent a file: ([^\n]+)/.exec(body);
+  return file ? `File: ${file[1]}` : body;
+}
+
+/** The quoted message over a reply: who, a line of what, and a tiny photo when there is one. */
+function ReplyQuote({
+  sender,
+  text,
+  thumb,
+  mine,
+  className,
+}: {
+  sender: string;
+  text: string;
+  thumb?: string | null;
+  mine: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-lg border-l-2 px-2 py-1.5',
+        mine ? 'border-white/60 bg-black/15' : 'border-primary bg-muted',
+        className,
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <p className={cn('text-[10px] font-bold', mine ? 'opacity-80' : 'text-primary')}>{sender}</p>
+        <p className={cn('truncate text-[11px]', mine ? 'opacity-70' : 'text-muted-foreground')}>{text}</p>
+      </div>
+      {thumb && (
+        // eslint-disable-next-line @next/next/no-img-element -- a 28 px signed thumbnail or blurred stand-in
+        <img src={thumb} alt="" draggable={false} className="size-7 shrink-0 rounded object-cover" />
+      )}
+    </div>
+  );
+}
+
+/** A photo or PDF still only on this computer, as the thread draws it. */
+function localTile(upload: LocalUpload): TileModel {
+  const f = upload.file;
+  return {
+    id: f.localId,
+    kind: f.kind,
+    status: 'uploading',
+    name: f.name,
+    sizeBytes: f.sizeBytes,
+    width: f.width,
+    height: f.height,
+    pages: f.pages,
+    blur: null,
+    thumbUrl: null,
+    url: null,
+  };
+}
+
+/** "a photo", "4 photos": how a row reads out. */
+function photosSaid(count: number): string {
+  return count === 1 ? 'a photo' : photoCountLabel(count);
+}
+
+/** Whether a drag carries files from the computer, rather than text or a link. */
+function carriesFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files');
 }
 
 function timeLabel(iso: string): string {
@@ -236,6 +339,16 @@ export function Thread({
     replyTo: ConversationMessage | null;
   }>({ draft: '', mentioned: [], replyTo: null });
   const [forwarding, setForwarding] = useState<ConversationMessage | null>(null);
+  /** Photos or a PDF picked, dropped or pasted, being checked before they go (board 141). */
+  const [filesPick, setFilesPick] = useState<FilesPick | null>(null);
+  /** The photo viewer: which message's photos, at which one (board 143). */
+  const [viewing, setViewing] = useState<{ message: ConversationMessage; index: number } | null>(null);
+  /** A chat photo or PDF being filed into an album. */
+  const [filing, setFiling] = useState<{ messageId: string; attachment: ChatAttachment } | null>(null);
+  /** Files from the computer held over the thread. */
+  const [dragging, setDragging] = useState(false);
+  const unsentFiles = useUnsentFiles(conversationId);
+  const { autoLoad } = useMediaAutoLoad();
   /** Where the caret last was, for a saved reply to go in at; null until placed. */
   const caret = useRef<{ start: number; end: number } | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -665,10 +778,17 @@ export function Thread({
     // A window around a match or a pin: just those messages. Nothing unsent
     // and no "New messages" line belong in the middle of history.
     if (windowMode) return aroundMessages.map((message) => ({ kind: 'message', message }));
-    const pending: Row[] = outbox
-      .slice()
-      .reverse()
-      .map((outgoing) => ({ kind: 'outgoing', outgoing }));
+    // Photos whose message the socket brought before the send's own answer:
+    // drawn once, as the message.
+    const arrived = new Set(messages.slice(0, 50).map((m) => m.client_id).filter(Boolean));
+    const pending: Row[] = [
+      ...outbox.map((outgoing) => ({ at: outgoing.createdAt, row: { kind: 'outgoing', outgoing } as Row })),
+      ...unsentFiles
+        .filter((send) => !arrived.has(send.key))
+        .map((send) => ({ at: send.createdAt, row: { kind: 'files-out', send } as Row })),
+    ]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .map((p) => p.row);
     const base: Row[] = messages.map((message) => ({ kind: 'message', message }));
     if (!lastReadAt) return [...pending, ...base];
 
@@ -690,7 +810,54 @@ export function Thread({
       { kind: 'divider' },
       ...base.slice(firstUnread + 1),
     ];
-  }, [messages, outbox, lastReadAt, user?.id, windowMode, aroundMessages]);
+  }, [messages, outbox, unsentFiles, lastReadAt, user?.id, windowMode, aroundMessages]);
+
+  /** Every message on screen by id: what a reply quotes, and the viewer's message as it fills in. */
+  const messageById = useMemo(
+    () => new Map([...aroundMessages, ...messages].map((m) => [m.id, m])),
+    [messages, aroundMessages],
+  );
+  const viewingMessage = viewing ? (messageById.get(viewing.message.id) ?? viewing.message) : null;
+
+  /** The quote over a reply: a loaded photos or file message as it is quoted, with a tiny photo. */
+  const quoteFor = (message: ConversationMessage): { text: string; thumb: string | null } => {
+    if (message.reply_to_deleted) return { text: 'Message deleted', thumb: null };
+    const original = message.reply_to_id ? messageById.get(message.reply_to_id) : undefined;
+    if (original && !original.deleted_at && isFilesMessage(original)) {
+      const photo = original.attachments?.find((a) => a.kind === 'photo' && a.status === 'ready');
+      return {
+        text: quoteOf(original),
+        thumb: photo ? ((autoLoad ? photo.thumbUrl : null) ?? photo.blur) : null,
+      };
+    }
+    return {
+      text: message.reply_to_body != null ? quotedBody(message.reply_to_body) : 'Message unavailable',
+      thumb: null,
+    };
+  };
+
+  /** Files from the computer, while the chat takes them: not mid-search, not mid-edit. */
+  const takesFiles = canSend && !searching && !editing;
+  const pickFiles = (files: File[]) => {
+    if (files.length > 0) setFilesPick({ files, at: Date.now() });
+  };
+  const onDragFiles = (event: DragEvent<HTMLDivElement>) => {
+    if (!takesFiles || !carriesFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    if (!dragging) setDragging(true);
+  };
+  const onDragAway = (event: DragEvent<HTMLDivElement>) => {
+    // Moving between the thread's own parts is not leaving it.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDragging(false);
+  };
+  const onDropFiles = (event: DragEvent<HTMLDivElement>) => {
+    setDragging(false);
+    if (!takesFiles || !carriesFiles(event)) return;
+    event.preventDefault();
+    pickFiles(Array.from(event.dataTransfer.files));
+  };
 
   /**
    * Sends, keeping the text on screen until the server has it.
@@ -770,7 +937,16 @@ export function Thread({
   const deleteMessage = (message: ConversationMessage, scope: 'me' | 'everyone') => {
     remove.mutate(
       { messageId: message.id, scope },
-      { onError: (err: Error) => toast.error('Could not delete', { description: err.message }) },
+      {
+        onSuccess: () => {
+          // Unsent photos and files give their room back.
+          if (scope === 'everyone' && isFilesMessage(message)) {
+            void queryClient.invalidateQueries({ queryKey: usageQueryKey });
+            void queryClient.invalidateQueries({ queryKey: filesKeys.usage });
+          }
+        },
+        onError: (err: Error) => toast.error('Could not delete', { description: err.message }),
+      },
     );
   };
 
@@ -872,7 +1048,21 @@ export function Thread({
   };
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
+    <div
+      className="relative flex h-full min-w-0 flex-col"
+      // Photos or a PDF dragged in from the computer (board 148).
+      onDragEnter={onDragFiles}
+      onDragOver={onDragFiles}
+      onDragLeave={onDragAway}
+      onDrop={onDropFiles}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-2 z-40 grid place-items-center rounded-2xl border-2 border-dashed border-primary bg-background/90">
+          <p className="px-6 text-center text-sm font-semibold">
+            Drop photos or a PDF to send to {title}
+          </p>
+        </div>
+      )}
       {/* Header, or the search box in its place (board 140). */}
       {searching ? (
         <>
@@ -1148,6 +1338,84 @@ export function Thread({
               );
             }
 
+            if (row.kind === 'files-out') {
+              const send = row.send;
+              const failed = send.stage === 'failed';
+              const line =
+                send.stage === 'waiting'
+                  ? 'Waiting for a connection'
+                  : failed
+                    ? (send.problem ?? 'Not sent')
+                    : 'Sending…';
+              return (
+                <MessageFrame
+                  key={send.key}
+                  side="end"
+                  label={`You: ${send.kind === 'file' ? 'a file' : photosSaid(send.files.length)}, ${line}`}
+                  width="max-w-full"
+                  // Not sent yet: Delete only, which takes it off this computer.
+                  toolbar={
+                    send.stage === 'sending'
+                      ? null
+                      : (hold) => (
+                          <MessageToolbar hold={hold} side="end" onDiscard={() => discardFilesSend(send.key)} />
+                        )
+                  }
+                  below={
+                    <div className="mt-1 flex max-w-[300px] flex-wrap items-center justify-end gap-1.5 px-1 text-[10px] text-muted-foreground">
+                      <span className={cn(failed && 'text-destructive')}>{line}</span>
+                      <DeliveryMark state={failed ? 'failed' : 'sending'} />
+                      {failed && (
+                        <>
+                          {send.storageFull ? (
+                            <Link
+                              href="/settings/storage"
+                              className="font-bold text-foreground underline underline-offset-2"
+                            >
+                              Open storage
+                            </Link>
+                          ) : (
+                            <button
+                              onClick={() => retryFilesSend(send.key)}
+                              className="font-bold text-foreground underline underline-offset-2"
+                            >
+                              Retry
+                            </button>
+                          )}
+                          <button
+                            onClick={() => discardFilesSend(send.key)}
+                            className="underline underline-offset-2"
+                          >
+                            Discard
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  }
+                >
+                  <FilesContent
+                    conversationId={conversationId}
+                    messageId={null}
+                    kind={send.kind}
+                    attachments={send.files.map(localTile)}
+                    caption={send.caption}
+                    mine
+                    above={
+                      send.replyTo ? (
+                        <ReplyQuote
+                          sender={send.replyTo.sender ?? 'Message'}
+                          text={send.replyTo.body}
+                          mine={false}
+                          className="mb-1 w-[280px] max-w-full"
+                        />
+                      ) : undefined
+                    }
+                    onOpenPhoto={() => undefined}
+                  />
+                </MessageFrame>
+              );
+            }
+
             const message = row.message;
 
             /*
@@ -1296,6 +1564,93 @@ export function Thread({
                 <p className="mb-0.5 ml-1 text-[11px] text-muted-foreground">{message.sender_name}</p>
               ) : undefined;
 
+            /*
+             * Photos or a PDF from somebody's computer or phone (board 142).
+             * The plain line in `body` is for the list and pushes; here the
+             * photos, the file and the caption are drawn instead. Forward
+             * and Reply as for words; no Edit; Copy copies the caption.
+             */
+            if (isFilesMessage(message)) {
+              const caption = filesCaption(message);
+              const kind = message.kind === 'file' ? 'file' : 'photos';
+              const attachments = message.attachments ?? [];
+              const what =
+                kind === 'file'
+                  ? `a file, ${attachments[0]?.name ?? 'PDF'}`
+                  : photosSaid(attachments.length);
+              const quote = message.reply_to_id ? quoteFor(message) : null;
+              return (
+                <MessageFrame
+                  key={message.id}
+                  messageId={message.id}
+                  lit={lit}
+                  side={side}
+                  label={`${label}, ${what}${caption ? `: ${caption}` : ''}`}
+                  width="max-w-full"
+                  header={senderName}
+                  below={
+                    <>
+                      {reactions(side)}
+                      {cardMeta(side)}
+                    </>
+                  }
+                  toolbar={(hold) => (
+                    <MessageToolbar
+                      hold={hold}
+                      side={side}
+                      react={reactControl}
+                      onReply={canSend ? () => startReply(message) : undefined}
+                      onForward={canSend ? () => setForwarding(message) : undefined}
+                      onCopy={caption ? () => copyText(caption) : undefined}
+                      pin={pinControl(message)}
+                      onDelete={(scope) => deleteMessage(message, scope)}
+                      canDeleteForEveryone={mine}
+                    />
+                  )}
+                >
+                  <FilesContent
+                    conversationId={conversationId}
+                    messageId={message.id}
+                    kind={kind}
+                    attachments={attachments}
+                    caption={caption}
+                    mine={mine}
+                    above={
+                      message.forwarded || quote ? (
+                        <div className="mb-1 flex w-[280px] max-w-full flex-col gap-1">
+                          {message.forwarded && (
+                            <p
+                              className={cn(
+                                'flex items-center gap-1 px-1 text-[11px] font-medium italic text-muted-foreground',
+                                mine && 'justify-end',
+                              )}
+                            >
+                              <Forward className="size-3" aria-hidden />
+                              Forwarded
+                            </p>
+                          )}
+                          {quote && (
+                            <ReplyQuote
+                              sender={message.reply_to_sender ?? 'Message'}
+                              text={quote.text}
+                              thumb={quote.thumb}
+                              mine={false}
+                            />
+                          )}
+                        </div>
+                      ) : undefined
+                    }
+                    captionBody={
+                      caption ? (
+                        <MessageBody body={caption} names={mentionNames} mine={mine} highlight={highlight} />
+                      ) : undefined
+                    }
+                    onOpenPhoto={(index) => setViewing({ message, index })}
+                  />
+                </MessageFrame>
+              );
+            }
+
             // How to pay the sender: a card on their side, like their own line.
             if (message.kind === 'pay-card') {
               return (
@@ -1417,26 +1772,12 @@ export function Thread({
                   )}
 
                   {message.reply_to_id && (
-                    <div
-                      className={cn(
-                        'mb-1.5 rounded-lg border-l-2 px-2 py-1.5',
-                        mine ? 'border-white/60 bg-black/15' : 'border-primary bg-muted',
-                      )}
-                    >
-                      <p
-                        className={cn(
-                          'text-[10px] font-bold',
-                          mine ? 'opacity-80' : 'text-primary',
-                        )}
-                      >
-                        {message.reply_to_sender ?? 'Message'}
-                      </p>
-                      <p className={cn('truncate text-[11px]', mine ? 'opacity-70' : 'text-muted-foreground')}>
-                        {message.reply_to_deleted
-                          ? 'Message deleted'
-                          : (message.reply_to_body ?? 'Message unavailable')}
-                      </p>
-                    </div>
+                    <ReplyQuote
+                      sender={message.reply_to_sender ?? 'Message'}
+                      {...quoteFor(message)}
+                      mine={mine}
+                      className="mb-1.5"
+                    />
                   )}
 
                   <p className="whitespace-pre-wrap text-sm wrap-anywhere">
@@ -1611,6 +1952,7 @@ export function Thread({
               setPinJump(null);
               scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
             }}
+            onPickFiles={pickFiles}
           />
           <Textarea
             ref={composerRef}
@@ -1634,6 +1976,14 @@ export function Thread({
             // letting it time out on the other side.
             onBlur={stopTyping}
             onKeyDown={onComposerKeyDown}
+            // A photo or PDF pasted in goes through the same check as one picked.
+            onPaste={(event) => {
+              if (editing) return;
+              const files = Array.from(event.clipboardData?.files ?? []);
+              if (files.length === 0) return;
+              event.preventDefault();
+              pickFiles(files);
+            }}
             placeholder={isGroup ? 'Message — @ to mention, Enter to send' : 'Message — Enter to send'}
             aria-label={editing ? 'Edit message' : 'Message'}
             rows={1}
@@ -1655,6 +2005,42 @@ export function Thread({
         conversationId={conversationId}
         message={forwarding}
         onOpenChange={(open) => !open && setForwarding(null)}
+      />
+
+      <SendFilesDialog
+        conversationId={conversationId}
+        chatTitle={title}
+        pick={filesPick}
+        replyTo={
+          replyTo ? { id: replyTo.id, body: quoteOf(replyTo), sender: replyTo.sender_name ?? null } : null
+        }
+        onClose={() => setFilesPick(null)}
+        onSent={() => {
+          // The reply went with the photos.
+          setReplyTo(null);
+          setPinJump(null);
+          scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
+
+      <PhotoViewer
+        conversationId={conversationId}
+        chatTitle={title}
+        message={viewingMessage}
+        index={viewing?.index ?? 0}
+        meId={meId}
+        canSend={canSend}
+        onIndexChange={(index) => setViewing((current) => (current ? { ...current, index } : current))}
+        onClose={() => setViewing(null)}
+        onReply={startReply}
+        onForward={setForwarding}
+        onAddToAlbum={(message, photo) => setFiling({ messageId: message.id, attachment: photo })}
+      />
+
+      <AddToAlbumDialog
+        conversationId={conversationId}
+        target={filing}
+        onOpenChange={(open) => !open && setFiling(null)}
       />
 
       <ReplacePinDialog

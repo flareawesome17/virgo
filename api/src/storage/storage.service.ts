@@ -15,6 +15,7 @@ import {
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
+  CopyObjectCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
@@ -118,8 +119,11 @@ const SINGLE_DELETE_CONCURRENCY = 16;
  */
 const DELETE_CHUNK_FILES = 100;
 
-/** Keys the server mints for itself, outside any user's prefix. */
-const SERVER_KEY = /^(support|receipts)\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{2,5}$/;
+/**
+ * Keys the server mints for itself, outside any user's prefix. A chat photo's
+ * small copy sits beside it with `-t` on the end (ChatFilesService).
+ */
+const SERVER_KEY = /^(support|receipts|chat)\/\d{4}\/\d{2}\/[0-9a-f-]{36}(-t)?\.[a-z0-9]{2,5}$/;
 
 @Injectable()
 export class StorageService {
@@ -807,6 +811,68 @@ export class StorageService {
       this.logger.error(`HEAD failed for a server object: ${String(err)}`);
       throw new ServiceUnavailableException('Could not reach storage');
     }
+  }
+
+  /**
+   * Copies a server-minted object to another server-minted key, inside the
+   * store: nothing passes through this server. A forwarded chat photo is the
+   * forwarder's own copy, so the sender unsending theirs takes nothing from
+   * the chat it was forwarded to.
+   */
+  async copyServerObject(fromKey: string, toKey: string): Promise<void> {
+    const client = this.requireClient();
+    this.assertServerKey(fromKey);
+    this.assertServerKey(toKey);
+    await client.send(
+      new CopyObjectCommand({
+        Bucket: this.config.bucketForKey(toKey),
+        Key: toKey,
+        CopySource: `${this.config.bucketForKey(fromKey)}/${encodeURIComponent(fromKey)}`,
+      }),
+    );
+  }
+
+  /**
+   * Files a copy of a server-minted object into an album, as if the caller
+   * had uploaded it there: the same refusals as an upload ticket (they may
+   * add to the album, and whoever it is billed to has room), then the same
+   * record as a confirm. The copy is made inside the store, so "Add to album"
+   * on a chat photo costs the phone nothing on a weak signal.
+   *
+   * The thumbnail is the caller's to start, as after a confirm.
+   */
+  async importToAlbum(
+    userId: string,
+    input: {
+      fromKey: string;
+      albumId: string;
+      contentType: string;
+      sizeBytes: number;
+      name: string;
+    },
+  ): Promise<{ key: string; size: number; contentType?: string }> {
+    const client = this.requireClient();
+    this.assertServerKey(input.fromKey);
+    await this.authoriseUpload(
+      userId,
+      {
+        contentType: input.contentType,
+        scope: 'albums',
+        contentLength: input.sizeBytes,
+        albumId: input.albumId,
+      },
+      MAX_UPLOAD_BYTES,
+    );
+    const key = this.buildKey(userId, 'albums', input.contentType);
+    await client.send(
+      new CopyObjectCommand({
+        Bucket: this.config.bucketForKey(key),
+        Key: key,
+        CopySource: `${this.config.bucketForKey(input.fromKey)}/${encodeURIComponent(input.fromKey)}`,
+      }),
+    );
+    const stat = await this.statObject(userId, key, input.albumId, input.name);
+    return { key, size: stat.size, contentType: stat.contentType };
   }
 
   /** Deletes server-minted objects; the keys confirmed gone come back. */

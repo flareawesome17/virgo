@@ -10,7 +10,16 @@
  */
 
 export { api, request, setAuthFailureHandler } from './client';
-export { ApiError, chatRefusal, isPinsFull, retryUnlessGone, type ChatRefusal } from './errors';
+export {
+  ApiError,
+  chatRefusal,
+  isNotUploaded,
+  isPinsFull,
+  isStorageFull,
+  retryUnlessGone,
+  type ChatRefusal,
+} from './errors';
+export { deliverChatFile } from './chat-upload';
 export { API_BASE_URL } from './config';
 export {
   clearTokens,
@@ -356,6 +365,30 @@ export {
   groupSubtitle,
   isNotice,
   pinLine,
+  CHAT_PHOTO_TYPES,
+  CHAT_FILE_TYPES,
+  MAX_CHAT_PHOTOS,
+  MAX_CHAT_PHOTO_BYTES,
+  MAX_CHAT_FILE_BYTES,
+  MAX_CHAT_CAPTION,
+  CHAT_PHOTO_EDGE,
+  CHAT_PHOTO_EDGE_SLOW,
+  chatPhotoEdge,
+  isFilesMessage,
+  filesCaption,
+  photoCountLabel,
+  chatFileSize,
+  fileDetailLine,
+  shouldAutoLoadThumb,
+  uploadTicketExpired,
+  type ChatAttachment,
+  type ChatAttachmentKind,
+  type ChatAttachmentStatus,
+  type FilesContext,
+  type ChatUploadTicket,
+  type NewChatFile,
+  type SendFilesInput,
+  type ChatFilesUsage,
   type GroupAddPolicy,
   type GroupOrigin,
   type GroupPatch,
