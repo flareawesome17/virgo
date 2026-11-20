@@ -25,7 +25,8 @@
       "package": "com.virgo.app",
       "permissions": [
         "POST_NOTIFICATIONS",
-        "SCHEDULE_EXACT_ALARM"
+        "SCHEDULE_EXACT_ALARM",
+        "CAMERA"
       ],
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
@@ -110,8 +111,8 @@
       [
         "expo-audio",
         {
-          "microphonePermission": false,
-          "recordAudioAndroid": false
+          "microphonePermission": "Virgo uses your microphone to record voice notes you send in chat.",
+          "recordAudioAndroid": true
         }
       ],
       [
@@ -129,7 +130,7 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Virgo needs access to your photo library so it can save photos and videos from your albums onto this device.",
+          "photosPermission": "Virgo opens your photo library so you can upload photos and videos to an album or send photos in a chat, and saves the photos and videos you download from an album.",
           "savePhotosPermission": "Virgo saves the photos and videos you download from an album into your device photo library.",
           "granularPermissions": []
         }
@@ -137,9 +138,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Virgo opens your photo library so you can choose photos and videos to upload to an album, or a picture for your profile.",
-          "cameraPermission": false,
-          "microphonePermission": false
+          "photosPermission": "Virgo opens your photo library so you can choose photos and videos to upload to an album, photos to send in a chat, or a picture for your profile.",
+          "cameraPermission": "Virgo uses your camera so you can take a photo and send it in a chat.",
+          "microphonePermission": "Virgo uses your microphone to record voice notes you send in chat."
         }
       ],
       [
@@ -165,6 +166,10 @@
     "extra": {
       "eas": {
         "projectId": "280a9b7e-6f27-49df-991f-12bee641dc40"
+      },
+      "nativeFeatures": {
+        "microphone": true,
+        "camera": true
       }
     },
     "updates": {
