@@ -19,6 +19,7 @@ import {
 } from '@/components';
 import { useOutboxSender } from '@/src/hooks/useChat';
 import { useChatUploadSender } from '@/src/lib/chat-uploads';
+import { useMessageNotificationActions } from '@/src/lib/message-actions';
 import { useMoneyOutboxSender } from '@/src/lib/money-outbox';
 import { CrashScreen } from '@/components/CrashScreen';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
@@ -272,6 +273,9 @@ function NotificationServices() {
   // Photos and files sent in chats, whose bytes are still on this phone: they
   // carry on when the connection is back, and after the app was closed.
   useChatUploadSender(user?.id);
+  // Reply, Mark as read and Mute under a message's notification: after the
+  // outbox sender, which a reply goes through.
+  useMessageNotificationActions(!!user?.id);
 
   return null;
 }

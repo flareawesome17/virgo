@@ -32,10 +32,11 @@ import {
   MAX_CHAT_FILE_BYTES,
   MAX_CHAT_PHOTOS,
 } from '../../storage/chat-files.service';
+import { CHAT_VOICE_TYPES, MAX_VOICE_MS_ACCEPTED } from '../../storage/chat-voice';
 import { MessagesService } from '../messages.service';
 
 export class NewChatFileDto {
-  @IsIn([...CHAT_PHOTO_TYPES, ...CHAT_FILE_TYPES])
+  @IsIn([...CHAT_PHOTO_TYPES, ...CHAT_FILE_TYPES, ...CHAT_VOICE_TYPES])
   contentType!: string;
 
   /** Signed into the upload, so the bytes that arrive are the ones declared. */
@@ -49,6 +50,16 @@ export class NewChatFileDto {
   @IsString()
   @MaxLength(255)
   name?: string;
+
+  /**
+   * A voice note's length as the recorder measured it, so the line in the
+   * list can say it before the note arrives. Measured again when it does.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_VOICE_MS_ACCEPTED)
+  durationMs?: number;
 }
 
 export class CreateUploadsDto {
@@ -106,7 +117,7 @@ export class SentFilesQueryDto {
 }
 
 /**
- * Photos and files from people's devices (chat Phase 4).
+ * Photos, files and voice notes from people's devices (chat Phases 4 and 5).
  *
  * An upload is signed, sent straight to storage, then finished here; the
  * message can go before it finishes. Routes that name no chat (usage, what

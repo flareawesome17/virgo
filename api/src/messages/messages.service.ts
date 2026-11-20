@@ -24,10 +24,13 @@ import { StorageService } from '../storage/storage.service';
 import {
   ChatFilesService,
   MAX_CHAT_CAPTION,
+  isFilesKind,
   type ChatAttachment,
   type ChatUploadTicket,
+  type FilesMessageKind,
   type NewChatFile,
 } from '../storage/chat-files.service';
+import { voiceLength } from '../storage/chat-voice';
 import type { CardKind } from './cards/card-kinds';
 import { unreadMessagesCount } from './unread-sql';
 
@@ -186,11 +189,12 @@ export interface MessageRow {
    * things somebody shared from Virgo (CardKind), filled in the same way by
    * ChatCardsService.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | 'photos' | 'file' | CardKind;
+  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | FilesMessageKind | CardKind;
   /**
-   * Photos and files sent from somebody's device, in order: on 'photos' and
-   * 'file' messages only. One can still be `uploading` (the words go first on
-   * a weak signal) and turns `ready` through a `message-edited` frame.
+   * Photos, files and voice notes sent from somebody's device, in order: on
+   * 'photos', 'file' and 'voice' messages only. One can still be `uploading`
+   * (the words go first on a weak signal) and turns `ready` through a
+   * `message-edited` frame.
    */
   attachments?: ChatAttachment[];
   /** Whatever the card needs to render. Null on a typed message. */
@@ -237,6 +241,13 @@ export const MAX_PINNED = 5;
 
 /** Chats one Forward can go to at once. */
 export const MAX_FORWARD_TARGETS = 5;
+
+/**
+ * The notification category a message's push is sent under: the phone
+ * registers it with Reply, Mark as read and Mute for 1 hour. The same string
+ * is in both apps' `src/api/endpoints/chat.ts`.
+ */
+export const MESSAGE_PUSH_CATEGORY = 'chat-message';
 
 /** What one person can change about how a chat sits in their own list. */
 export interface ListStatePatch {
@@ -469,7 +480,7 @@ export class MessagesService {
    * whatever an open report is still holding on to.
    */
   private async withFiles<T extends MessageRow>(rows: T[]): Promise<T[]> {
-    const carrying = rows.filter((r) => r.kind === 'photos' || r.kind === 'file');
+    const carrying = rows.filter((r) => isFilesKind(r.kind));
     if (carrying.length === 0) return rows;
     const live = carrying.filter((r) => !r.deleted_at);
     const found = this.chatFiles
@@ -2106,10 +2117,10 @@ export class MessagesService {
     const message = await this.visibleMessage(userId, conversationId, messageId);
     if (message.deleted_at) throw new BadRequestException('That message was unsent');
 
-    // Photos and a file go on as the forwarder's own copies, counted toward
-    // their storage: the sender unsending theirs takes nothing from the chat
-    // they were forwarded to.
-    if (message.kind === 'photos' || message.kind === 'file') {
+    // Photos, a file or a voice note go on as the forwarder's own copies,
+    // counted toward their storage: the sender unsending theirs takes nothing
+    // from the chat they were forwarded to.
+    if (isFilesKind(message.kind)) {
       const chatFiles = this.requireFiles();
       const caption =
         typeof message.context?.caption === 'string' ? message.context.caption : null;
@@ -2290,7 +2301,9 @@ export class MessagesService {
           -- position(), not ilike: what someone types is words, and a % or
           -- _ in it should not turn into a pattern.
           -- Photos by their caption alone ("Sent 4 photos" is every photo
-          -- message), a file by its name and caption.
+          -- message), a file by its name and caption. A voice note has no
+          -- words to find.
+          and m.kind <> 'voice'
           and position(lower($3) in lower(case when m.kind in ('text', 'file') then m.body
                                                when m.kind = 'photos'
                                                  then coalesce(m.context->>'caption', '')
@@ -2348,7 +2361,7 @@ export class MessagesService {
        * the list, the push and an app from before cards show.
        */
       card?: {
-        kind: CardKind | 'pay-card' | 'photos' | 'file';
+        kind: CardKind | 'pay-card' | FilesMessageKind;
         context: Record<string, unknown>;
       };
       /**
@@ -2466,7 +2479,13 @@ export class MessagesService {
     //
     // A card pushes its line without the link under it: "Shared 6 photos
     // from Santos Wedding", not a client link's address on a lock screen.
-    void this.notify(userId, conversationId, options.card ? text.split('\n')[0] : text, mentions);
+    void this.notify(
+      userId,
+      conversationId,
+      options.card ? text.split('\n')[0] : text,
+      mentions,
+      row!.id,
+    );
     return row!;
   }
 
@@ -2559,13 +2578,21 @@ export class MessagesService {
     await this.assertCanSend(userId, conversationId);
 
     const info = await chatFiles.check(userId, conversationId, input.attachmentIds);
-    const caption = (input.caption ?? '').trim().slice(0, MAX_CHAT_CAPTION) || null;
+    // A voice note carries no caption: it is the words.
+    const caption =
+      info.kind === 'voice'
+        ? null
+        : (input.caption ?? '').trim().slice(0, MAX_CHAT_CAPTION) || null;
     const line =
-      info.kind === 'file'
-        ? `Sent a file: ${info.fileName}`
-        : info.count === 1
-          ? 'Sent a photo'
-          : `Sent ${info.count} photos`;
+      info.kind === 'voice'
+        ? info.durationMs
+          ? `Sent a voice note (${voiceLength(info.durationMs)})`
+          : 'Sent a voice note'
+        : info.kind === 'file'
+          ? `Sent a file: ${info.fileName}`
+          : info.count === 1
+            ? 'Sent a photo'
+            : `Sent ${info.count} photos`;
     return this.send(userId, conversationId, caption ? `${line}\n${caption}` : line, {
       clientId: input.clientId,
       replyToId: input.replyToId,
@@ -2679,7 +2706,7 @@ export class MessagesService {
          from messages m
          ${MESSAGE_JOINS}
         where m.conversation_id = $1 and m.sender_id = $2
-          and m.kind in ('photos', 'file') and m.deleted_at is null
+          and m.kind in ('photos', 'file', 'voice') and m.deleted_at is null
           and ($3::uuid is null
                or (m.created_at, m.id) < (select b.created_at, b.id from messages b where b.id = $3))
         order by m.created_at desc, m.id desc
@@ -2700,7 +2727,7 @@ export class MessagesService {
     const rows = await this.db.query<{ id: string; conversation_id: string; pinned_at: Date | null }>(
       `select id, conversation_id, pinned_at from messages
         where id = any($1::uuid[]) and sender_id = $2
-          and kind in ('photos', 'file') and deleted_at is null`,
+          and kind in ('photos', 'file', 'voice') and deleted_at is null`,
       [[...new Set(messageIds)], userId],
     );
     for (const row of rows) {
@@ -2729,7 +2756,7 @@ export class MessagesService {
     // reactions on it, go with the text.
     await this.db.query('delete from message_edits where message_id = $1', [messageId]);
     await this.db.query('delete from message_reactions where message_id = $1', [messageId]);
-    if ((kind === 'photos' || kind === 'file') && this.chatFiles) {
+    if (isFilesKind(kind) && this.chatFiles) {
       try {
         await this.chatFiles.removeForMessages([messageId]);
       } catch (err) {
@@ -2961,6 +2988,7 @@ export class MessagesService {
     conversationId: string,
     body: string,
     mentions: string[] = [],
+    messageId?: string,
   ): Promise<void> {
     try {
       const meta = await this.db.queryOne<{
@@ -3027,8 +3055,17 @@ export class MessagesService {
           // Otherwise Android may hold the message until the next
           // maintenance window while the device is dozing.
           priority: 'high' as const,
-          // `conversationId` is what the tap handler routes on.
-          data: { type: 'message', conversationId },
+          // Reply, Mark as read and Mute for 1 hour, from the lock screen
+          // (Phase 5). An app that never registered the category shows the
+          // notification as before, without buttons.
+          categoryId: MESSAGE_PUSH_CATEGORY,
+          // `conversationId` is what the tap handler routes on, and what the
+          // buttons act on. `messageId` names the message a reply answers.
+          data: {
+            type: 'message',
+            conversationId,
+            ...(messageId ? { messageId } : {}),
+          },
           ...(badges.has(r.user_id) ? { badge: badges.get(r.user_id) } : {}),
         })),
       );

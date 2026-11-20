@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Loader2, Quote, Search, Users } from 'lucide-react';
+import { Check, Loader2, Mic, Quote, Search, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -22,14 +22,18 @@ import {
   cardSummary,
   isFilesMessage,
   isStorageFull,
+  isVoiceMessage,
+  voiceAttachment,
   type ConversationMessage,
 } from '@/api';
 import { chatProblem } from '@/components/chat/chat-errors';
 import { STORAGE_FULL_TEXT } from '@/components/chat/files/send-queue';
+import { voiceQuote } from '@/components/chat/voice/voice-note';
 
-/** What is going, quoted: the words, or for photos or a file what was sent. */
+/** What is going, quoted: the words, or for photos, a file or a voice note what was sent. */
 function forwardQuote(message: ConversationMessage): string {
   if (!isFilesMessage(message)) return message.body;
+  if (isVoiceMessage(message)) return voiceQuote(voiceAttachment(message)?.durationMs);
   const card = cardSummary(message);
   return card ? (card.title ? `${card.label}: ${card.title}` : card.label) : message.body;
 }
@@ -120,7 +124,11 @@ export function ForwardDialog({
 
         {message && (
           <div className="flex gap-2.5 rounded-xl bg-muted px-3 py-2.5">
-            <Quote className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+            {isVoiceMessage(message) ? (
+              <Mic className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+            ) : (
+              <Quote className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+            )}
             <p className="line-clamp-3 whitespace-pre-wrap text-sm wrap-anywhere">{forwardQuote(message)}</p>
           </div>
         )}
@@ -217,9 +225,11 @@ export function ForwardDialog({
 
         <DialogFooter className="items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">
-            {message && isFilesMessage(message)
-              ? 'Sent as your own copies, from your storage'
-              : 'Sent as your own message, marked Forwarded'}
+            {message && isVoiceMessage(message)
+              ? 'Sent as your own copy, from your storage'
+              : message && isFilesMessage(message)
+                ? 'Sent as your own copies, from your storage'
+                : 'Sent as your own message, marked Forwarded'}
           </p>
           <Button onClick={send} disabled={picked.length === 0 || forward.isPending}>
             {forward.isPending && <Loader2 className="size-4 animate-spin" />}

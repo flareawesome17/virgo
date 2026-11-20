@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element -- your own chat photos' small copies, signed */
 
 import { useMemo, useState } from 'react';
-import { Check, ChevronRight, Info, Loader2, MessageCircle, Trash2, Users } from 'lucide-react';
+import { Check, ChevronRight, Info, Loader2, MessageCircle, Mic, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,8 @@ import {
   fileDetailLine,
   filesCaption,
   formatBytes,
+  voiceAttachment,
+  voiceLength,
   type ChatFilesUsage,
   type ConversationMessage,
 } from '@/api';
@@ -55,9 +57,9 @@ function shortDate(iso: string): string {
 }
 
 /**
- * "What you sent in <chat>": your photos as a grid and your files as rows,
- * each with its size. Pick some, then Delete for everyone, which takes them
- * back from everyone in that chat and gives the room back.
+ * "What you sent in <chat>": your photos as a grid, and your files and voice
+ * notes as rows, each with its size. Pick some, then Delete for everyone,
+ * which takes them back from everyone in that chat and gives the room back.
  */
 function SentFilesDialog({ chat, onOpenChange }: { chat: ChatRow | null; onOpenChange: (open: boolean) => void }) {
   const { messages, data, isLoading, loadFailed, refetch } = useSentFiles(chat?.conversationId);
@@ -70,6 +72,7 @@ function SentFilesDialog({ chat, onOpenChange }: { chat: ChatRow | null; onOpenC
 
   const photos = useMemo(() => messages.filter((m) => m.kind === 'photos'), [messages]);
   const files = useMemo(() => messages.filter((m) => m.kind === 'file'), [messages]);
+  const voices = useMemo(() => messages.filter((m) => m.kind === 'voice'), [messages]);
   const freed = messages.filter((m) => picked.includes(m.id)).reduce((sum, m) => sum + messageBytes(m), 0);
   const total = data?.total ?? messages.length;
 
@@ -242,6 +245,41 @@ function SentFilesDialog({ chat, onOpenChange }: { chat: ChatRow | null; onOpenC
                   </section>
                 )}
 
+                {voices.length > 0 && (
+                  <section className="flex flex-col gap-1">
+                    <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                      Voice notes
+                    </h3>
+                    <ul className="flex flex-col">
+                      {voices.map((m) => {
+                        const note = voiceAttachment(m) ?? m.attachments?.[0];
+                        const on = picked.includes(m.id);
+                        return (
+                          <li key={m.id}>
+                            <label className="flex cursor-pointer items-center gap-3 rounded-xl px-1 py-2 hover:bg-accent/50">
+                              <Checkbox checked={on} onCheckedChange={() => toggle(m.id)} />
+                              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                                <Mic className="size-5" aria-hidden />
+                              </span>
+                              <span className="flex min-w-0 flex-1 flex-col">
+                                <span className="truncate text-sm font-semibold">
+                                  Voice note{note?.durationMs ? ` · ${voiceLength(note.durationMs)}` : ''}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {chatFileSize(messageBytes(m))} · {shortDate(m.created_at)}
+                                  {note && note.status !== 'ready'
+                                    ? ` · ${note.status === 'failed' ? "Didn't arrive" : 'Still sending'}`
+                                    : ''}
+                                </span>
+                              </span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                )}
+
                 {total > messages.length && (
                   <p className="text-xs text-muted-foreground">
                     Showing the newest {messages.length} of {total}. Delete some to see the rest.
@@ -341,7 +379,7 @@ export function ChatStorageSection() {
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="text-sm font-medium">Sent in chats</span>
                 <span className="text-xs text-muted-foreground">
-                  Photos and files from your phone or computer
+                  Photos, files and voice notes from your phone or computer
                   {usage && usage.files > 0 ? ` · ${usage.files} file${usage.files === 1 ? '' : 's'}` : ''}
                 </span>
               </span>
@@ -401,8 +439,8 @@ export function ChatStorageSection() {
       <div className="mt-3 flex gap-2.5 rounded-xl bg-muted px-4 py-3 text-xs leading-relaxed text-muted-foreground">
         <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
         <p>
-          If you run out, photos and files from your phone or computer won&apos;t send. Messages, album
-          photos, cards and dates always will.
+          If you run out, photos, files and voice notes from your phone or computer won&apos;t send.
+          Messages, album photos, cards and dates always will.
         </p>
       </div>
 

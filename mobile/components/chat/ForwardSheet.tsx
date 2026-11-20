@@ -105,7 +105,7 @@ function ForwardContent({
       {
         onSuccess: ({ sent, skipped }) => onSent(sent, skipped),
         onError: (err) => {
-          // Photos and a file go on as your own copies, so they need room.
+          // Photos, a file and a voice note go on as your own copies, so they need room.
           if (isStorageFull(err)) alertStorageFull();
           else Alert.alert("Couldn't forward it", chatError(err));
         },
@@ -216,9 +216,11 @@ function ForwardContent({
           {full
             ? `Up to ${MAX_FORWARD_TARGETS} chats at a time. Sent as your own message, marked Forwarded`
             : 'Sent as your own message, marked Forwarded'}
-          {message.kind === 'photos' || message.kind === 'file'
+          {message.kind === 'photos'
             ? '. Your own copies go, and count toward your storage'
-            : ''}
+            : message.kind === 'file' || message.kind === 'voice'
+              ? '. Your own copy goes, and counts toward your storage'
+              : ''}
         </Text>
         <Pressable
           onPress={send}

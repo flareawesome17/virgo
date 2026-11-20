@@ -15,11 +15,20 @@ import {
   fileDetailLine,
   filesCaption,
   photoCountLabel,
+  voiceSpokenLength,
   type ChatAttachment,
   type ConversationMessage,
 } from '@/src/api';
 import type { UploadFile, UploadJob } from '@/src/lib/chat-uploads';
 import { PALETTES } from '@/theme';
+import {
+  PendingVoiceNote,
+  runVoiceNoteAction,
+  useVoiceNote,
+  VoiceNote,
+  voiceNoteActions,
+  voiceNoteLabel,
+} from '../voice/VoiceNote';
 
 for (const Icon of [AlertCircleIcon, ClockIcon, DownloadIcon, ForwardIcon, ImageIcon, WifiOffIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -385,7 +394,9 @@ export interface FilesMessageProps {
 /**
  * Photos or a PDF from somebody's phone, as board 142 draws them: the grid,
  * then the caption — in your own bubble under it, or inside a white card with
- * the photo for theirs — then the time.
+ * the photo for theirs — then the time. A voice note (board ChatVoicePlay)
+ * sits in the same frame: name, Forwarded, quote, the time line and the
+ * reactions.
  */
 export const FilesMessage = memo(function FilesMessage({
   message,
@@ -416,6 +427,9 @@ export const FilesMessage = memo(function FilesMessage({
   const metaLine = sending ? `${meta.split(' · ')[0]} · ${sending}` : meta;
 
   const isPhotos = message.kind === 'photos';
+  const isVoice = message.kind === 'voice';
+  // Always called, with null for photos and files: the idle state, and nothing else.
+  const voice = useVoiceNote(isVoice ? message : null);
   const anyReadyPhoto = attachments.some((a) => a.status === 'ready' && !localFor(upload, a.id));
   const showPictures = autoLoadMedia || asked;
   const tiles = isPhotos ? messageTiles(attachments, upload, showPictures) : [];
@@ -433,13 +447,29 @@ export const FilesMessage = memo(function FilesMessage({
   const label = [
     message.forwarded ? 'Forwarded' : null,
     `${mine ? 'You' : (message.sender_name ?? 'Someone')}: ${
-      isPhotos ? photoCountLabel(attachments.length) : `File, ${attachments[0]?.name ?? 'a PDF'}`
+      isPhotos
+        ? photoCountLabel(attachments.length)
+        : isVoice
+          ? voiceNoteLabel(voice, mine, !!upload)
+          : `File, ${attachments[0]?.name ?? 'a PDF'}`
     }`,
     caption,
     metaLine,
   ]
     .filter(Boolean)
     .join(', ');
+
+  // A voice note plays from the bubble itself: double-tap is Play or Pause,
+  // and the speed is one of its actions while it is the note playing.
+  const actions = isVoice ? [...voiceNoteActions(voice), ...accessibilityActions] : accessibilityActions;
+  const onAction = (e: AccessibilityActionEvent) => {
+    if (isVoice && runVoiceNoteAction(voice, e.nativeEvent.actionName)) return;
+    onAccessibilityAction(e);
+  };
+  const hint =
+    isVoice && voice.playable
+      ? 'Double-tap to play or pause. Long press to react, reply, forward or delete'
+      : 'Long press to react, reply, forward or delete';
 
   const captionInCard = !mine && !!caption;
   const body = isPhotos ? (
@@ -450,6 +480,8 @@ export const FilesMessage = memo(function FilesMessage({
       onLongPress={onHold}
       waitingForTap={waitingForTap}
     />
+  ) : isVoice ? (
+    <VoiceNote voice={voice} mine={mine} sendingHere={!!upload} onHold={onHold} />
   ) : (
     (() => {
       const a = attachments[0] ?? null;
@@ -491,9 +523,9 @@ export const FilesMessage = memo(function FilesMessage({
         ref={bubbleRef}
         accessible
         accessibilityLabel={label}
-        accessibilityHint="Long press to react, reply, forward or delete"
-        accessibilityActions={accessibilityActions}
-        onAccessibilityAction={onAccessibilityAction}
+        accessibilityHint={hint}
+        accessibilityActions={actions}
+        onAccessibilityAction={onAction}
         className={mine ? 'items-end gap-1' : 'items-start gap-1'}
         style={
           lit
@@ -571,6 +603,14 @@ export const PendingFilesBubble = memo(function PendingFilesBubble({
     over,
   }));
   const file = upload.files[0];
+  const what =
+    upload.kind === 'photos'
+      ? photoCountLabel(upload.files.length)
+      : upload.kind === 'voice'
+        ? file?.durationMs
+          ? `Voice note, ${voiceSpokenLength(file.durationMs)}`
+          : 'Voice note'
+        : `File, ${file?.name ?? 'a PDF'}`;
 
   return (
     <View className="items-end">
@@ -580,13 +620,18 @@ export const PendingFilesBubble = memo(function PendingFilesBubble({
       <Pressable
         onPress={tappable ? () => onPress(upload) : undefined}
         accessibilityRole={tappable ? 'button' : undefined}
-        accessibilityLabel={`You: ${upload.kind === 'photos' ? photoCountLabel(upload.files.length) : `File, ${file?.name ?? 'a PDF'}`}${upload.caption ? `, ${upload.caption}` : ''}, ${status}`}
+        accessibilityLabel={`You: ${what}${upload.caption ? `, ${upload.caption}` : ''}, ${status}`}
         className="items-end gap-1"
         style={failed ? { opacity: 0.75 } : undefined}
       >
         {upload.kind === 'photos' ? (
           <View pointerEvents="none">
             <PhotoGrid tiles={tiles} width={width} />
+          </View>
+        ) : upload.kind === 'voice' ? (
+          // Its length, and nothing to play until it's in the chat.
+          <View pointerEvents="none">
+            <PendingVoiceNote durationMs={file?.durationMs ?? 0} />
           </View>
         ) : file ? (
           <View pointerEvents="none">

@@ -5,6 +5,7 @@ import {
   MAX_CHAT_PHOTOS,
   chatFileSize,
   chatPhotoEdge,
+  voiceContentType,
   type ConnectionQuality,
 } from '@/api';
 
@@ -25,11 +26,12 @@ export const MAX_PICKED_BYTES = MAX_CHAT_FILE_BYTES;
 
 export type PickedKind = 'photo' | 'file';
 
-/** One photo or PDF, ready to go: its bytes, and what the dialog and the thread draw. */
+/** One photo, PDF or voice note, ready to go: its bytes, and what the dialog and the thread draw. */
 export interface PreparedFile {
   /** This computer's own id for it, until the server gives it one. */
   localId: string;
-  kind: PickedKind;
+  /** A voice note is recorded here, never picked (phase 5). */
+  kind: PickedKind | 'voice';
   blob: Blob;
   name: string;
   contentType: string;
@@ -39,7 +41,9 @@ export interface PreparedFile {
   height: number | null;
   /** A PDF's page count, when it could be read cheaply. */
   pages: number | null;
-  /** An object URL for drawing it here, before and after it has gone. */
+  /** A voice note's length, by the recorder's clock. */
+  durationMs?: number | null;
+  /** An object URL for drawing it here, before and after it has gone (or playing it, for a voice note). */
   previewUrl: string | null;
 }
 
@@ -162,6 +166,36 @@ export async function preparePdf(file: File): Promise<PreparedFile> {
     height: null,
     pages: await countPdfPages(file),
     previewUrl: null,
+  };
+}
+
+/** The name a voice note's file goes up under; the server names it its own way. */
+function voiceFileName(contentType: string): string {
+  if (contentType === 'audio/webm') return 'Voice note.webm';
+  if (contentType === 'audio/ogg') return 'Voice note.ogg';
+  if (contentType === 'audio/aac') return 'Voice note.aac';
+  return 'Voice note.m4a';
+}
+
+/**
+ * A recording as it goes: as the browser made it, at the low bitrate it was
+ * recorded at (rule 5). The server re-encodes it to AAC when it arrives.
+ * Its own copy plays here while it is still on its way.
+ */
+export function prepareVoice(take: { blob: Blob; mimeType: string; durationMs: number }): PreparedFile {
+  const contentType = voiceContentType(take.mimeType || take.blob.type);
+  return {
+    localId: localId(),
+    kind: 'voice',
+    blob: take.blob,
+    name: voiceFileName(contentType),
+    contentType,
+    sizeBytes: take.blob.size,
+    width: null,
+    height: null,
+    pages: null,
+    durationMs: Math.round(take.durationMs),
+    previewUrl: URL.createObjectURL(take.blob),
   };
 }
 

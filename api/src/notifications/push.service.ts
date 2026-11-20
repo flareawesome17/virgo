@@ -17,6 +17,12 @@ export interface PushMessage {
   /** Android channel; must match one created on the device. */
   channelId?: string;
   /**
+   * The buttons under the notification: a category the app registered, by
+   * its identifier. An app that never registered it shows the notification
+   * without buttons, so it is safe to send to older apps.
+   */
+  categoryId?: string;
+  /**
    * Delivery urgency. 'high' wakes a dozing Android device rather than
    * queueing until its next maintenance window — right for a message, and
    * needlessly rude for anything that can wait.

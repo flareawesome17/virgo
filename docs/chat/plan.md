@@ -1,6 +1,6 @@
 # Chat: what it does today, and how it could do more
 
-Status: **all five phases approved (2026-11-17), designs approved (boards 120–148).** Phase 1 is PR #244. Phase 2 is PR #245, on top of Phase 1 and the pay card (PR #243). Phase 3 is PR #246, on top of Phase 2. Phase 4 is being built on `feat/chat-files`, on top of Phase 3. See *Phase 2 as built*, *Phase 3 as built* and *Phase 4 as built* at the end.
+Status: **all five phases approved (2026-11-17), designs approved (boards 120–148).** Phase 1 is PR #244. Phase 2 is PR #245, on top of Phase 1 and the pay card (PR #243). Phase 3 is PR #246, on top of Phase 2. Phase 4 is PR #248, on top of Phase 3. Phase 5 is being built on `feat/chat-voice`, on top of Phase 4. See *Phase 2 as built* through *Phase 5 as built* at the end.
 
 > "elevate the features for the chat too, be able to do more"
 
@@ -324,3 +324,116 @@ On `feat/chat-files`, which starts from Phase 3 (`feat/chat-crew`, PR #246). Mer
 - **No video in chat.** A film goes through an album card, as the plan said.
 - **The words go before the photos.** A message can sit in the thread with photos still on their way. The alternative was a caption held back until every photo had landed.
 - **Reports keep the files on the server, but the console doesn't show them yet.** `report_evidence` copies the body ("Sent 4 photos" and the caption); showing the photos themselves in the console is a follow-up.
+
+## Phase 5 as built
+
+On `feat/chat-voice`, which starts from Phase 4 (`feat/chat-files`, PR #248). Merge #244, #243, #245, #246 and #248 first; then this one's diff is only Phase 5.
+
+It is **two commits**, so the part that can reach installed phones by OTA stays apart from the part that needs the store build:
+1. **Voice notes, and reply from the notification.** Server, web, desktop, and phone code that is safe on every installed build. On those builds the phone plays voice notes and gets the notification buttons, but shows no microphone and keeps Camera as "Next app update".
+2. **The microphone and the camera, for the next store build.** `mobile/app.json` only. It changes the runtime version, so it can only ship in a new iOS and Android build (iOS 1.3.5+ and new Android builds). Never in an OTA to the installed apps.
+
+**Server**
+- **Migration `115_chat_voice.sql`.**
+  - Message kind `voice` and attachment kind `voice`, on Phase 4's `message_attachments`.
+  - `duration_ms` (what the recorder said, then what the server measured) and `waveform` (48 levels, 0–100).
+- **Same flow as a photo:** sign, send the words, upload, finish.
+  - One voice note per message, up to 5 MB, and at most 2:05 when measured.
+  - The body is "Sent a voice note (0:32)", what the list, the push and an older app show. There's no caption.
+- **On arrival** (`api/src/storage/chat-voice.ts`), one run of ffmpeg:
+  - re-encodes whatever was recorded (AAC from a phone, Opus in WebM from most browsers, AAC from Safari) as AAC in an `.m4a`, mono, 22.05 kHz, 24 kbps (about 180 KB a minute), with the index at the front and every tag dropped;
+  - measures the length and the waveform from a telephone-rate copy.
+  - Opus doesn't play on iPhones, so a browser's recording has to be converted. The API image already has ffmpeg, which films use.
+- **Everything Phase 4 does for a photo, it does for a voice note:**
+  - counted toward the sender's storage;
+  - forwarded as the forwarder's own copy;
+  - listed and unsent from the storage screen;
+  - held while a report is open;
+  - swept, and erased with the account.
+- **Search inside a chat never matches a voice note.**
+- **Pushes for messages carry `categoryId: 'chat-message'` and the message id.** An app that registered the category shows Reply, Mark as read and Mute for 1 hour under the notification. An older one shows the notification as before.
+
+**Desktop**
+- `desktop/src-tauri/Info.plist` gains the microphone's reason, and `Entitlements.plist` gains `com.apple.security.device.audio-input`. Without them macOS ends the app when the web view asks for the microphone. They ship with the next desktop release, which also brings the web code that asks.
+
+**Phone**
+- **Hold to record** (board ChatVoiceRecord).
+  - With nothing typed, send becomes the microphone. Hold to record.
+  - Slide left to throw it away, or slide up to lock it hands-free. Locked shows a bin, the timer, the bars and send.
+  - Let go to send. It sends by itself at 2:00.
+  - A tap, or anything under a second, just says "Hold to record, let go to send".
+  - Screen readers: double-tap starts it locked.
+  - If a call takes the touch away mid-hold, it locks rather than sending or throwing it away.
+  - Recorded as AAC, one channel, 24 kbps (weak-signal rule 5), and sent through Phase 4's upload queue, words first, waiting out a dropped connection and picking up after the app is closed.
+- **The bubble** (board ChatVoicePlay).
+  - Yours is in the bubble's colour; theirs is a white card. The waveform fills as it plays, "0:21 / 0:48" shows while it's going, and a 1× / 1.5× / 2× chip carries over to the next note.
+  - One note plays at a time, through one player. Nothing loads until play is tapped (rule 6). It plays through the ringer switch and stops when the app is left.
+  - States: Arriving…, Didn't arrive, Couldn't play · Tap to try again (which asks for a fresh link).
+  - The bubble is a plain View, and its parts carry the long press. Wrapped in a Pressable, it swallowed the play button's press in the web build.
+- **Elsewhere:**
+  - quotes read "Voice note (0:32)" and pins "Voice note: 0:32";
+  - the long-press menu has no Copy or Edit;
+  - Forward says it goes as your own copy;
+  - the storage screen lists voice notes with their length.
+- **Camera** (board ChatPlus). The + sheet's Camera tile takes a photo and hands it to Phase 4's check-then-send screen, so it is shrunk and sent like a picked photo.
+- **Reply from the notification** (board ChatLockReply).
+  - Message pushes show Reply, Mark as read and Mute for 1 hour.
+  - On iPhone, Reply sends in the background without unlocking, as Messages does; iOS's own setting decides whether replies can be typed on the lock screen.
+  - **On Android, Reply opens the app to send.** The installed builds cannot run any of the app's code for a notification button while the app is closed, so a reply sent in the background would be lost then.
+  - A reply goes through the message outbox with an id made from the notification, so a reply delivered twice is stored once, and one the phone didn't finish sending goes on the next open.
+  - A button pressed before the app was listening (a cold start) waits for it.
+- **What the installed builds get.**
+  - They were built with the microphone and camera switched off, and on iOS asking for a permission the build never declared ends the app. So `src/lib/native-features.ts` reads app.json's `extra.nativeFeatures`, which the second commit sets. Missing means no.
+  - Installed phones play voice notes and get the notification buttons. They show no microphone, and Camera stays "Next app update".
+- **The second commit** (`mobile/app.json` only, for the store build):
+  - the microphone and camera reasons;
+  - the CAMERA permission on Android, without which expo-image-picker refuses to open the camera;
+  - a wider photo-library reason ("…upload photos and videos to an album or send photos in a chat…"), which is the "wider photo-access explanation for the App Store" the plan asked for;
+  - the `nativeFeatures` flags.
+  - **Trap found and avoided:** expo-image-picker's `microphonePermission: false` deletes the microphone reason that expo-audio adds and blocks RECORD_AUDIO on Android. So it carries the same sentence. Checked with `expo config --type introspect`.
+
+**Web and desktop**
+- **The microphone in the composer** (board ChatWeb) records on click.
+  - A bar shows the timer, live bars, Discard and Send. Escape discards.
+  - It sends by itself at 2:00; under a second sends nothing.
+  - The browser's own format is sent (WebM/Opus in Chrome, Edge and Firefox; MP4/AAC in Safari), and the server converts it.
+  - "Microphone blocked" names where to allow it: the browser's site settings, or System Settings on a Mac and Windows Settings in the desktop app.
+- **The bubble** works like the phone's, through one shared audio element with `preload="none"`. Your own note plays from this computer's copy until it's let go.
+- **The site's Permissions-Policy said `microphone=()`**, which makes the browser refuse the microphone without asking. It now says `microphone=(self)`. The camera stays closed on web.
+- **Desktop:** the Mac app gains the microphone reason and the `audio-input` entitlement (above).
+
+**Checked**
+- **API:** 1,357 tests pass, including new ones for voice uploads, the re-encode with real ffmpeg, the waveform and length, and the push category. tsc is clean.
+- **Real Postgres 18 with the storing bucket stand-in** (`voice-check.cjs`, all OK):
+  - a browser recording and a phone recording, each words first;
+  - re-encoded and measured, with tags gone;
+  - every refusal, including one over two minutes and bytes that aren't audio;
+  - search never matching a voice note;
+  - the chat list line;
+  - Forward, the storage list and figures, and unsend.
+- **Web, in headless Edge with a fake microphone:**
+  - record, send, and the note arriving with a waveform;
+  - the other person playing it, with nothing loaded before play;
+  - the speed chip, and the end resetting.
+- **Phone, in the Expo web preview** (the microphone switched on in the preview copy only):
+  - play, the speed chip, pause part-way, and resume to the end;
+  - the long-press menu;
+  - hold to record, lock, throw away, and slide to cancel.
+- **Both apps:** typecheck clean, lint clean on changed files, and client sync passes.
+
+**Not checked**
+- **On a real phone (needs the new store build):**
+  - recording;
+  - the iOS audio session after recording (it should go back to the speaker);
+  - haptics;
+  - the camera;
+  - lock-screen Reply with the app suspended and with it closed;
+  - Reply opening the app on Android.
+- **On installed builds (OTA):** voice note playback and the notification buttons, on a device.
+- **Safari and the Mac desktop app's recording.** The Mac app needs a desktop release first.
+
+**Decided while building**
+- **Voice notes are stored as AAC at 24 kbps** (about 180 KB a minute) rather than the plan's 16 kbps (120 KB). AAC is what every iPhone, Android phone and browser plays; Opus would be smaller but doesn't play on iPhones. At 16 kbps ffmpeg's built-in AAC encoder is thin for speech; nobody has listened on a phone yet, so this is worth a check.
+- **No caption on a voice note.**
+- **Reply from the lock screen doesn't ask to unlock.**
+- **Reply on Android opens the app.** Sending in the background there needs a background task module (expo-task-manager) in a store build; that's a follow-up.

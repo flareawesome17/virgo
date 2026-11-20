@@ -56,7 +56,7 @@ export type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
 export type ThreadRow =
   | { kind: 'message'; key: string; message: ConversationMessage; showName: boolean }
   | { kind: 'outgoing'; key: string; item: OutboxItem }
-  // Photos or a file of yours whose message hasn't reached the chat yet.
+  // Photos, a file or a voice note of yours whose message hasn't reached the chat yet.
   | { kind: 'uploading'; key: string; upload: UploadJob }
   | { kind: 'divider'; key: string }
   | { kind: 'day'; key: string; label: string };
@@ -589,7 +589,8 @@ export const MessageBubble = memo(function MessageBubble({
     );
   }
 
-  // Photos or a PDF from somebody's phone: the grid or the file, then the caption.
+  // Photos, a PDF or a voice note from somebody's phone: the grid, the file
+  // or the player, then the caption if there is one.
   if (isFilesMessage(message)) {
     const seen =
       state === 'read'

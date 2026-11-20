@@ -24,6 +24,7 @@ import {
   Info,
   Loader2,
   MessageSquareOff,
+  Mic,
   Pencil,
   Reply,
   Search,
@@ -90,10 +91,21 @@ import { SendFilesDialog, type FilesPick } from '@/components/chat/files/send-fi
 import {
   discardFilesSend,
   retryFilesSend,
+  startVoiceSend,
   useUnsentFiles,
   type FilesSend,
   type LocalUpload,
 } from '@/components/chat/files/send-queue';
+import { RecorderBar } from '@/components/chat/voice/recorder-bar';
+import { voiceQuote } from '@/components/chat/voice/voice-note';
+import { pauseVoice, stopVoice } from '@/components/chat/voice/voice-player';
+import {
+  discardRecording,
+  startRecording,
+  useCanRecordVoice,
+  useRecorderPhase,
+  type VoiceTake,
+} from '@/components/chat/voice/voice-recorder';
 import { filesKeys } from '@/hooks/useChatFiles';
 import { usageQueryKey } from '@/hooks/useUsage';
 import { PayChatCard } from '@/components/money/pay-card';
@@ -120,8 +132,11 @@ import {
   isFilesMessage,
   isNotice,
   isPinsFull,
+  isVoiceMessage,
   myReaction,
   photoCountLabel,
+  voiceAttachment,
+  voiceSpokenLength,
   type ChatAttachment,
   type CardKind,
   type ConversationMessage,
@@ -172,9 +187,10 @@ function firstName(name: string): string {
  * A message as a quote: its words, or for a shared card what it is —
  * "Album photos · 12 photos · Santos Wedding" rather than the card's
  * stored text and link — and for photos or a file what was sent: "4 photos:
- * Reference for the entrance shot", "File: Call sheet.pdf".
+ * Reference for the entrance shot", "File: Call sheet.pdf", "Voice note (0:32)".
  */
 function quoteOf(message: ConversationMessage): string {
+  if (isVoiceMessage(message)) return voiceQuote(voiceAttachment(message)?.durationMs);
   const card = cardSummary(message);
   if (!card) return message.body;
   if (isFilesMessage(message)) return card.title ? `${card.label}: ${card.title}` : card.label;
@@ -194,7 +210,11 @@ function quotedBody(body: string): string {
     return caption ? `${label}: ${caption}` : label;
   }
   const file = /^Sent a file: ([^\n]+)/.exec(body);
-  return file ? `File: ${file[1]}` : body;
+  if (file) return `File: ${file[1]}`;
+  // "Sent a voice note (0:32)": the line older apps show.
+  const voice = /^Sent a voice note(?: \((\d+:\d{2})\))?$/.exec(body.trim());
+  if (voice) return voice[1] ? `Voice note (${voice[1]})` : 'Voice note';
+  return body;
 }
 
 /** The quoted message over a reply: who, a line of what, and a tiny photo when there is one. */
@@ -231,7 +251,7 @@ function ReplyQuote({
   );
 }
 
-/** A photo or PDF still only on this computer, as the thread draws it. */
+/** A photo, PDF or voice note still only on this computer, as the thread draws it. */
 function localTile(upload: LocalUpload): TileModel {
   const f = upload.file;
   return {
@@ -243,10 +263,17 @@ function localTile(upload: LocalUpload): TileModel {
     width: f.width,
     height: f.height,
     pages: f.pages,
+    durationMs: f.durationMs ?? null,
+    waveform: null,
     blur: null,
     thumbUrl: null,
     url: null,
   };
+}
+
+/** "a voice note, 32 seconds": how a voice row reads out. */
+function voiceSaid(durationMs: number | null | undefined): string {
+  return durationMs ? `a voice note, ${voiceSpokenLength(durationMs)}` : 'a voice note';
 }
 
 /** "a photo", "4 photos": how a row reads out. */
@@ -360,6 +387,38 @@ export function Thread({
   const edit = useEditMessage(conversationId);
   /** Edits made with no connection, shown as done and said to be waiting. */
   const waitingEdits = useWaitingEdits();
+
+  /*
+   * Voice notes (phase 5, board ChatWeb): with nothing typed, Send becomes
+   * the mic. Click to record, then Send or Discard; the composer is the
+   * recorder bar meanwhile. Hidden where the browser can't record.
+   */
+  const canRecord = useCanRecordVoice();
+  const recorderPhase = useRecorderPhase();
+  /** The reply the voice note being recorded answers, as it is when the note is done. */
+  const replyRef = useRef<ConversationMessage | null>(null);
+  useEffect(() => {
+    replyRef.current = replyTo;
+  }, [replyTo]);
+
+  // Another chat, or leaving one: nothing keeps recording, nothing keeps playing.
+  useEffect(
+    () => () => {
+      discardRecording();
+      stopVoice();
+    },
+    [conversationId],
+  );
+
+  // The recorder bar gone, and focus with it: back into the box.
+  const wasRecording = useRef(false);
+  useEffect(() => {
+    const now = recorderPhase !== 'idle';
+    if (wasRecording.current && !now && (!document.activeElement || document.activeElement === document.body)) {
+      composerRef.current?.focus();
+    }
+    wasRecording.current = now;
+  }, [recorderPhase]);
 
   /*
    * Pins (board 136): up to three per chat, the same for everyone. Which
@@ -693,6 +752,8 @@ export function Thread({
    * was being written waits, and comes back when the edit is done.
    */
   const startEdit = (message: ConversationMessage) => {
+    // The box is needed for the words: a recording in progress is let go.
+    discardRecording();
     if (!editing) beforeEdit.current = { draft, mentioned, replyTo };
     setEditing(message);
     setReplyTo(null);
@@ -899,6 +960,40 @@ export function Thread({
     // The list runs bottom-up, so the newest end is the top of the scroll.
     scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  /** A finished recording, on its way: words first, like photos. */
+  const sendVoiceTake = (id: string, take: VoiceTake) => {
+    const reply = replyRef.current;
+    startVoiceSend(queryClient, {
+      conversationId: id,
+      take,
+      replyTo: reply ? { id: reply.id, body: quoteOf(reply), sender: reply.sender_name ?? null } : null,
+    });
+    // The reply went with it.
+    if (reply) setReplyTo(null);
+    setPinJump(null);
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /** The mic: asks for the microphone, then records until Send, Discard or two minutes. */
+  const startVoice = () => {
+    if (!canSend) return;
+    stopTyping();
+    // A note playing out loud would be recorded too.
+    pauseVoice();
+    const id = conversationId;
+    void startRecording({
+      onTake: (take) => sendVoiceTake(id, take),
+      onProblem: ({ title, description }) => toast.error(title, { description }),
+      onTooShort: () =>
+        toast('Too short to send', { description: 'Record for at least a second.', duration: 2500 }),
+    });
+  };
+
+  // No composer to record into: the chat froze, or a search took the bottom.
+  useEffect(() => {
+    if (!canSend || searching) discardRecording();
+  }, [canSend, searching]);
 
   const copyText = (text: string) => {
     void navigator.clipboard.writeText(text).then(
@@ -1351,7 +1446,13 @@ export function Thread({
                 <MessageFrame
                   key={send.key}
                   side="end"
-                  label={`You: ${send.kind === 'file' ? 'a file' : photosSaid(send.files.length)}, ${line}`}
+                  label={`You: ${
+                    send.kind === 'file'
+                      ? 'a file'
+                      : send.kind === 'voice'
+                        ? voiceSaid(send.files[0]?.file.durationMs)
+                        : photosSaid(send.files.length)
+                  }, ${line}`}
                   width="max-w-full"
                   // Not sent yet: Delete only, which takes it off this computer.
                   toolbar={
@@ -1565,19 +1666,22 @@ export function Thread({
               ) : undefined;
 
             /*
-             * Photos or a PDF from somebody's computer or phone (board 142).
-             * The plain line in `body` is for the list and pushes; here the
-             * photos, the file and the caption are drawn instead. Forward
-             * and Reply as for words; no Edit; Copy copies the caption.
+             * Photos, a PDF or a voice note from somebody's computer or phone
+             * (boards 142 and ChatVoicePlay). The plain line in `body` is for
+             * the list and pushes; here the photos, the file, the note and
+             * the caption are drawn instead. Forward and Reply as for words;
+             * no Edit; Copy copies the caption, so a voice note has none.
              */
             if (isFilesMessage(message)) {
               const caption = filesCaption(message);
-              const kind = message.kind === 'file' ? 'file' : 'photos';
+              const kind = message.kind === 'file' ? 'file' : message.kind === 'voice' ? 'voice' : 'photos';
               const attachments = message.attachments ?? [];
               const what =
                 kind === 'file'
                   ? `a file, ${attachments[0]?.name ?? 'PDF'}`
-                  : photosSaid(attachments.length);
+                  : kind === 'voice'
+                    ? voiceSaid(voiceAttachment(message)?.durationMs)
+                    : photosSaid(attachments.length);
               const quote = message.reply_to_id ? quoteFor(message) : null;
               return (
                 <MessageFrame
@@ -1941,6 +2045,9 @@ export function Thread({
             )}
           </div>
         )
+      ) : recorderPhase !== 'idle' ? (
+        // Recording a voice note: the composer row is the recorder (board ChatVoiceRecord).
+        <RecorderBar phase={recorderPhase} rowRef={composerRowRef} />
       ) : (
         <div ref={composerRowRef} className="flex shrink-0 items-end gap-2 border-t p-3">
           <ShareMenu
@@ -1992,6 +2099,11 @@ export function Thread({
           {editing ? (
             <Button onClick={submit} disabled={!draft.trim()} size="icon" aria-label="Save the change">
               <Check className="size-4" />
+            </Button>
+          ) : canRecord && !draft.trim() ? (
+            // Nothing typed: Send becomes the mic (board ChatWeb). A click, not a hold.
+            <Button onClick={startVoice} size="icon" aria-label="Record a voice note" title="Record a voice note">
+              <Mic className="size-4" />
             </Button>
           ) : (
             <Button onClick={submit} disabled={!draft.trim()} size="icon" aria-label="Send">

@@ -17,8 +17,10 @@ import { sendTyping } from '@/src/lib/presence-store';
 import { getConnectionQuality } from '@/src/hooks/useConnectionQuality';
 import { useTheme } from '@/src/hooks';
 import { useKeyboardUp } from '@/src/lib/keyboard';
+import { NATIVE_FEATURES } from '@/src/lib/native-features';
 import { PALETTES } from '@/theme';
 import { quoteLine } from './files/files-words';
+import { VoiceRecorderButton } from './voice/VoiceRecorderButton';
 
 for (const Icon of [AtSignIcon, CheckIcon, PencilIcon, PlusIcon, ReplyIcon, SendIcon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -64,6 +66,12 @@ interface ComposerProps {
   onEditExpired: () => void;
   /** The round + at the start of the box: what can be shared here, saved replies among it. */
   onPlus?: () => void;
+  /**
+   * A voice note went into the chat (held on the microphone, which is where
+   * send is while nothing is typed): the reply it answered is done with, and
+   * the newest is the one to see.
+   */
+  onVoiceSent?: () => void;
   ref?: Ref<ComposerHandle>;
 }
 
@@ -87,6 +95,7 @@ export const Composer = memo(function Composer({
   onSaveEdit,
   onEditExpired,
   onPlus,
+  onVoiceSent,
   ref,
 }: ComposerProps) {
   const insets = useSafeAreaInsets();
@@ -254,6 +263,15 @@ export const Composer = memo(function Composer({
 
   const border = isDark ? '#2A2522' : '#F0E8E2';
   const ready = draft.trim().length > 0;
+  /*
+   * Voice notes, on a build that has the microphone: with nothing typed, the
+   * send button is the microphone. Not while a message is being changed.
+   * The recorder stays mounted while words are typed, only hidden, so typing
+   * and clearing the box doesn't make a new one each time.
+   */
+  const micOffered = NATIVE_FEATURES.microphone && !editing;
+  const showMic = micOffered && !ready;
+  const bottomPad = (keyboardUp ? 0 : insets.bottom) + 8;
 
   return (
     <View>
@@ -359,7 +377,7 @@ export const Composer = memo(function Composer({
           editing ? 'bg-card' : 'border-t border-border/50 bg-background'
         }`}
         style={{
-          paddingBottom: (keyboardUp ? 0 : insets.bottom) + 8,
+          paddingBottom: bottomPad,
           ...(editing ? null : { borderTopColor: border }),
         }}
       >
@@ -398,22 +416,34 @@ export const Composer = memo(function Composer({
             style={{ maxHeight: 120 }}
           />
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={editing ? 'Save the change' : 'Send message'}
-          accessibilityState={{ disabled: !ready }}
-          onPress={submit}
-          disabled={!ready}
-          className={`w-11 h-11 rounded-full items-center justify-center active:scale-[0.94] ${
-            ready ? 'bg-action' : 'bg-muted'
-          }`}
-        >
-          {editing ? (
-            <CheckIcon size={20} className={ready ? 'text-action-foreground' : 'text-muted-foreground'} />
-          ) : (
-            <SendIcon size={17} className={ready ? 'text-action-foreground' : 'text-muted-foreground'} />
-          )}
-        </Pressable>
+        {showMic ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={editing ? 'Save the change' : 'Send message'}
+            accessibilityState={{ disabled: !ready }}
+            onPress={submit}
+            disabled={!ready}
+            className={`w-11 h-11 rounded-full items-center justify-center active:scale-[0.94] ${
+              ready ? 'bg-action' : 'bg-muted'
+            }`}
+          >
+            {editing ? (
+              <CheckIcon size={20} className={ready ? 'text-action-foreground' : 'text-muted-foreground'} />
+            ) : (
+              <SendIcon size={17} className={ready ? 'text-action-foreground' : 'text-muted-foreground'} />
+            )}
+          </Pressable>
+        )}
+        {/* Last in the row: while it records, it lays the recorder over the whole row. */}
+        {micOffered ? (
+          <VoiceRecorderButton
+            conversationId={conversationId}
+            replyTo={replyTo}
+            onSent={onVoiceSent}
+            hidden={!showMic}
+            bottomPad={bottomPad}
+          />
+        ) : null}
       </View>
     </View>
   );

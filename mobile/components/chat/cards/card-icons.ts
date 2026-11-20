@@ -7,6 +7,7 @@ import {
   ImageIcon,
   ImagesIcon,
   MessageSquareTextIcon,
+  MicIcon,
   ReceiptIcon,
   WalletIcon,
   type LucideIcon,
@@ -17,7 +18,7 @@ import type { ConversationMessage } from '@/src/api';
 for (const Icon of [
   BriefcaseIcon, CalendarPlusIcon, ClipboardCheckIcon, FileTextIcon, GalleryVerticalEndIcon,
   ImageIcon, ImagesIcon,
-  MessageSquareTextIcon, ReceiptIcon, WalletIcon,
+  MessageSquareTextIcon, MicIcon, ReceiptIcon, WalletIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
@@ -41,6 +42,8 @@ export const CARD_ICON: Record<Exclude<MessageKind, 'text' | 'notice'>, LucideIc
   // From your phone (phase 4): the + sheet's Photos and A file.
   photos: ImageIcon,
   file: FileTextIcon,
+  // A voice note (phase 5), as a pin or a held copy shows it.
+  voice: MicIcon,
 };
 
 /** Saved replies' tile, which is not a card. */

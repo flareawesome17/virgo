@@ -117,14 +117,14 @@ export function ChatStorageSection({
         <Pressable
           onPress={() => router.push('/settings/storage/chats')}
           accessibilityRole="button"
-          accessibilityLabel={`Sent in chats, photos and files from your phone, ${formatBytes(chatBytes)}`}
+          accessibilityLabel={`Sent in chats, photos, files and voice notes from your phone, ${formatBytes(chatBytes)}`}
           className="min-h-[52px] flex-row items-center gap-3 px-4 py-3 active:bg-muted/30"
         >
           <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: CHATS_COLOUR }} />
           <View className="flex-1 min-w-0">
             <Text className="text-foreground text-sm">Sent in chats</Text>
             <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
-              Photos and files from your phone
+              Photos, files and voice notes from your phone
             </Text>
           </View>
           <Text className="text-foreground text-sm font-bold">{formatBytes(chatBytes)}</Text>
@@ -162,7 +162,7 @@ export function ChatStorageSection({
       <View className="mt-4 bg-muted rounded-2xl px-4 py-3.5 flex-row items-start gap-2.5">
         <InfoIcon size={15} className="text-secondary-foreground" style={{ marginTop: 1 }} />
         <Text className="flex-1 text-secondary-foreground text-xs leading-[18px]">
-          {"If you run out, photos and files from your phone won't send. Messages, album photos, cards and dates always will."}
+          {"If you run out, photos, files and voice notes from your phone won't send. Messages, album photos, cards and dates always will."}
         </Text>
       </View>
     </View>

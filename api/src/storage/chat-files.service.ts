@@ -16,6 +16,14 @@ import sharp from 'sharp';
 import { DatabaseService } from '../database/database.service';
 import { QuotaService } from '../quota/quota.service';
 import { blurDataUrl } from './blur';
+import {
+  CHAT_VOICE_TYPES,
+  MAX_CHAT_VOICE_BYTES,
+  MAX_VOICE_MS_ACCEPTED,
+  VOICE_CONTENT_TYPE,
+  VOICE_NAME,
+  encodeVoiceNote,
+} from './chat-voice';
 import { Semaphore } from './semaphore';
 import {
   DISPLAY_URL_TTL_SECONDS,
@@ -65,7 +73,14 @@ const WEBP = 'image/webp';
  */
 const decodes = new Semaphore(2);
 
-export type ChatAttachmentKind = 'photo' | 'file';
+export type ChatAttachmentKind = 'photo' | 'file' | 'voice';
+/** The message kinds that carry attachments, and the attachment each carries. */
+export type FilesMessageKind = 'photos' | 'file' | 'voice';
+export const FILES_MESSAGE_KINDS: readonly FilesMessageKind[] = ['photos', 'file', 'voice'];
+
+export function isFilesKind(kind: string | null | undefined): kind is FilesMessageKind {
+  return (FILES_MESSAGE_KINDS as readonly string[]).includes(kind ?? '');
+}
 export type ChatAttachmentStatus = 'uploading' | 'ready' | 'failed';
 
 /** An attachment as the apps get it, inside its message. */
@@ -80,6 +95,13 @@ export interface ChatAttachment {
   height: number | null;
   /** A PDF's page count, when it could be read. */
   pages: number | null;
+  /**
+   * A voice note's length: what the sender's app said until it arrives, then
+   * what the server measured. Null on photos and files.
+   */
+  durationMs: number | null;
+  /** A voice note's shape, 48 levels from 0 to 100. Null until it arrives. */
+  waveform: number[] | null;
   /** About 300 bytes: painted before anything loads, and instead of it on a slow line. */
   blur: string | null;
   /** The small copy, signed for half a day. Null until it is ready. */
@@ -92,6 +114,8 @@ export interface NewChatFile {
   contentType: string;
   contentLength: number;
   name?: string;
+  /** A voice note's length as the recorder measured it: the line says it before it arrives. */
+  durationMs?: number;
 }
 
 export interface ChatUploadTicket {
@@ -118,10 +142,13 @@ interface AttachmentRow {
   width_px: number | null;
   height_px: number | null;
   pages: number | null;
+  duration_ms: number | null;
+  waveform: number[] | null;
 }
 
 const ROW_COLUMNS = `id, user_id, conversation_id, message_id, position, kind, status, key,
-  thumb_key, blur, name, content_type, size_bytes, width_px, height_px, pages`;
+  thumb_key, blur, name, content_type, size_bytes, width_px, height_px, pages,
+  duration_ms, waveform`;
 
 /** Nobody can hold on to it: no open report names its message. */
 const NOT_HELD = (attachment: string) => `not exists (
@@ -245,7 +272,14 @@ export class ChatFilesService {
       throw new ServiceUnavailableException("Photos and files can't be sent right now.");
     }
     const kinds = files.map((f) => this.kindOf(f.contentType));
-    if (kinds.includes('file')) {
+    if (kinds.includes('voice')) {
+      if (files.length > 1) {
+        throw new BadRequestException('Send one voice note at a time.');
+      }
+      if (files[0].contentLength <= 0 || files[0].contentLength > MAX_CHAT_VOICE_BYTES) {
+        throw new BadRequestException('A voice note can be up to 2 minutes long.');
+      }
+    } else if (kinds.includes('file')) {
       if (files.length > 1) {
         throw new BadRequestException('Send one file at a time, or photos on their own.');
       }
@@ -286,15 +320,24 @@ export class ChatFilesService {
     const tickets: ChatUploadTicket[] = [];
     for (const [position, file] of files.entries()) {
       const kind = kinds[position];
-      const ext = EXTENSION_BY_CONTENT_TYPE[file.contentType] ?? 'bin';
+      // A voice note's key is .m4a whatever was recorded: it is re-encoded
+      // as one in place when it arrives.
+      const ext = kind === 'voice' ? 'm4a' : (EXTENSION_BY_CONTENT_TYPE[file.contentType] ?? 'bin');
       const key = mintKey(ext);
       const signed = await this.storage.signServerUpload(key, file.contentType, file.contentLength);
-      const name = cleanChatFileName(file.name, kind === 'photo' ? `Photo.${ext}` : `File.${ext}`);
+      const name =
+        kind === 'voice'
+          ? VOICE_NAME
+          : cleanChatFileName(file.name, kind === 'photo' ? `Photo.${ext}` : `File.${ext}`);
+      const declared =
+        kind === 'voice' && Number.isFinite(file.durationMs)
+          ? Math.max(0, Math.min(MAX_VOICE_MS_ACCEPTED, Math.round(file.durationMs!)))
+          : null;
       const row = await this.db.queryOne<{ id: string }>(
         `insert into message_attachments
-           (user_id, conversation_id, position, kind, key, name, content_type, size_bytes)
-         values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-        [userId, conversationId, position, kind, key, name, file.contentType, file.contentLength],
+           (user_id, conversation_id, position, kind, key, name, content_type, size_bytes, duration_ms)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+        [userId, conversationId, position, kind, key, name, file.contentType, file.contentLength, declared],
       );
       tickets.push({ id: row!.id, ...signed });
     }
@@ -324,19 +367,28 @@ export class ChatFilesService {
 
   /**
    * What a message would carry: these uploads, the sender's, in this chat and
-   * not yet sent. All photos, or one file.
+   * not yet sent. All photos, one file, or one voice note.
    */
   async check(
     userId: string,
     conversationId: string,
     ids: string[],
-  ): Promise<{ kind: 'photos' | 'file'; count: number; fileName: string | null }> {
+  ): Promise<{
+    kind: FilesMessageKind;
+    count: number;
+    fileName: string | null;
+    durationMs: number | null;
+  }> {
     const unique = [...new Set(ids)];
     if (unique.length === 0 || unique.length !== ids.length || unique.length > MAX_CHAT_PHOTOS) {
       throw new BadRequestException('Pick the photos to send again.');
     }
-    const rows = await this.db.query<{ kind: ChatAttachmentKind; name: string }>(
-      `select kind, name from message_attachments
+    const rows = await this.db.query<{
+      kind: ChatAttachmentKind;
+      name: string;
+      duration_ms: number | null;
+    }>(
+      `select kind, name, duration_ms from message_attachments
         where id = any($1::uuid[]) and user_id = $2 and conversation_id = $3
           and message_id is null and status <> 'failed'`,
       [unique, userId, conversationId],
@@ -344,13 +396,18 @@ export class ChatFilesService {
     if (rows.length !== unique.length) {
       throw new BadRequestException("Those can't be sent any more. Pick them again.");
     }
+    const voice = rows.filter((r) => r.kind === 'voice');
+    if (voice.length > 0) {
+      if (rows.length > 1) throw new BadRequestException('Send one voice note at a time.');
+      return { kind: 'voice', count: 1, fileName: null, durationMs: voice[0].duration_ms };
+    }
     const files = rows.filter((r) => r.kind === 'file');
     if (files.length > 0 && rows.length > 1) {
       throw new BadRequestException('Send one file at a time, or photos on their own.');
     }
     return files.length
-      ? { kind: 'file', count: 1, fileName: files[0].name }
-      : { kind: 'photos', count: rows.length, fileName: null };
+      ? { kind: 'file', count: 1, fileName: files[0].name, durationMs: null }
+      : { kind: 'photos', count: rows.length, fileName: null, durationMs: null };
   }
 
   /**
@@ -400,28 +457,44 @@ export class ChatFilesService {
         message: "It hasn't finished uploading yet.",
       });
     }
-    const max = row.kind === 'photo' ? MAX_CHAT_PHOTO_BYTES : MAX_CHAT_FILE_BYTES;
+    const max =
+      row.kind === 'photo'
+        ? MAX_CHAT_PHOTO_BYTES
+        : row.kind === 'voice'
+          ? MAX_CHAT_VOICE_BYTES
+          : MAX_CHAT_FILE_BYTES;
     if (head.size > max) {
       await this.fail(row, 'too large');
       throw new BadRequestException(
-        row.kind === 'photo' ? 'A photo has to be under 15 MB.' : 'A file has to be a PDF under 20 MB.',
+        row.kind === 'photo'
+          ? 'A photo has to be under 15 MB.'
+          : row.kind === 'voice'
+            ? 'A voice note can be up to 2 minutes long.'
+            : 'A file has to be a PDF under 20 MB.',
       );
     }
 
     const ready =
-      row.kind === 'photo' ? await this.readyPhoto(row) : await this.readyFile(row, head.size);
+      row.kind === 'photo'
+        ? await this.readyPhoto(row)
+        : row.kind === 'voice'
+          ? await this.readyVoice(row)
+          : await this.readyFile(row, head.size);
     if (!ready) {
       await this.fail(row, 'unreadable');
       throw new BadRequestException(
         row.kind === 'photo'
           ? "That photo couldn't be read. Try a different one."
-          : "That file isn't a PDF that can be opened.",
+          : row.kind === 'voice'
+            ? "That voice note couldn't be played. Record it again."
+            : "That file isn't a PDF that can be opened.",
       );
     }
     const updated = await this.db.queryOne<AttachmentRow>(
       `update message_attachments
           set status = 'ready', ready_at = now(), size_bytes = $2, thumb_key = $3, blur = $4,
-              width_px = $5, height_px = $6, pages = $7, name = $8, content_type = $9
+              width_px = $5, height_px = $6, pages = $7, name = $8, content_type = $9,
+              duration_ms = coalesce($10, duration_ms), waveform = $11::smallint[]
         where id = $1 and status = 'uploading'
         returning ${ROW_COLUMNS}`,
       [
@@ -434,6 +507,8 @@ export class ChatFilesService {
         ready.pages,
         ready.name,
         ready.contentType,
+        ready.durationMs,
+        ready.waveform,
       ],
     );
     // Two finishes at once: the other one wrote it, and this one's copies
@@ -456,7 +531,8 @@ export class ChatFilesService {
   private kindOf(contentType: string): ChatAttachmentKind {
     if ((CHAT_PHOTO_TYPES as readonly string[]).includes(contentType)) return 'photo';
     if ((CHAT_FILE_TYPES as readonly string[]).includes(contentType)) return 'file';
-    throw new BadRequestException('Send photos (JPEG, PNG or WebP), or a PDF.');
+    if ((CHAT_VOICE_TYPES as readonly string[]).includes(contentType)) return 'voice';
+    throw new BadRequestException('Send photos (JPEG, PNG or WebP), a PDF, or a voice note.');
   }
 
   /**
@@ -490,6 +566,8 @@ export class ChatFilesService {
           pages: null,
           name: photoName(row.name),
           contentType: WEBP,
+          durationMs: null,
+          waveform: null,
         };
       } catch (err) {
         this.logger.warn(`Chat photo could not be made ready: ${String(err).slice(0, 160)}`);
@@ -512,11 +590,45 @@ export class ChatFilesService {
         pages: countPdfPages(bytes),
         name: row.name,
         contentType: row.content_type,
+        durationMs: null,
+        waveform: null,
       };
     } catch (err) {
       this.logger.warn(`Chat file could not be checked: ${String(err).slice(0, 160)}`);
       return null;
     }
+  }
+
+  /**
+   * A voice note re-encoded as AAC in an .m4a, written back over the upload,
+   * and measured: how long it is, and its waveform. Null when ffmpeg can't
+   * read it, or it is too short or too long to be one.
+   */
+  private async readyVoice(row: AttachmentRow) {
+    return decodes.run(async () => {
+      try {
+        const note = await encodeVoiceNote(await this.readAll(row.key));
+        if (!note) return null;
+        // Always written back: the re-encode is what makes a browser's Opus
+        // play on an iPhone, and what drops whatever the recorder tagged it with.
+        await this.storage.putDerived(row.key, note.audio, VOICE_CONTENT_TYPE);
+        return {
+          size: note.audio.length,
+          thumbKey: null,
+          blur: null,
+          width: null,
+          height: null,
+          pages: null,
+          name: VOICE_NAME,
+          contentType: VOICE_CONTENT_TYPE,
+          durationMs: note.durationMs,
+          waveform: note.waveform,
+        };
+      } catch (err) {
+        this.logger.warn(`Chat voice note could not be made ready: ${String(err).slice(0, 160)}`);
+        return null;
+      }
+    });
   }
 
   /** Marks an upload that will never be ready, and removes what arrived. */
@@ -564,6 +676,8 @@ export class ChatFilesService {
       width: r.width_px,
       height: r.height_px,
       pages: r.pages,
+      durationMs: r.duration_ms,
+      waveform: r.waveform,
       blur: r.blur,
       thumbUrl: thumbs[i],
       url: urls[i],
@@ -679,8 +793,9 @@ export class ChatFilesService {
       const row = await this.db.queryOne<{ id: string }>(
         `insert into message_attachments
            (user_id, conversation_id, position, kind, status, key, thumb_key, blur, name,
-            content_type, size_bytes, width_px, height_px, pages, ready_at)
-         values ($1, $2, $3, $4, 'ready', $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
+            content_type, size_bytes, width_px, height_px, pages, duration_ms, waveform, ready_at)
+         values ($1, $2, $3, $4, 'ready', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                 $15::smallint[], now())
          returning id`,
         [
           userId,
@@ -696,6 +811,8 @@ export class ChatFilesService {
           r.width_px,
           r.height_px,
           r.pages,
+          r.duration_ms,
+          r.waveform,
         ],
       );
       ids.push(row!.id);
