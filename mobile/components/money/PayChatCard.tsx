@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode, type Ref } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { TriangleAlertIcon, WalletIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
@@ -30,15 +30,22 @@ function firstName(name: string | null | undefined): string {
  * the other side is told to check with the sender before paying.
  */
 export function PayChatCard({
+  ref,
   message,
   mine,
   time,
   onLongPress,
+  pills,
 }: {
+  /** The card itself, which the thread measures to lift it in place when held. */
+  ref?: Ref<View>;
   message: ConversationMessage;
   mine: boolean;
   time: string;
-  onLongPress: (message: ConversationMessage) => void;
+  /** Held: the thread measures the card and opens its reactions and menu. */
+  onLongPress: () => void;
+  /** Its reactions, drawn under the card like any message's. */
+  pills?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const context = (message.context ?? null) as PayCardContext | null;
@@ -51,8 +58,13 @@ export function PayChatCard({
   return (
     <View className={mine ? 'items-end' : 'items-start'}>
       <Pressable
-        onLongPress={() => onLongPress(message)}
+        ref={ref}
+        onLongPress={onLongPress}
         delayLongPress={300}
+        accessibilityActions={[{ name: 'longpress', label: 'Message actions' }]}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === 'longpress') onLongPress();
+        }}
         accessibilityLabel={`${title}${card ? `: ${payMethodName(card)}, ${card.accountName ?? ''} ${card.accountNumber ?? ''}` : ''}, ${time}`}
         className="bg-card border-[1.5px] border-action overflow-hidden active:opacity-90"
         style={{
@@ -109,6 +121,8 @@ export function PayChatCard({
             <View className="px-3.5 pt-2.5 pb-3.5">
               <Pressable
                 onPress={() => setOpen(true)}
+                onLongPress={onLongPress}
+                delayLongPress={300}
                 accessibilityRole="button"
                 className="h-10 rounded-xl bg-secondary items-center justify-center active:opacity-70"
               >
@@ -124,6 +138,7 @@ export function PayChatCard({
           </Text>
         )}
       </Pressable>
+      {pills}
       <Text className="text-muted-foreground text-[11px] mt-1 mx-1">{time}</Text>
       <PayQrModal visible={open} method={method} title={title} onClose={() => setOpen(false)} />
     </View>

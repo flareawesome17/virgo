@@ -1,9 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, useCallback } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  useCallback,
+} from 'react';
+import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
+  ArrowDown,
   ArrowLeft,
   AtSign,
   Check,
@@ -15,6 +26,7 @@ import {
   MessageSquareOff,
   Pencil,
   Reply,
+  Search,
   Send,
   Users,
   X,
@@ -67,14 +79,51 @@ import { MessageFrame, MessageToolbar } from '@/components/chat/message-actions'
 import { LinkPreviewCard, MessageBody } from '@/components/chat/message-body';
 import { ReactionBar } from '@/components/chat/reactions';
 import { SeenBy } from '@/components/chat/seen-by';
-import { SavedRepliesButton } from '@/components/chat/saved-replies';
+import { ShareMenu } from '@/components/chat/share/share-menu';
+import { ChatCard, cardIsCentred, cardReadout, type CardEnv } from '@/components/chat/cards';
 import { ForwardDialog } from '@/components/chat/forward-dialog';
+import { useMediaAutoLoad } from '@/components/chat/connection';
+import { FilesContent, type TileModel } from '@/components/chat/files/files-message';
+import { PhotoViewer } from '@/components/chat/files/photo-viewer';
+import { AddToAlbumDialog } from '@/components/chat/files/add-to-album-dialog';
+import { SendFilesDialog, type FilesPick } from '@/components/chat/files/send-files-dialog';
+import {
+  discardFilesSend,
+  retryFilesSend,
+  useUnsentFiles,
+  type FilesSend,
+  type LocalUpload,
+} from '@/components/chat/files/send-queue';
+import { filesKeys } from '@/hooks/useChatFiles';
+import { usageQueryKey } from '@/hooks/useUsage';
 import { PayChatCard } from '@/components/money/pay-card';
 import { chatProblem } from '@/components/chat/chat-errors';
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { GroupAvatar } from '@/components/chat/group-avatar';
+import { PinnedPanel, PinnedStrip, ReplacePinDialog } from '@/components/chat/pins';
+import { ChatSearchCount, ChatSearchFooter, ChatSearchHeader } from '@/components/chat/chat-search';
+import { takeChatJump, useChatJump, type ChatJump } from '@/components/chat/chat-jump';
+import {
+  useChatSearch,
+  usePinMessage,
+  usePins,
+  useThreadAround,
+  useUnpinMessage,
+} from '@/hooks/useChatCrew';
 import {
   ApiError,
+  cardSummary,
+  filesCaption,
   firstVirgoLink,
+  groupSubtitle,
+  isCardKind,
+  isFilesMessage,
+  isNotice,
+  isPinsFull,
   myReaction,
+  photoCountLabel,
+  type ChatAttachment,
+  type CardKind,
   type ConversationMessage,
   type JobAcceptedContext,
   type Participant,
@@ -86,7 +135,12 @@ type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
 type Row =
   | { kind: 'message'; message: ConversationMessage }
   | { kind: 'outgoing'; outgoing: OutboxItem }
+  /** Photos or a PDF from this computer that have not become a message yet. */
+  | { kind: 'files-out'; send: FilesSend }
   | { kind: 'divider' };
+
+/** The most matches a search in one chat answers with; past it the count says "200+". */
+const SEARCH_MATCH_CAP = 200;
 
 /** What an unsent bubble says under its text. */
 const UNSENT_LABEL: Record<OutboxItem['status'], string> = {
@@ -112,6 +166,97 @@ function usePageVisible(): boolean {
 /** How a notice addresses someone: by first name, as a person would. */
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
+}
+
+/**
+ * A message as a quote: its words, or for a shared card what it is —
+ * "Album photos · 12 photos · Santos Wedding" rather than the card's
+ * stored text and link — and for photos or a file what was sent: "4 photos:
+ * Reference for the entrance shot", "File: Call sheet.pdf".
+ */
+function quoteOf(message: ConversationMessage): string {
+  const card = cardSummary(message);
+  if (!card) return message.body;
+  if (isFilesMessage(message)) return card.title ? `${card.label}: ${card.title}` : card.label;
+  return `${card.label} · ${card.title}`;
+}
+
+/**
+ * A reply's quote when the message it answers is not loaded: a photos or
+ * file message's plain line ("Sent 4 photos", its caption under it) said the
+ * way a loaded one is quoted.
+ */
+function quotedBody(body: string): string {
+  const photos = /^Sent (a photo|\d+ photos)(?:\n([\s\S]*))?$/.exec(body);
+  if (photos) {
+    const label = photos[1] === 'a photo' ? 'Photo' : photos[1];
+    const caption = photos[2]?.trim();
+    return caption ? `${label}: ${caption}` : label;
+  }
+  const file = /^Sent a file: ([^\n]+)/.exec(body);
+  return file ? `File: ${file[1]}` : body;
+}
+
+/** The quoted message over a reply: who, a line of what, and a tiny photo when there is one. */
+function ReplyQuote({
+  sender,
+  text,
+  thumb,
+  mine,
+  className,
+}: {
+  sender: string;
+  text: string;
+  thumb?: string | null;
+  mine: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-lg border-l-2 px-2 py-1.5',
+        mine ? 'border-white/60 bg-black/15' : 'border-primary bg-muted',
+        className,
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <p className={cn('text-[10px] font-bold', mine ? 'opacity-80' : 'text-primary')}>{sender}</p>
+        <p className={cn('truncate text-[11px]', mine ? 'opacity-70' : 'text-muted-foreground')}>{text}</p>
+      </div>
+      {thumb && (
+        // eslint-disable-next-line @next/next/no-img-element -- a 28 px signed thumbnail or blurred stand-in
+        <img src={thumb} alt="" draggable={false} className="size-7 shrink-0 rounded object-cover" />
+      )}
+    </div>
+  );
+}
+
+/** A photo or PDF still only on this computer, as the thread draws it. */
+function localTile(upload: LocalUpload): TileModel {
+  const f = upload.file;
+  return {
+    id: f.localId,
+    kind: f.kind,
+    status: 'uploading',
+    name: f.name,
+    sizeBytes: f.sizeBytes,
+    width: f.width,
+    height: f.height,
+    pages: f.pages,
+    blur: null,
+    thumbUrl: null,
+    url: null,
+  };
+}
+
+/** "a photo", "4 photos": how a row reads out. */
+function photosSaid(count: number): string {
+  return count === 1 ? 'a photo' : photoCountLabel(count);
+}
+
+/** Whether a drag carries files from the computer, rather than text or a link. */
+function carriesFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files');
 }
 
 function timeLabel(iso: string): string {
@@ -194,6 +339,16 @@ export function Thread({
     replyTo: ConversationMessage | null;
   }>({ draft: '', mentioned: [], replyTo: null });
   const [forwarding, setForwarding] = useState<ConversationMessage | null>(null);
+  /** Photos or a PDF picked, dropped or pasted, being checked before they go (board 141). */
+  const [filesPick, setFilesPick] = useState<FilesPick | null>(null);
+  /** The photo viewer: which message's photos, at which one (board 143). */
+  const [viewing, setViewing] = useState<{ message: ConversationMessage; index: number } | null>(null);
+  /** A chat photo or PDF being filed into an album. */
+  const [filing, setFiling] = useState<{ messageId: string; attachment: ChatAttachment } | null>(null);
+  /** Files from the computer held over the thread. */
+  const [dragging, setDragging] = useState(false);
+  const unsentFiles = useUnsentFiles(conversationId);
+  const { autoLoad } = useMediaAutoLoad();
   /** Where the caret last was, for a saved reply to go in at; null until placed. */
   const caret = useRef<{ start: number; end: number } | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -205,6 +360,142 @@ export function Thread({
   const edit = useEditMessage(conversationId);
   /** Edits made with no connection, shown as done and said to be waiting. */
   const waitingEdits = useWaitingEdits();
+
+  /*
+   * Pins (board 136): up to three per chat, the same for everyone. Which
+   * messages are pinned is read from the pins themselves once they are here,
+   * so the ⋯ says Pin or Unpin rightly the moment somebody changes one; the
+   * message's own `pinned_at` covers the moment before.
+   */
+  const pinsQuery = usePins(conversationId);
+  const pins = pinsQuery.pins;
+  const pinsKnown = pinsQuery.data !== undefined;
+  const pinnedIds = useMemo(() => new Set(pins.map((p) => p.id)), [pins]);
+  const pinMessage = usePinMessage(conversationId);
+  const unpinMessage = useUnpinMessage(conversationId);
+  const [pinsOpen, setPinsOpen] = useState(false);
+  /** A message waiting to go up while the chat holds three: which comes down. */
+  const [replacing, setReplacing] = useState<ConversationMessage | null>(null);
+
+  /*
+   * Search in this chat (board 140). The header becomes the box; each match
+   * opens the messages around it in place of the live thread, which carries
+   * on underneath and is what Done goes back to.
+   */
+  const [searching, setSearching] = useState(false);
+  const [searchDraft, setSearchDraft] = useState('');
+  /** What is searched for: the box, once typing pauses. */
+  const [searchTerm, setSearchTerm] = useState('');
+  /** Which match is showing, and for which term — a new term starts at the newest. */
+  const [cursor, setCursor] = useState({ term: '', index: 0 });
+  /** The match the list's search opened this chat at, until the matches arrive to place it. */
+  const [landing, setLanding] = useState<{ term: string; id: string } | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const chatSearch = useChatSearch(conversationId, searching ? searchTerm : '');
+  const matches = chatSearch.matches;
+  const searchReady = chatSearch.data !== undefined;
+  /** A pin jumped to, outside a search. */
+  const [pinJump, setPinJump] = useState<string | null>(null);
+
+  // Typing pauses before the search goes, as the list's does.
+  useEffect(() => {
+    const id = setTimeout(() => setSearchTerm(searchDraft.trim()), 300);
+    return () => clearTimeout(id);
+  }, [searchDraft]);
+
+  // Another chat: nothing of this one's search or jump carries over.
+  const [modeFor, setModeFor] = useState(conversationId);
+  if (modeFor !== conversationId) {
+    setModeFor(conversationId);
+    setSearching(false);
+    setSearchDraft('');
+    setSearchTerm('');
+    setLanding(null);
+    setPinJump(null);
+    setPinsOpen(false);
+    setReplacing(null);
+  }
+
+  /*
+   * Opened from somewhere else: at a match from the list's search, or at the
+   * search box or the pins from group info. Applied as it arrives, then
+   * cleared, so coming back to this chat later does not open it that way
+   * again.
+   */
+  const jump = useChatJump(conversationId);
+  const [appliedJump, setAppliedJump] = useState<ChatJump | null>(null);
+  if (jump && jump !== appliedJump) {
+    setAppliedJump(jump);
+    if (jump.kind === 'pins') {
+      setSearching(false);
+      setSearchDraft('');
+      setSearchTerm('');
+      setLanding(null);
+      setPinsOpen(true);
+    } else {
+      const term = jump.q.trim();
+      setSearching(true);
+      setSearchDraft(jump.q);
+      setSearchTerm(term);
+      setCursor({ term, index: 0 });
+      setLanding(jump.matchId && term ? { term, id: jump.matchId } : null);
+      setPinJump(null);
+      setPinsOpen(false);
+    }
+  }
+  useEffect(() => {
+    if (jump) takeChatJump(jump);
+  }, [jump]);
+
+  // The list's match placed among this chat's own matches, once they are here.
+  if (landing && landing.term === searchTerm && searchReady) {
+    const at = matches.findIndex((m) => m.id === landing.id);
+    setLanding(null);
+    setCursor({ term: searchTerm, index: Math.max(at, 0) });
+  }
+
+  const matchIndex =
+    cursor.term === searchTerm ? Math.min(cursor.index, Math.max(matches.length - 1, 0)) : 0;
+  /** The message the chat is open at: the current match, or a pin. */
+  const focusId = searching ? (landing?.id ?? matches[matchIndex]?.id ?? null) : pinJump;
+  /** While a new term's matches are on their way, the chat stays where it is. */
+  const searchSettling =
+    searching &&
+    (searchDraft.trim() !== searchTerm || (!!searchTerm && !searchReady && !chatSearch.loadFailed));
+
+  /*
+   * The window on screen: the messages around one message. Stepping to a
+   * match already in it only scrolls; anything else loads its own window.
+   */
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  const around = useThreadAround(conversationId, anchorId);
+  if (focusId !== anchorId && !(searchSettling && !focusId)) {
+    if (!focusId) {
+      setAnchorId(null);
+    } else if (!(anchorId && around.data && around.messages.some((m) => m.id === focusId))) {
+      setAnchorId(focusId);
+    }
+  }
+  const windowMode = anchorId !== null;
+  const aroundReady = around.data !== undefined;
+  /** What a search marks in the bubbles on screen. */
+  const highlight = searching ? searchTerm : null;
+
+  // The match or pin, brought into the middle of the view once it is drawn.
+  useLayoutEffect(() => {
+    if (!focusId || !aroundReady) return;
+    const target = scrollRef.current?.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(focusId)}"]`,
+    );
+    target?.scrollIntoView({ block: 'center' });
+  }, [focusId, aroundReady, anchorId]);
+
+  // Back from a window to the live thread: at its newest, as Done promises.
+  const wasWindow = useRef(false);
+  useLayoutEffect(() => {
+    if (wasWindow.current && !windowMode) scrollRef.current?.scrollTo({ top: 0 });
+    wasWindow.current = windowMode;
+  }, [windowMode]);
 
   /**
    * Whether we have already told the server this user is typing.
@@ -286,6 +577,8 @@ export function Thread({
     newestSeen.current = { id: conversationId, at };
     if (previous === null) return;
     if (newest.sender_id === user?.id) return;
+    // Somebody joining or leaving is not a message to buzz for.
+    if (isNotice(newest)) return;
     buzzForMessage();
   }, [newest, conversationId, user?.id]);
 
@@ -321,7 +614,7 @@ export function Thread({
     );
     observer.observe(target);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, threadReady]);
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, threadReady, windowMode]);
 
   const others = useMemo(
     () => participants.filter((p) => p.id !== user?.id),
@@ -480,11 +773,22 @@ export function Thread({
   const togglePill = (message: ConversationMessage, reaction: ReactionKey) =>
     reactTo(message, myReaction(message.reactions, meId) === reaction ? null : reaction);
 
+  const aroundMessages = around.messages;
   const rows = useMemo<Row[]>(() => {
-    const pending: Row[] = outbox
-      .slice()
-      .reverse()
-      .map((outgoing) => ({ kind: 'outgoing', outgoing }));
+    // A window around a match or a pin: just those messages. Nothing unsent
+    // and no "New messages" line belong in the middle of history.
+    if (windowMode) return aroundMessages.map((message) => ({ kind: 'message', message }));
+    // Photos whose message the socket brought before the send's own answer:
+    // drawn once, as the message.
+    const arrived = new Set(messages.slice(0, 50).map((m) => m.client_id).filter(Boolean));
+    const pending: Row[] = [
+      ...outbox.map((outgoing) => ({ at: outgoing.createdAt, row: { kind: 'outgoing', outgoing } as Row })),
+      ...unsentFiles
+        .filter((send) => !arrived.has(send.key))
+        .map((send) => ({ at: send.createdAt, row: { kind: 'files-out', send } as Row })),
+    ]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .map((p) => p.row);
     const base: Row[] = messages.map((message) => ({ kind: 'message', message }));
     if (!lastReadAt) return [...pending, ...base];
 
@@ -492,6 +796,8 @@ export function Thread({
     let firstUnread = -1;
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i];
+      // A notice is never unread: "Jo joined" is not something to catch up on.
+      if (isNotice(m)) continue;
       if (m.sender_id !== user?.id && new Date(m.created_at).getTime() > boundary) {
         firstUnread = i;
       }
@@ -504,7 +810,54 @@ export function Thread({
       { kind: 'divider' },
       ...base.slice(firstUnread + 1),
     ];
-  }, [messages, outbox, lastReadAt, user?.id]);
+  }, [messages, outbox, unsentFiles, lastReadAt, user?.id, windowMode, aroundMessages]);
+
+  /** Every message on screen by id: what a reply quotes, and the viewer's message as it fills in. */
+  const messageById = useMemo(
+    () => new Map([...aroundMessages, ...messages].map((m) => [m.id, m])),
+    [messages, aroundMessages],
+  );
+  const viewingMessage = viewing ? (messageById.get(viewing.message.id) ?? viewing.message) : null;
+
+  /** The quote over a reply: a loaded photos or file message as it is quoted, with a tiny photo. */
+  const quoteFor = (message: ConversationMessage): { text: string; thumb: string | null } => {
+    if (message.reply_to_deleted) return { text: 'Message deleted', thumb: null };
+    const original = message.reply_to_id ? messageById.get(message.reply_to_id) : undefined;
+    if (original && !original.deleted_at && isFilesMessage(original)) {
+      const photo = original.attachments?.find((a) => a.kind === 'photo' && a.status === 'ready');
+      return {
+        text: quoteOf(original),
+        thumb: photo ? ((autoLoad ? photo.thumbUrl : null) ?? photo.blur) : null,
+      };
+    }
+    return {
+      text: message.reply_to_body != null ? quotedBody(message.reply_to_body) : 'Message unavailable',
+      thumb: null,
+    };
+  };
+
+  /** Files from the computer, while the chat takes them: not mid-search, not mid-edit. */
+  const takesFiles = canSend && !searching && !editing;
+  const pickFiles = (files: File[]) => {
+    if (files.length > 0) setFilesPick({ files, at: Date.now() });
+  };
+  const onDragFiles = (event: DragEvent<HTMLDivElement>) => {
+    if (!takesFiles || !carriesFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    if (!dragging) setDragging(true);
+  };
+  const onDragAway = (event: DragEvent<HTMLDivElement>) => {
+    // Moving between the thread's own parts is not leaving it.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDragging(false);
+  };
+  const onDropFiles = (event: DragEvent<HTMLDivElement>) => {
+    setDragging(false);
+    if (!takesFiles || !carriesFiles(event)) return;
+    event.preventDefault();
+    pickFiles(Array.from(event.dataTransfer.files));
+  };
 
   /**
    * Sends, keeping the text on screen until the server has it.
@@ -527,7 +880,7 @@ export function Thread({
       conversationId,
       body,
       replyToId: replyTo?.id,
-      replyToBody: replyTo?.body ?? null,
+      replyToBody: replyTo ? quoteOf(replyTo) : null,
       replyToSender: replyTo?.sender_name ?? null,
       mentionIds: mentioned.filter((p) => body.includes(`@${p.name}`)).map((p) => p.id),
       status: 'sending',
@@ -540,6 +893,8 @@ export function Thread({
     // Sending is the clearest possible "stopped typing".
     stopTyping();
     void flushOutbox(queryClient);
+    // Off a pin's window too: what was sent is at the newest end.
+    setPinJump(null);
     // What you just sent is what you want to see, wherever you had scrolled.
     // The list runs bottom-up, so the newest end is the top of the scroll.
     scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -582,56 +937,246 @@ export function Thread({
   const deleteMessage = (message: ConversationMessage, scope: 'me' | 'everyone') => {
     remove.mutate(
       { messageId: message.id, scope },
-      { onError: (err: Error) => toast.error('Could not delete', { description: err.message }) },
+      {
+        onSuccess: () => {
+          // Unsent photos and files give their room back.
+          if (scope === 'everyone' && isFilesMessage(message)) {
+            void queryClient.invalidateQueries({ queryKey: usageQueryKey });
+            void queryClient.invalidateQueries({ queryKey: filesKeys.usage });
+          }
+        },
+        onError: (err: Error) => toast.error('Could not delete', { description: err.message }),
+      },
     );
   };
 
+  const isPinned = (message: ConversationMessage) =>
+    pinsKnown ? pinnedIds.has(message.id) : !!message.pinned_at;
+
+  /**
+   * Pin or Unpin from a message's ⋯. A fourth pin is refused (409) and asks
+   * which of the three comes down, with the pins as they are now.
+   */
+  const togglePin = (message: ConversationMessage) => {
+    if (isPinned(message)) {
+      unpinMessage.mutate(message.id, {
+        onError: (err) => toast.error('Could not unpin it', { description: chatProblem(err) }),
+      });
+      return;
+    }
+    pinMessage.mutate(
+      { messageId: message.id },
+      {
+        onError: (err) => {
+          if (isPinsFull(err)) {
+            void pinsQuery.refetch();
+            setReplacing(message);
+            return;
+          }
+          toast.error('Could not pin it', { description: chatProblem(err) });
+        },
+      },
+    );
+  };
+
+  /** The chooser's answer: this one comes down, the waiting one goes up. */
+  const replacePin = (old: ConversationMessage) => {
+    const target = replacing;
+    if (!target) return;
+    pinMessage.mutate(
+      { messageId: target.id, replace: old.id },
+      {
+        onSuccess: () => setReplacing(null),
+        onError: (err) => {
+          // Somebody changed the pins meanwhile: ask again with them as they are.
+          if (isPinsFull(err)) {
+            void pinsQuery.refetch();
+            return;
+          }
+          setReplacing(null);
+          toast.error('Could not pin it', { description: chatProblem(err) });
+        },
+      },
+    );
+  };
+
+  /** Pin and Unpin, where they apply: anything said, while the chat takes changes. */
+  const pinControl = (message: ConversationMessage) =>
+    canSend ? { pinned: isPinned(message), onToggle: () => togglePin(message) } : undefined;
+
+  const unpinFromList = (message: ConversationMessage) =>
+    unpinMessage.mutate(message.id, {
+      onError: (err) => toast.error('Could not unpin it', { description: chatProblem(err) }),
+    });
+
+  /** A pin, from the Pinned popover: the messages around it, with it ringed. */
+  const jumpToPin = (message: ConversationMessage) => {
+    setPinsOpen(false);
+    setPinJump(message.id);
+  };
+
+  /** Off a pin's window, to the newest messages. */
+  const backToLatest = () => setPinJump(null);
+
+  const openSearch = () => {
+    setSearching(true);
+    setPinsOpen(false);
+    setPinJump(null);
+    // Already open: back into the box.
+    searchInputRef.current?.focus();
+  };
+
+  /** Done: the live thread again, at its newest. */
+  const closeSearch = () => {
+    setSearching(false);
+    setSearchDraft('');
+    setSearchTerm('');
+    setLanding(null);
+    setCursor({ term: '', index: 0 });
+  };
+
+  const stepOlder = () => {
+    if (matches.length === 0) return;
+    setLanding(null);
+    setCursor({ term: searchTerm, index: Math.min(matchIndex + 1, matches.length - 1) });
+  };
+
+  const stepNewer = () => {
+    if (matches.length === 0) return;
+    setLanding(null);
+    setCursor({ term: searchTerm, index: Math.max(matchIndex - 1, 0) });
+  };
+
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      {/* Header */}
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
-        {onBack && (
-          <Button size="icon" variant="ghost" onClick={onBack} aria-label="Back">
-            <ArrowLeft className="size-4" />
-          </Button>
-        )}
-        <button
-          onClick={onOpenInfo}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-left hover:bg-accent/50"
-        >
-          {isGroup ? (
-            <div className="grid size-8 shrink-0 place-items-center rounded-full bg-info/15">
-              <Users className="size-4 text-info" />
-            </div>
-          ) : (
-            <div className="relative shrink-0">
-              <Avatar className="size-8">
-                {others[0]?.avatar_url && <AvatarImage src={others[0].avatar_url} alt="" />}
-                <AvatarFallback className="bg-primary/15 text-[11px] font-bold text-primary">
-                  {(others[0]?.name ?? '?').slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <PresenceDot userId={others[0]?.id} className="size-2.5" />
-            </div>
+    <div
+      className="relative flex h-full min-w-0 flex-col"
+      // Photos or a PDF dragged in from the computer (board 148).
+      onDragEnter={onDragFiles}
+      onDragOver={onDragFiles}
+      onDragLeave={onDragAway}
+      onDrop={onDropFiles}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-2 z-40 grid place-items-center rounded-2xl border-2 border-dashed border-primary bg-background/90">
+          <p className="px-6 text-center text-sm font-semibold">
+            Drop photos or a PDF to send to {title}
+          </p>
+        </div>
+      )}
+      {/* Header, or the search box in its place (board 140). */}
+      {searching ? (
+        <>
+          <ChatSearchHeader
+            inputRef={searchInputRef}
+            value={searchDraft}
+            onChange={setSearchDraft}
+            onDone={closeSearch}
+            onOlder={stepOlder}
+            onNewer={stepNewer}
+          />
+          <ChatSearchCount
+            term={searchTerm}
+            title={title}
+            total={matches.length}
+            index={matchIndex}
+            capped={matches.length >= SEARCH_MATCH_CAP}
+            loading={chatSearch.isFetching || searchSettling}
+            failed={chatSearch.loadFailed}
+            onRetry={() => void chatSearch.refetch()}
+            onOlder={stepOlder}
+            onNewer={stepNewer}
+          />
+        </>
+      ) : (
+        <div className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
+          {onBack && (
+            <Button size="icon" variant="ghost" onClick={onBack} aria-label="Back">
+              <ArrowLeft className="size-4" />
+            </Button>
           )}
-          <div className="min-w-0">
-            <p className="truncate text-sm font-bold">{title}</p>
-            <p className="truncate">
-              {isGroup ? (
-                <span className="text-xs text-muted-foreground">
-                  {participants.map((p) => p.name).join(', ')}
-                </span>
-              ) : (
-                // Online / last seen, kept current by the socket.
-                <PresenceLine userId={others[0]?.id} />
-              )}
-            </p>
+          <button
+            onClick={onOpenInfo}
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1 text-left hover:bg-accent/50"
+          >
+            {isGroup ? (
+              // The group's photo or initial; a team chat is a rounded square
+              // like the workspace it belongs to (board 135).
+              <GroupAvatar
+                title={title}
+                photoUrl={conversation?.avatarUrl}
+                team={conversation?.origin === 'workspace'}
+                className="size-8"
+                initialClassName="text-[13px]"
+              />
+            ) : (
+              <div className="relative shrink-0">
+                <Avatar className="size-8">
+                  {others[0]?.avatar_url && <AvatarImage src={others[0].avatar_url} alt="" />}
+                  <AvatarFallback className="bg-primary/15 text-[11px] font-bold text-primary">
+                    {(others[0]?.name ?? '?').slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <PresenceDot userId={others[0]?.id} className="size-2.5" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold">{title}</p>
+              <p className="truncate">
+                {isGroup ? (
+                  // "Team chat · 6 people", "5 people · From the Santos Wedding
+                  // job": what the group is, rather than a run of names.
+                  <span className="text-xs text-muted-foreground">
+                    {(conversation && groupSubtitle(conversation)) ||
+                      participants.map((p) => p.name).join(', ')}
+                  </span>
+                ) : (
+                  // Online / last seen, kept current by the socket.
+                  <PresenceLine userId={others[0]?.id} />
+                )}
+              </p>
+            </div>
+          </button>
+          <Button size="icon" variant="ghost" onClick={openSearch} aria-label="Search in this chat" title="Search in this chat">
+            <Search className="size-4" />
+          </Button>
+          <Button size="icon" variant="ghost" onClick={onOpenInfo} aria-label="Conversation info">
+            <Info className="size-4" />
+          </Button>
+        </div>
+      )}
+
+      {/* Pinned (boards 135, 136 and 148): the strip while anything is
+          pinned, opening the list of pins. Not while searching: the search
+          has the top of the chat then. The popover hangs from here even with
+          nothing pinned, for group info's Pinned tile. */}
+      <Popover open={pinsOpen} onOpenChange={setPinsOpen}>
+        <PopoverAnchor asChild>
+          <div className="shrink-0">
+            {!searching && pins.length > 0 && (
+              <PopoverTrigger asChild>
+                <PinnedStrip pins={pins} />
+              </PopoverTrigger>
+            )}
           </div>
-        </button>
-        <Button size="icon" variant="ghost" onClick={onOpenInfo} aria-label="Conversation info">
-          <Info className="size-4" />
-        </Button>
-      </div>
+        </PopoverAnchor>
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          className="ml-4 w-[min(26rem,calc(100vw-2rem))] p-4"
+        >
+          <PinnedPanel
+            pins={pins}
+            meId={meId}
+            loading={pinsQuery.isLoading}
+            failed={pinsQuery.loadFailed}
+            onRetry={() => void pinsQuery.refetch()}
+            canChange={canSend}
+            unpinning={unpinMessage.isPending ? (unpinMessage.variables ?? null) : null}
+            onJump={jumpToPin}
+            onUnpin={unpinFromList}
+          />
+        </PopoverContent>
+      </Popover>
 
       {/* Messages. The scroller itself runs bottom-up, which keeps the newest
           pinned as items arrive and keeps your place as older pages load
@@ -654,6 +1199,23 @@ export function Thread({
             onRetry={() => void refetchThread()}
           />
         </div>
+      ) : windowMode && !aroundReady ? (
+        // The messages around a match or a pin, on their way.
+        around.loadFailed ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
+            <ErrorState
+              message="Couldn't open the chat at that message."
+              onRetry={() => void around.refetch()}
+            />
+            {!searching && (
+              <Button variant="ghost" size="sm" onClick={backToLatest}>
+                Back to the latest
+              </Button>
+            )}
+          </div>
+        ) : (
+          <CenteredSpinner className="flex-1" />
+        )
       ) : (
         <div
           ref={scrollRef}
@@ -665,14 +1227,30 @@ export function Thread({
         >
           {/* First child of a column-reverse list, so it sits visually at
               the bottom — below the newest message, where a typing bubble
-              belongs. */}
-          <TypingIndicator conversationId={conversationId} meId={meId} />
+              belongs. Not in a window on history. */}
+          {!windowMode && <TypingIndicator conversationId={conversationId} meId={meId} />}
+
+          {/* Off a pin's window and back to the newest; a search has Done.
+              Held to the bottom of the view while the window scrolls. */}
+          {windowMode && !searching && (
+            <div className="pointer-events-none sticky bottom-0 z-10 flex justify-center pt-1">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={backToLatest}
+                className="pointer-events-auto rounded-full shadow-md"
+              >
+                <ArrowDown className="size-3.5" />
+                Back to the latest
+              </Button>
+            </div>
+          )}
 
           {rows.length === 0 && (
             <EmptyState
               icon={Users}
-              title="No messages yet"
-              description={canSend ? 'Say hello.' : undefined}
+              title={windowMode ? "That message isn't here any more" : 'No messages yet'}
+              description={!windowMode && canSend ? 'Say hello.' : undefined}
             />
           )}
 
@@ -760,9 +1338,109 @@ export function Thread({
               );
             }
 
+            if (row.kind === 'files-out') {
+              const send = row.send;
+              const failed = send.stage === 'failed';
+              const line =
+                send.stage === 'waiting'
+                  ? 'Waiting for a connection'
+                  : failed
+                    ? (send.problem ?? 'Not sent')
+                    : 'Sending…';
+              return (
+                <MessageFrame
+                  key={send.key}
+                  side="end"
+                  label={`You: ${send.kind === 'file' ? 'a file' : photosSaid(send.files.length)}, ${line}`}
+                  width="max-w-full"
+                  // Not sent yet: Delete only, which takes it off this computer.
+                  toolbar={
+                    send.stage === 'sending'
+                      ? null
+                      : (hold) => (
+                          <MessageToolbar hold={hold} side="end" onDiscard={() => discardFilesSend(send.key)} />
+                        )
+                  }
+                  below={
+                    <div className="mt-1 flex max-w-[300px] flex-wrap items-center justify-end gap-1.5 px-1 text-[10px] text-muted-foreground">
+                      <span className={cn(failed && 'text-destructive')}>{line}</span>
+                      <DeliveryMark state={failed ? 'failed' : 'sending'} />
+                      {failed && (
+                        <>
+                          {send.storageFull ? (
+                            <Link
+                              href="/settings/storage"
+                              className="font-bold text-foreground underline underline-offset-2"
+                            >
+                              Open storage
+                            </Link>
+                          ) : (
+                            <button
+                              onClick={() => retryFilesSend(send.key)}
+                              className="font-bold text-foreground underline underline-offset-2"
+                            >
+                              Retry
+                            </button>
+                          )}
+                          <button
+                            onClick={() => discardFilesSend(send.key)}
+                            className="underline underline-offset-2"
+                          >
+                            Discard
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  }
+                >
+                  <FilesContent
+                    conversationId={conversationId}
+                    messageId={null}
+                    kind={send.kind}
+                    attachments={send.files.map(localTile)}
+                    caption={send.caption}
+                    mine
+                    above={
+                      send.replyTo ? (
+                        <ReplyQuote
+                          sender={send.replyTo.sender ?? 'Message'}
+                          text={send.replyTo.body}
+                          mine={false}
+                          className="mb-1 w-[280px] max-w-full"
+                        />
+                      ) : undefined
+                    }
+                    onOpenPhoto={() => undefined}
+                  />
+                </MessageFrame>
+              );
+            }
+
             const message = row.message;
+
+            /*
+             * A notice (board 135): the chat saying who joined, left or was
+             * removed. A small centred line, never a bubble — nobody said
+             * it — with no name and nothing to do to it.
+             */
+            if (isNotice(message)) {
+              return (
+                <div
+                  key={message.id}
+                  data-message-id={message.id}
+                  className="flex justify-center py-1"
+                >
+                  <p className="max-w-[85%] rounded-full bg-muted px-3 py-1 text-center text-xs text-muted-foreground">
+                    {message.body}
+                  </p>
+                </div>
+              );
+            }
+
             const mine = message.sender_id === user?.id;
             const deleted = !!message.deleted_at;
+            /** The match or pin the chat was opened at. */
+            const lit = windowMode && message.id === focusId;
 
             const sender = mine ? 'You' : (message.sender_name ?? 'Someone');
             const label = `${sender}, ${timeLabel(message.created_at)}`;
@@ -779,7 +1457,7 @@ export function Thread({
                 reactions={message.reactions}
                 meId={meId}
                 people={people}
-                excerpt={message.body}
+                excerpt={quoteOf(message)}
                 side={side}
                 onToggle={canSend ? (reaction) => togglePill(message, reaction) : undefined}
               />
@@ -800,6 +1478,8 @@ export function Thread({
               return (
                 <MessageFrame
                   key={message.id}
+                  messageId={message.id}
+                  lit={lit}
                   side="center"
                   label={`${label}, hired`}
                   width="w-full max-w-md"
@@ -811,6 +1491,7 @@ export function Thread({
                       react={reactControl}
                       onReply={canSend ? () => startReply(message) : undefined}
                       onCopy={() => copyText(message.body)}
+                      pin={pinControl(message)}
                       onDelete={(scope) => deleteMessage(message, scope)}
                     />
                   )}
@@ -822,7 +1503,11 @@ export function Thread({
 
             if (deleted) {
               return (
-                <div key={message.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+                <div
+                  key={message.id}
+                  data-message-id={message.id}
+                  className={cn('flex', mine ? 'justify-end' : 'justify-start')}
+                >
                   <div className="max-w-[75%] rounded-2xl bg-muted px-3.5 py-2.5">
                     <p className="text-sm italic text-muted-foreground">
                       {mine ? 'You deleted this message' : 'This message was deleted'}
@@ -832,19 +1517,209 @@ export function Thread({
               );
             }
 
-            // How to pay the sender: a card on their side, like their own line.
-            if (message.kind === 'pay-card') {
-              return <PayChatCard key={message.id} message={message} mine={mine} />;
-            }
-
             const state = mine ? deliveryOf(message.created_at) : 'sent';
             const side = mine ? 'end' : 'start';
             const typed = (message.kind ?? 'text') === 'text';
+
+            /** Under a card: when it went, and for your own how far it has got. */
+            const cardMeta = (at: 'start' | 'end' | 'center') => (
+              <div
+                className={cn(
+                  'mt-1 flex items-center gap-1 px-1 text-[10px] text-muted-foreground',
+                  at === 'end' ? 'justify-end' : at === 'center' ? 'justify-center' : 'justify-start',
+                )}
+              >
+                <span>{timeLabel(message.created_at)}</span>
+                {mine &&
+                  (isGroup && others.length > 1 ? (
+                    <SeenBy sentAt={message.created_at} others={others} excerpt={quoteOf(message)}>
+                      <DeliveryMark state={state} />
+                    </SeenBy>
+                  ) : (
+                    <DeliveryMark state={state} />
+                  ))}
+              </div>
+            );
+
+            /*
+             * A card's actions: react, reply, copy its line and link, delete.
+             * No Edit and no Forward — both are for typed words, and the
+             * server takes neither for a card.
+             */
+            const cardToolbar = (at: 'start' | 'end' | 'center', hold: (open: boolean) => void) => (
+              <MessageToolbar
+                hold={hold}
+                side={at}
+                react={reactControl}
+                onReply={canSend ? () => startReply(message) : undefined}
+                onCopy={() => copyText(message.body)}
+                pin={pinControl(message)}
+                onDelete={(scope) => deleteMessage(message, scope)}
+                canDeleteForEveryone={mine}
+              />
+            );
+
+            const senderName =
+              isGroup && !mine ? (
+                <p className="mb-0.5 ml-1 text-[11px] text-muted-foreground">{message.sender_name}</p>
+              ) : undefined;
+
+            /*
+             * Photos or a PDF from somebody's computer or phone (board 142).
+             * The plain line in `body` is for the list and pushes; here the
+             * photos, the file and the caption are drawn instead. Forward
+             * and Reply as for words; no Edit; Copy copies the caption.
+             */
+            if (isFilesMessage(message)) {
+              const caption = filesCaption(message);
+              const kind = message.kind === 'file' ? 'file' : 'photos';
+              const attachments = message.attachments ?? [];
+              const what =
+                kind === 'file'
+                  ? `a file, ${attachments[0]?.name ?? 'PDF'}`
+                  : photosSaid(attachments.length);
+              const quote = message.reply_to_id ? quoteFor(message) : null;
+              return (
+                <MessageFrame
+                  key={message.id}
+                  messageId={message.id}
+                  lit={lit}
+                  side={side}
+                  label={`${label}, ${what}${caption ? `: ${caption}` : ''}`}
+                  width="max-w-full"
+                  header={senderName}
+                  below={
+                    <>
+                      {reactions(side)}
+                      {cardMeta(side)}
+                    </>
+                  }
+                  toolbar={(hold) => (
+                    <MessageToolbar
+                      hold={hold}
+                      side={side}
+                      react={reactControl}
+                      onReply={canSend ? () => startReply(message) : undefined}
+                      onForward={canSend ? () => setForwarding(message) : undefined}
+                      onCopy={caption ? () => copyText(caption) : undefined}
+                      pin={pinControl(message)}
+                      onDelete={(scope) => deleteMessage(message, scope)}
+                      canDeleteForEveryone={mine}
+                    />
+                  )}
+                >
+                  <FilesContent
+                    conversationId={conversationId}
+                    messageId={message.id}
+                    kind={kind}
+                    attachments={attachments}
+                    caption={caption}
+                    mine={mine}
+                    above={
+                      message.forwarded || quote ? (
+                        <div className="mb-1 flex w-[280px] max-w-full flex-col gap-1">
+                          {message.forwarded && (
+                            <p
+                              className={cn(
+                                'flex items-center gap-1 px-1 text-[11px] font-medium italic text-muted-foreground',
+                                mine && 'justify-end',
+                              )}
+                            >
+                              <Forward className="size-3" aria-hidden />
+                              Forwarded
+                            </p>
+                          )}
+                          {quote && (
+                            <ReplyQuote
+                              sender={message.reply_to_sender ?? 'Message'}
+                              text={quote.text}
+                              thumb={quote.thumb}
+                              mine={false}
+                            />
+                          )}
+                        </div>
+                      ) : undefined
+                    }
+                    captionBody={
+                      caption ? (
+                        <MessageBody body={caption} names={mentionNames} mine={mine} highlight={highlight} />
+                      ) : undefined
+                    }
+                    onOpenPhoto={(index) => setViewing({ message, index })}
+                  />
+                </MessageFrame>
+              );
+            }
+
+            // How to pay the sender: a card on their side, like their own line.
+            if (message.kind === 'pay-card') {
+              return (
+                <MessageFrame
+                  key={message.id}
+                  messageId={message.id}
+                  lit={lit}
+                  side={side}
+                  label={`${label}, how to pay ${mine ? 'you' : firstName(message.sender_name ?? 'them')}`}
+                  width="max-w-full"
+                  header={senderName}
+                  below={
+                    <>
+                      {reactions(side)}
+                      {cardMeta(side)}
+                    </>
+                  }
+                  toolbar={(hold) => cardToolbar(side, hold)}
+                >
+                  <PayChatCard message={message} mine={mine} />
+                </MessageFrame>
+              );
+            }
+
+            // A Virgo thing somebody shared: album photos, a booking, a job
+            // post, a post, a package, a date.
+            if (isCardKind(message.kind)) {
+              const card = message as ConversationMessage & { kind: CardKind };
+              const centred = cardIsCentred(card.kind);
+              const at = centred ? 'center' : side;
+              const env: CardEnv = { conversationId, mine, meId, isGroup, others, people };
+              return (
+                <MessageFrame
+                  key={message.id}
+                  messageId={message.id}
+                  lit={lit}
+                  side={at}
+                  label={`${label}, ${cardReadout(card, env)}`}
+                  width={centred ? 'w-full max-w-sm' : 'max-w-full'}
+                  header={
+                    centred ? (
+                      // Centred, so not on anyone's side: who shared it is said.
+                      <p className="mb-1 text-center text-[11px] text-muted-foreground">
+                        {mine ? 'You shared' : `${firstName(message.sender_name ?? 'Someone')} shared`}
+                      </p>
+                    ) : (
+                      senderName
+                    )
+                  }
+                  below={
+                    <>
+                      {reactions(at)}
+                      {cardMeta(at)}
+                    </>
+                  }
+                  toolbar={(hold) => cardToolbar(at, hold)}
+                >
+                  <ChatCard message={card} env={env} />
+                </MessageFrame>
+              );
+            }
+
             const preview = firstVirgoLink(message.body);
 
             return (
               <MessageFrame
                 key={message.id}
+                messageId={message.id}
+                lit={lit}
                 side={side}
                 label={label}
                 header={
@@ -863,6 +1738,7 @@ export function Thread({
                     onReply={canSend ? () => startReply(message) : undefined}
                     onForward={canSend && typed ? () => setForwarding(message) : undefined}
                     onCopy={() => copyText(message.body)}
+                    pin={pinControl(message)}
                     edit={
                       canSend && mine && typed
                         ? { message, meId, onEdit: () => startEdit(message) }
@@ -896,30 +1772,21 @@ export function Thread({
                   )}
 
                   {message.reply_to_id && (
-                    <div
-                      className={cn(
-                        'mb-1.5 rounded-lg border-l-2 px-2 py-1.5',
-                        mine ? 'border-white/60 bg-black/15' : 'border-primary bg-muted',
-                      )}
-                    >
-                      <p
-                        className={cn(
-                          'text-[10px] font-bold',
-                          mine ? 'opacity-80' : 'text-primary',
-                        )}
-                      >
-                        {message.reply_to_sender ?? 'Message'}
-                      </p>
-                      <p className={cn('truncate text-[11px]', mine ? 'opacity-70' : 'text-muted-foreground')}>
-                        {message.reply_to_deleted
-                          ? 'Message deleted'
-                          : (message.reply_to_body ?? 'Message unavailable')}
-                      </p>
-                    </div>
+                    <ReplyQuote
+                      sender={message.reply_to_sender ?? 'Message'}
+                      {...quoteFor(message)}
+                      mine={mine}
+                      className="mb-1.5"
+                    />
                   )}
 
                   <p className="whitespace-pre-wrap text-sm wrap-anywhere">
-                    <MessageBody body={message.body} names={mentionNames} mine={mine} />
+                    <MessageBody
+                      body={message.body}
+                      names={mentionNames}
+                      mine={mine}
+                      highlight={highlight}
+                    />
                   </p>
 
                   {preview && <LinkPreviewCard href={preview} mine={mine} />}
@@ -955,7 +1822,7 @@ export function Thread({
           {/* The visual top: older pages load as this comes into view. A
               failed page was dropped silently before, and scrolling up
               never tried again. */}
-          {hasNextPage && (
+          {hasNextPage && !windowMode && (
             <div ref={olderRef} className="flex justify-center py-2">
               {isFetchNextPageError ? (
                 <button
@@ -977,6 +1844,7 @@ export function Thread({
             </div>
           )}
         </div>
+
       )}
 
       {/* Mention picker */}
@@ -1017,7 +1885,7 @@ export function Thread({
             <p className="text-[11px] font-bold text-primary">
               Replying to {replyTo.sender_name}
             </p>
-            <p className="truncate text-xs text-muted-foreground">{replyTo.body}</p>
+            <p className="truncate text-xs text-muted-foreground">{quoteOf(replyTo)}</p>
           </div>
           <Button size="icon" variant="ghost" onClick={() => setReplyTo(null)} aria-label="Cancel reply">
             <X className="size-3.5" />
@@ -1047,7 +1915,9 @@ export function Thread({
       {/* Composer, or why there is none. A frozen thread keeps its history but
           takes no new messages, and a composer that fails every send is worse
           than a plain line saying so. */}
-      {!canSend ? (
+      {searching ? (
+        <ChatSearchFooter />
+      ) : !canSend ? (
         threadReady && (
           <div className="shrink-0 border-t bg-muted/50 px-4 py-3">
             {blockedByMe ? (
@@ -1073,7 +1943,17 @@ export function Thread({
         )
       ) : (
         <div ref={composerRowRef} className="flex shrink-0 items-end gap-2 border-t p-3">
-          <SavedRepliesButton onInsert={insertSaved} />
+          <ShareMenu
+            conversationId={conversationId}
+            audience={{ isGroup, others }}
+            onInsertSaved={insertSaved}
+            // What you just shared is what you want to see, as after Send.
+            onSent={() => {
+              setPinJump(null);
+              scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onPickFiles={pickFiles}
+          />
           <Textarea
             ref={composerRef}
             value={draft}
@@ -1096,6 +1976,14 @@ export function Thread({
             // letting it time out on the other side.
             onBlur={stopTyping}
             onKeyDown={onComposerKeyDown}
+            // A photo or PDF pasted in goes through the same check as one picked.
+            onPaste={(event) => {
+              if (editing) return;
+              const files = Array.from(event.clipboardData?.files ?? []);
+              if (files.length === 0) return;
+              event.preventDefault();
+              pickFiles(files);
+            }}
             placeholder={isGroup ? 'Message — @ to mention, Enter to send' : 'Message — Enter to send'}
             aria-label={editing ? 'Edit message' : 'Message'}
             rows={1}
@@ -1117,6 +2005,51 @@ export function Thread({
         conversationId={conversationId}
         message={forwarding}
         onOpenChange={(open) => !open && setForwarding(null)}
+      />
+
+      <SendFilesDialog
+        conversationId={conversationId}
+        chatTitle={title}
+        pick={filesPick}
+        replyTo={
+          replyTo ? { id: replyTo.id, body: quoteOf(replyTo), sender: replyTo.sender_name ?? null } : null
+        }
+        onClose={() => setFilesPick(null)}
+        onSent={() => {
+          // The reply went with the photos.
+          setReplyTo(null);
+          setPinJump(null);
+          scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
+
+      <PhotoViewer
+        conversationId={conversationId}
+        chatTitle={title}
+        message={viewingMessage}
+        index={viewing?.index ?? 0}
+        meId={meId}
+        canSend={canSend}
+        onIndexChange={(index) => setViewing((current) => (current ? { ...current, index } : current))}
+        onClose={() => setViewing(null)}
+        onReply={startReply}
+        onForward={setForwarding}
+        onAddToAlbum={(message, photo) => setFiling({ messageId: message.id, attachment: photo })}
+      />
+
+      <AddToAlbumDialog
+        conversationId={conversationId}
+        target={filing}
+        onOpenChange={(open) => !open && setFiling(null)}
+      />
+
+      <ReplacePinDialog
+        message={replacing}
+        pins={pins}
+        meId={meId}
+        pending={pinMessage.isPending ? (pinMessage.variables?.replace ?? null) : null}
+        onPick={replacePin}
+        onOpenChange={(open) => !open && setReplacing(null)}
       />
 
       <AlertDialog open={askUnblock} onOpenChange={setAskUnblock}>

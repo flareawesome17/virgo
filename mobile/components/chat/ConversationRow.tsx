@@ -1,7 +1,7 @@
 import { memo, useCallback, useRef } from 'react';
 import { Pressable, Text, View, type AccessibilityActionEvent } from 'react-native';
 import { router } from 'expo-router';
-import { BellOffIcon, PinIcon, SearchIcon, UsersIcon } from 'lucide-react-native';
+import { BellOffIcon, PinIcon, SearchIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { RemoteImage } from '@/components/RemoteImage';
 import { PresenceDot } from '@/components/Presence';
@@ -9,9 +9,11 @@ import { useTheme } from '@/src/hooks';
 import { typingLabel, useTypingIn } from '@/src/lib/presence-store';
 import type { Conversation } from '@/src/api';
 import { PALETTES } from '@/theme';
+import { ChatAvatar, isTeamChat } from './ChatAvatar';
 import type { HeldRect } from './HoldOverlay';
+import { requestInThread } from './thread-requests';
 
-for (const Icon of [BellOffIcon, PinIcon, SearchIcon, UsersIcon]) {
+for (const Icon of [BellOffIcon, PinIcon, SearchIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -80,16 +82,15 @@ function TypingOrPreview({ conversation }: { conversation: Conversation }) {
   );
 }
 
-/** The picture at the start of a row: the group's icon, or the person. */
+/**
+ * The picture at the start of a row: the group's photo or its initial (a
+ * team chat's in a rounded square), or the person.
+ */
 export function RowAvatar({ item }: { item: Conversation }) {
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   if (item.isGroup) {
-    return (
-      <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
-        <UsersIcon size={20} className="text-secondary-foreground" />
-      </View>
-    );
+    return <ChatAvatar name={item.title} url={item.avatarUrl} size={48} group square={isTeamChat(item)} />;
   }
   return (
     // Wrapped so the presence dot has something to anchor to.
@@ -161,11 +162,14 @@ export const ConversationRow = memo(function ConversationRow({
   item,
   onHold,
   dividerAfter = false,
+  searchTerm,
 }: {
   item: Conversation;
   onHold?: (item: Conversation, rect: HeldRect) => void;
   /** The last of the pinned chats: a rule under it before the rest. */
   dividerAfter?: boolean;
+  /** The list's search: a row it found inside the thread opens there, searching. */
+  searchTerm?: string;
 }) {
   const rowRef = useRef<View>(null);
   const unread = looksUnread(item);
@@ -185,7 +189,14 @@ export const ConversationRow = memo(function ConversationRow({
     <View>
       <Pressable
         ref={rowRef}
-        onPress={() => router.push(`/chat/${item.id}`)}
+        onPress={() => {
+          // Found in what was said: open at that message, with the term in
+          // the chat's own search box to step through the rest.
+          if (item.matchId && searchTerm) {
+            requestInThread(item.id, { kind: 'search', q: searchTerm, matchId: item.matchId });
+          }
+          router.push(`/chat/${item.id}`);
+        }}
         onLongPress={onHold ? hold : undefined}
         delayLongPress={350}
         accessibilityRole="button"

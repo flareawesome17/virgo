@@ -37,7 +37,8 @@ function harness(options: { owner?: string; frozen?: boolean; deleted?: boolean 
   const db = {
     queryOne: jest.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes('insert into messages')) {
-        stored = { body: params[2] as string, context: JSON.parse(params[3] as string) };
+        // send() writes the context ninth, after the typed-message columns.
+        stored = { body: params[2] as string, context: JSON.parse(params[8] as string) };
         return { id: 'msg1' };
       }
       if (sql.includes('where m.id = $1')) {

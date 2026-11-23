@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from 'react';
+import { memo, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { View, Text, Pressable, type AccessibilityActionEvent } from 'react-native';
 import {
   AlertCircleIcon,
@@ -10,15 +10,26 @@ import {
 import { cssInterop } from 'nativewind';
 import {
   firstVirgoLink,
+  isCardKind,
+  isFilesMessage,
+  isNotice,
   splitLinks,
+  type ChatAttachment,
   type ConversationMessage,
   type JobAcceptedContext,
   type ReactionKey,
 } from '@/src/api';
 import type { OutboxItem } from '@/src/lib/outbox';
+import type { UploadJob } from '@/src/lib/chat-uploads';
+import { Image } from 'expo-image';
+import { chatPhotoKey, FilesMessage } from './files/FilesMessage';
+import { quoteFromBody, quoteLine } from './files/files-words';
 import { JobAcceptedCard } from '@/components/JobAcceptedCard';
 import { PayChatCard } from '@/components/money/PayChatCard';
 import { PALETTES } from '@/theme';
+import { isCentredCard } from './cards/card-icons';
+import type { ChatPeople } from './cards/card-words';
+import { ChatCard } from './cards/ChatCard';
 import type { HeldRect } from './HoldOverlay';
 import { LinkPreviewCard } from './LinkPreviewCard';
 import { openChatLink } from './links';
@@ -45,6 +56,8 @@ export type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
 export type ThreadRow =
   | { kind: 'message'; key: string; message: ConversationMessage; showName: boolean }
   | { kind: 'outgoing'; key: string; item: OutboxItem }
+  // Photos or a file of yours whose message hasn't reached the chat yet.
+  | { kind: 'uploading'; key: string; upload: UploadJob }
   | { kind: 'divider'; key: string }
   | { kind: 'day'; key: string; label: string };
 
@@ -84,26 +97,36 @@ export function dayKey(iso: string): string {
 export function buildThreadRows({
   messages,
   outbox,
+  uploads = [],
   lastReadAt,
   meId,
   isGroup,
 }: {
   messages: readonly ConversationMessage[];
   outbox: readonly OutboxItem[];
+  /** Photos and files of yours on their way: those not in the chat yet get a row. */
+  uploads?: readonly UploadJob[];
   lastReadAt: string | null;
   meId: string | undefined;
   isGroup: boolean;
 }): ThreadRow[] {
   type Entry =
     | { kind: 'message'; at: string; message: ConversationMessage }
-    | { kind: 'outgoing'; at: string; item: OutboxItem };
+    | { kind: 'outgoing'; at: string; item: OutboxItem }
+    | { kind: 'uploading'; at: string; upload: UploadJob };
 
-  // The queue is oldest first and always newer than anything stored.
+  // Not yet a message here. The socket's copy can land before the send's
+  // answer does, and it carries the same client id.
+  const arrived = new Set(messages.map((m) => m.client_id).filter(Boolean));
+  const pendingUploads = uploads.filter((u) => !u.messageId && !arrived.has(u.clientId));
+
+  // The queues are oldest first and always newer than anything stored.
+  const queued: Entry[] = [
+    ...outbox.map((item): Entry => ({ kind: 'outgoing', at: item.createdAt, item })),
+    ...pendingUploads.map((upload): Entry => ({ kind: 'uploading', at: upload.createdAt, upload })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
   const entries: Entry[] = [
-    ...outbox
-      .slice()
-      .reverse()
-      .map((item): Entry => ({ kind: 'outgoing', at: item.createdAt, item })),
+    ...queued,
     ...messages.map((message): Entry => ({ kind: 'message', at: message.created_at, message })),
   ];
 
@@ -115,6 +138,8 @@ export function buildThreadRows({
     entries.forEach((e, i) => {
       if (
         e.kind === 'message' &&
+        // A notice is never unread: the divider never sits over one.
+        !isNotice(e.message) &&
         e.message.sender_id !== meId &&
         new Date(e.message.created_at).getTime() > boundary
       ) {
@@ -132,6 +157,8 @@ export function buildThreadRows({
 
     if (entry.kind === 'outgoing') {
       rows.push({ kind: 'outgoing', key: entry.item.clientId, item: entry.item });
+    } else if (entry.kind === 'uploading') {
+      rows.push({ kind: 'uploading', key: `up-${entry.upload.clientId}`, upload: entry.upload });
     } else {
       const m = entry.message;
       // A name over the first of a run from one person, in a group. The
@@ -141,7 +168,9 @@ export function buildThreadRows({
         i !== firstUnread &&
         older?.kind === 'message' &&
         older.message.sender_id === m.sender_id &&
-        older.message.kind !== 'job-accepted';
+        !isCentredCard(older.message.kind) &&
+        // After "Jo joined", Jo's first line still says who it is.
+        !isNotice(older.message);
       rows.push({
         kind: 'message',
         key: m.id,
@@ -160,6 +189,20 @@ export const DaySeparator = memo(function DaySeparator({ label }: { label: strin
     <View className="items-center py-2" accessibilityRole="header">
       <View className="px-3 py-1">
         <Text className="text-muted-foreground text-[12px] font-semibold">{label}</Text>
+      </View>
+    </View>
+  );
+});
+
+/**
+ * The chat saying who joined, left, was added or removed: a small centred
+ * line, never a bubble, with no sender and nothing to hold.
+ */
+export const NoticeLine = memo(function NoticeLine({ body }: { body: string }) {
+  return (
+    <View className="items-center py-1.5">
+      <View className="rounded-full bg-muted px-3 py-1" style={{ maxWidth: '88%' }}>
+        <Text className="text-secondary-foreground text-[12px] leading-4 text-center">{body}</Text>
       </View>
     </View>
   );
@@ -224,9 +267,49 @@ export function useMentionMatcher(names: readonly string[]) {
 
 export type MentionMatcher = ReturnType<typeof useMentionMatcher>;
 
+/**
+ * Every place a search term appears in a run of words, picked out. Matched
+ * the way the server matches: the whole term, any case.
+ */
+function withHighlight(text: string, term: string | null | undefined, mine: boolean, key: string): ReactNode {
+  if (!term) return text;
+  const lower = text.toLowerCase();
+  const wanted = term.toLowerCase();
+  let at = lower.indexOf(wanted);
+  if (at < 0) return text;
+  const out: ReactNode[] = [];
+  let from = 0;
+  let n = 0;
+  while (at >= 0) {
+    if (at > from) out.push(text.slice(from, at));
+    out.push(
+      <Text
+        key={`${key}-h${n++}`}
+        // On your own bubble a pale chip with dark words: a tint of the bubble
+        // colour would not read.
+        className={mine ? 'bg-background text-foreground' : 'bg-warning/25 text-foreground'}
+      >
+        {text.slice(at, at + wanted.length)}
+      </Text>,
+    );
+    from = at + wanted.length;
+    at = lower.indexOf(wanted, from);
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
+}
+
 /** The mentions in a run of words, bold — and on your own bubble, underlined. */
-function withMentions(text: string, mine: boolean, matcher: MentionMatcher, key: string) {
-  if (!matcher || !text.includes('@')) return <Text key={key}>{text}</Text>;
+function withMentions(
+  text: string,
+  mine: boolean,
+  matcher: MentionMatcher,
+  key: string,
+  highlight?: string | null,
+) {
+  if (!matcher || !text.includes('@')) {
+    return <Text key={key}>{withHighlight(text, highlight, mine, key)}</Text>;
+  }
   return text.split(matcher.pattern).map((part, i) =>
     matcher.names.has(part) ? (
       // Underlined on your own bubble: a lighter tint of the text did not
@@ -236,10 +319,10 @@ function withMentions(text: string, mine: boolean, matcher: MentionMatcher, key:
         className={mine ? 'font-bold' : 'font-bold text-primary'}
         style={mine ? { textDecorationLine: 'underline' } : undefined}
       >
-        {part}
+        {withHighlight(part, highlight, mine, `${key}-${i}`)}
       </Text>
     ) : (
-      <Text key={`${key}-${i}`}>{part}</Text>
+      <Text key={`${key}-${i}`}>{withHighlight(part, highlight, mine, `${key}-${i}`)}</Text>
     ),
   );
 }
@@ -258,6 +341,7 @@ export function MessageBody({
   onLongPress,
   numberOfLines,
   inert = false,
+  highlight = null,
 }: {
   body: string;
   mine: boolean;
@@ -266,6 +350,8 @@ export function MessageBody({
   numberOfLines?: number;
   /** Drawn as links but not tappable: the copy lifted over a dimmed thread. */
   inert?: boolean;
+  /** Searching this chat: every place the term appears is picked out. */
+  highlight?: string | null;
 }) {
   const colour = mine ? 'text-action-foreground' : 'text-foreground';
   const parts = useMemo(() => splitLinks(body), [body]);
@@ -273,7 +359,7 @@ export function MessageBody({
   if (!hasLink && (!matcher || !body.includes('@'))) {
     return (
       <Text className={`text-[15px] leading-5 ${colour}`} numberOfLines={numberOfLines}>
-        {body}
+        {withHighlight(body, highlight, mine, 'b')}
       </Text>
     );
   }
@@ -289,13 +375,31 @@ export function MessageBody({
             className={mine ? '' : 'text-primary'}
             style={{ textDecorationLine: 'underline' }}
           >
-            {part.text}
+            {withHighlight(part.text, highlight, mine, `l${i}`)}
           </Text>
         ) : (
-          withMentions(part.text, mine, matcher, `t${i}`)
+          withMentions(part.text, mine, matcher, `t${i}`, highlight)
         ),
       )}
     </Text>
+  );
+}
+
+/** A tiny copy of the first photo a reply answers, when it has one ready. */
+function QuotedPhoto({ quoted, autoLoad }: { quoted: ConversationMessage | null | undefined; autoLoad: boolean }) {
+  if (!quoted || quoted.deleted_at || quoted.kind !== 'photos') return null;
+  const first = quoted.attachments?.find((a) => a.status === 'ready');
+  if (!first) return null;
+  const uri = autoLoad && first.thumbUrl ? first.thumbUrl : first.blur;
+  if (!uri) return null;
+  return (
+    <Image
+      source={uri === first.thumbUrl ? { uri, cacheKey: chatPhotoKey(first.id, 'thumb') } : { uri }}
+      cachePolicy={uri === first.thumbUrl ? 'memory-disk' : 'memory'}
+      contentFit="cover"
+      style={{ width: 32, height: 32, borderRadius: 6 }}
+      accessibilityIgnoresInvertColors
+    />
   );
 }
 
@@ -325,6 +429,36 @@ interface MessageBubbleProps {
   waiting: boolean;
   /** Whether pictures load by themselves on this connection and setting. */
   autoLoadMedia: boolean;
+  /** Who is in the chat, for the words on shared cards. */
+  people: ChatPeople;
+  /** A short word over the foot of the thread, from a card: a failed answer. */
+  notify: (words: string) => void;
+  /** Searching this chat: the term, picked out wherever it appears. */
+  highlight?: string | null;
+  /** The search match you are on, or the pin you jumped to: ringed. */
+  lit?: boolean;
+  /** Your send of it from this phone, while its photos or file are still going. */
+  upload?: UploadJob | null;
+  isOffline?: boolean;
+  /**
+   * The message it answers, when that is loaded: photos and a file quote as
+   * what they are ("4 photos: …"), with a tiny photo, rather than as the
+   * plain line stored for older apps.
+   */
+  quoted?: ConversationMessage | null;
+  onOpenPhoto?: (message: ConversationMessage, index: number) => void;
+  onOpenFile?: (message: ConversationMessage, attachment: ChatAttachment) => void;
+  /** A tap on a send of yours that is waiting or failed. */
+  onSendingPress?: (upload: UploadJob) => void;
+}
+
+const noop = () => undefined;
+
+/** The one line a reply quotes. */
+function replyLineOf(message: ConversationMessage, quoted: ConversationMessage | null | undefined): string {
+  if (message.reply_to_deleted) return 'Message deleted';
+  if (quoted && !quoted.deleted_at) return quoteLine(quoted);
+  return message.reply_to_body != null ? quoteFromBody(message.reply_to_body) : 'Message unavailable';
 }
 
 /**
@@ -352,6 +486,16 @@ export const MessageBubble = memo(function MessageBubble({
   beingEdited,
   waiting,
   autoLoadMedia,
+  people,
+  notify,
+  highlight = null,
+  lit = false,
+  upload = null,
+  isOffline = false,
+  quoted = null,
+  onOpenPhoto = noop,
+  onOpenFile = noop,
+  onSendingPress,
 }: MessageBubbleProps) {
   const bubbleRef = useRef<View>(null);
   const hold = useCallback(() => {
@@ -367,14 +511,14 @@ export const MessageBubble = memo(function MessageBubble({
     <ReactionPills
       reactions={message.reactions}
       myId={myId}
-      align={mine && message.kind !== 'job-accepted' ? 'end' : 'start'}
+      align={mine && !isCentredCard(message.kind) ? 'end' : 'start'}
       canReact={reactable}
       onToggle={(reaction) => onToggleReaction(message, reaction)}
       onShowWho={() => onShowReactions(message)}
     />
   );
   const link = useMemo(
-    () => (message.deleted_at || message.kind === 'job-accepted' ? null : firstVirgoLink(message.body)),
+    () => (message.deleted_at || (message.kind ?? 'text') !== 'text' ? null : firstVirgoLink(message.body)),
     [message.body, message.deleted_at, message.kind],
   );
 
@@ -396,8 +540,18 @@ export const MessageBubble = memo(function MessageBubble({
    * applicant would have no more reason to act on it than on any other line
    * they sent. It can be reacted to, so it can be held.
    */
+  // Nobody's line: no name, no hold, no reactions.
+  if (isNotice(message)) return <NoticeLine body={message.body} />;
+
+  /*
+   * What is not a bubble of words — a card, a deleted message — is lit by a
+   * band behind it rather than a ring, which would hug the wrong shape.
+   */
+  const band = (node: ReactNode) =>
+    lit ? <View className="rounded-[24px] bg-warning/15 -mx-2 px-2 py-1.5">{node}</View> : node;
+
   if (message.kind === 'job-accepted' && message.context) {
-    return (
+    return band(
       <View>
         <Pressable
           ref={bubbleRef}
@@ -410,13 +564,13 @@ export const MessageBubble = memo(function MessageBubble({
           <JobAcceptedCard context={message.context as JobAcceptedContext} />
         </Pressable>
         {pills}
-      </View>
+      </View>,
     );
   }
 
   if (message.deleted_at) {
     const words = mine ? 'You deleted this message' : 'This message was deleted';
-    return (
+    return band(
       <View className={mine ? 'items-end' : 'items-start'}>
         <Pressable
           ref={bubbleRef}
@@ -431,13 +585,77 @@ export const MessageBubble = memo(function MessageBubble({
           <Text className="text-muted-foreground text-sm italic">{words}</Text>
         </Pressable>
         {pills}
-      </View>
+      </View>,
+    );
+  }
+
+  // Photos or a PDF from somebody's phone: the grid or the file, then the caption.
+  if (isFilesMessage(message)) {
+    const seen =
+      state === 'read'
+        ? 'Seen'
+        : showSeenBy && seenBy > 0
+          ? `Seen by ${seenBy}`
+          : DELIVERY_WORDS[state];
+    return (
+      <FilesMessage
+        message={message}
+        mine={mine}
+        showName={showName}
+        meta={mine ? `${time} · ${seen}` : time}
+        upload={upload}
+        isOffline={isOffline}
+        autoLoadMedia={autoLoadMedia}
+        quote={
+          message.reply_to_id
+            ? { sender: message.reply_to_sender ?? 'Message', line: replyLineOf(message, quoted) }
+            : null
+        }
+        bubbleRef={bubbleRef}
+        onHold={hold}
+        onOpenPhoto={onOpenPhoto}
+        onOpenFile={onOpenFile}
+        onSendingPress={onSendingPress}
+        pills={pills}
+        lit={lit}
+        accessibilityActions={actions}
+        onAccessibilityAction={onAction}
+      />
     );
   }
 
   // How to pay the sender: a card on their side, like their own line.
   if (message.kind === 'pay-card') {
-    return <PayChatCard message={message} mine={mine} time={time} onLongPress={() => hold()} />;
+    return band(
+      <PayChatCard ref={bubbleRef} message={message} mine={mine} time={time} onLongPress={hold} pills={pills} />,
+    );
+  }
+
+  // A Virgo thing shared here: album photos, a booking, a job post, a post,
+  // a package or a date. Held and reacted to like any message.
+  if (isCardKind(message.kind)) {
+    const seen =
+      state === 'read'
+        ? 'Seen'
+        : showSeenBy && seenBy > 0
+          ? `Seen by ${seenBy}`
+          : DELIVERY_WORDS[state];
+    return band(
+      <ChatCard
+        kind={message.kind}
+        message={message}
+        mine={mine}
+        senderName={showName ? (message.sender_name ?? null) : null}
+        meta={mine ? `${time} · ${seen}` : time}
+        cardRef={bubbleRef}
+        onHold={hold}
+        pills={pills}
+        myId={myId}
+        people={people}
+        autoLoadMedia={autoLoadMedia}
+        notify={notify}
+      />,
+    );
   }
 
   const who = mine ? 'You' : (message.sender_name ?? 'Someone');
@@ -495,6 +713,16 @@ export const MessageBubble = memo(function MessageBubble({
         className={`rounded-[20px] px-3.5 py-2.5 active:opacity-80 ${mine ? 'bg-action' : 'bg-card border border-border/40'}`}
         style={[
           { maxWidth: '80%' },
+          // The match you are on, or the pin you jumped to: ringed, so it
+          // stands out from the other matches on screen.
+          lit && !beingEdited
+            ? {
+                outlineWidth: 2.5,
+                outlineStyle: 'solid',
+                outlineOffset: 3,
+                outlineColor: (isDark ? PALETTES.dark : PALETTES.light).ring,
+              }
+            : null,
           // The one being changed, ringed and dimmed, so it is plain which
           // message the box below is editing.
           beingEdited
@@ -518,31 +746,38 @@ export const MessageBubble = memo(function MessageBubble({
             deleted, so a reply never reads as a non-sequitur. */}
         {message.reply_to_id ? (
           <View
-            className="rounded-lg px-2 py-1.5 mb-1.5"
+            className="rounded-lg px-2 py-1.5 mb-1.5 flex-row items-center gap-2"
             style={{
               backgroundColor: mine ? '#00000026' : isDark ? '#00000033' : '#0000000A',
               borderLeftWidth: 2,
               borderLeftColor: mine ? '#FFFFFF' : '#A85D35',
             }}
           >
-            <Text
-              className={`text-[11px] font-bold ${mine ? 'text-action-foreground' : 'text-primary'}`}
-              numberOfLines={1}
-            >
-              {message.reply_to_sender ?? 'Message'}
-            </Text>
-            <Text
-              className={`text-xs ${mine ? 'text-action-foreground' : 'text-muted-foreground'}`}
-              numberOfLines={1}
-            >
-              {message.reply_to_deleted
-                ? 'Message deleted'
-                : (message.reply_to_body ?? 'Message unavailable')}
-            </Text>
+            <View className="flex-1 min-w-0">
+              <Text
+                className={`text-[11px] font-bold ${mine ? 'text-action-foreground' : 'text-primary'}`}
+                numberOfLines={1}
+              >
+                {message.reply_to_sender ?? 'Message'}
+              </Text>
+              <Text
+                className={`text-xs ${mine ? 'text-action-foreground' : 'text-muted-foreground'}`}
+                numberOfLines={1}
+              >
+                {replyLineOf(message, quoted)}
+              </Text>
+            </View>
+            <QuotedPhoto quoted={quoted} autoLoad={autoLoadMedia} />
           </View>
         ) : null}
 
-        <MessageBody body={message.body} mine={mine} matcher={matcher} onLongPress={hold} />
+        <MessageBody
+          body={message.body}
+          mine={mine}
+          matcher={matcher}
+          onLongPress={hold}
+          highlight={highlight}
+        />
 
         {link ? (
           <LinkPreviewCard

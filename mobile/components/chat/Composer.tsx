@@ -18,6 +18,7 @@ import { getConnectionQuality } from '@/src/hooks/useConnectionQuality';
 import { useTheme } from '@/src/hooks';
 import { useKeyboardUp } from '@/src/lib/keyboard';
 import { PALETTES } from '@/theme';
+import { quoteLine } from './files/files-words';
 
 for (const Icon of [AtSignIcon, CheckIcon, PencilIcon, PlusIcon, ReplyIcon, SendIcon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -61,7 +62,7 @@ interface ComposerProps {
    * the box, to send as a new message or clear.
    */
   onEditExpired: () => void;
-  /** The round + at the start of the box: saved replies, in this phase. */
+  /** The round + at the start of the box: what can be shared here, saved replies among it. */
   onPlus?: () => void;
   ref?: Ref<ComposerHandle>;
 }
@@ -315,7 +316,7 @@ export const Composer = memo(function Composer({
               Replying to {replyTo.sender_name}
             </Text>
             <Text className="text-muted-foreground text-xs" numberOfLines={1}>
-              {replyTo.body}
+              {quoteLine(replyTo)}
             </Text>
           </View>
           <Pressable
@@ -366,8 +367,8 @@ export const Composer = memo(function Composer({
         {onPlus && !editing ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Saved replies"
-            accessibilityHint="Puts one of your saved replies in the message"
+            accessibilityLabel="Share something"
+            accessibilityHint="Photos or a file from your phone, album photos, a date, a booking, a job post, a post, a package, how to pay, or a saved reply"
             onPress={onPlus}
             className="w-11 h-11 rounded-full bg-muted items-center justify-center active:scale-[0.94]"
           >

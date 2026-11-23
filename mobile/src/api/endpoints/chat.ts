@@ -1,5 +1,6 @@
 import { api } from '../client';
 import type { PayCardContext } from './money';
+import { formatMoney } from './usage';
 
 export interface Conversation {
   id: string;
@@ -41,6 +42,52 @@ export interface Conversation {
   archived?: boolean;
   /** Marked unread by you, to come back to. Cleared when you read it. */
   markedUnread?: boolean;
+  /*
+   * Crew chats (phase 3). Optional so an older API's response still
+   * type-checks; absent reads as an ordinary chat where you are not an admin.
+   */
+  /** The message a search matched: what the list opens the chat at. */
+  matchId?: string | null;
+  /** Groups: the one line at the top of group info. */
+  about?: string | null;
+  /** Whether you are one of the group's admins. */
+  isAdmin?: boolean;
+  /** Who can add people. Absent reads as 'everyone'. */
+  addPolicy?: GroupAddPolicy;
+  /** A workspace's team chat, or a job's crew chat. Null on anything else. */
+  origin?: GroupOrigin | null;
+  /** The workspace's id, or the job post's. */
+  originId?: string | null;
+  /** The workspace's name, or the job's title, as they are now. */
+  originTitle?: string | null;
+}
+
+/** Who can add people to a group. */
+export type GroupAddPolicy = 'everyone' | 'admins';
+
+/** What made a group: a workspace's team, or the people hired on a job. */
+export type GroupOrigin = 'workspace' | 'crew';
+
+/** Pinned messages one chat can hold, the same for everyone in it. */
+export const MAX_PINNED_MESSAGES = 3;
+
+/** How long a group's About can be. */
+export const GROUP_ABOUT_MAX = 200;
+
+/** People hired on a job before its poster can start a crew chat. */
+export const MIN_CREW = 2;
+
+/** "Team chat · 6 people", "5 people · From the Santos Wedding job": the line under a group's name. */
+export function groupSubtitle(
+  c: Pick<Conversation, 'isGroup' | 'participantCount' | 'origin' | 'originTitle'>,
+): string | null {
+  if (!c.isGroup) return null;
+  const people = `${c.participantCount} ${c.participantCount === 1 ? 'person' : 'people'}`;
+  if (c.origin === 'workspace') return `Team chat · ${people}`;
+  if (c.origin === 'crew') {
+    return c.originTitle ? `${people} · From the ${c.originTitle} job` : `Crew chat · ${people}`;
+  }
+  return people;
 }
 
 /**
@@ -301,10 +348,23 @@ export interface ConversationMessage {
    * before this existed. 'job-accepted' is the app itself marking the moment
    * an application was accepted, rendered as a card rather than a bubble.
    * 'pay-card' is somebody sending how to pay them, as a card on their side.
+   * The rest (CardKind) are Virgo things somebody shared: album photos, a
+   * booking, a job post, a post, a package, a date.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card';
+  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | 'photos' | 'file' | CardKind;
   /** What the card needs. Null on a typed message. Read it by `kind`. */
-  context?: JobAcceptedContext | PayCardContext | null;
+  context?:
+    | JobAcceptedContext
+    | PayCardContext
+    | AlbumCardContext
+    | BookingCardContext
+    | JobPostCardContext
+    | PostCardContext
+    | PackageCardContext
+    | DatePlanCardContext
+    | NoticeContext
+    | FilesContext
+    | null;
   /**
    * The id the sender's app gave this message before sending it — how that app
    * matches the stored message to the bubble it drew while sending. Absent
@@ -317,6 +377,205 @@ export interface ConversationMessage {
   forwarded?: boolean;
   /** One per person, oldest first. Absent from an older API. */
   reactions?: MessageReaction[];
+  /** When somebody pinned it for the chat. Null or absent when it is not pinned. */
+  pinned_at?: string | null;
+  /** Who pinned it. Only on the pins list. */
+  pinned_by_name?: string | null;
+  /**
+   * Photos or a file from somebody's device, in order: on 'photos' and 'file'
+   * messages only. One can still be uploading (the words go first on a weak
+   * signal); it turns ready through a `message-edited` frame. Empty once
+   * unsent. Absent from an older API.
+   */
+  attachments?: ChatAttachment[];
+}
+
+/**
+ * A notice: the chat saying who joined, left, was added or removed. Drawn as
+ * a small centred line from `body`, never as a bubble, and nobody replies to,
+ * reacts to, pins or forwards one. Never unread.
+ */
+export interface NoticeContext {
+  event: 'team-chat' | 'crew-chat' | 'joined' | 'left' | 'added' | 'removed';
+  /** What a join or a leave followed: the workspace, or being hired on the job. */
+  via?: 'workspace' | 'crew';
+  actorId?: string;
+  subjectId?: string;
+  workspaceId?: string;
+  postId?: string;
+}
+
+export function isNotice(m: Pick<ConversationMessage, 'kind'>): boolean {
+  return m.kind === 'notice';
+}
+
+// ─── Photos and files from your device (phase 4) ────────────────────────────
+
+/**
+ * What a photo may be sent as: what both apps make of it once shrunk. The
+ * phone turns HEIC into JPEG first; the server can't read HEIC.
+ */
+export const CHAT_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+/** A file is a PDF: a call sheet, a contract, a mood board. */
+export const CHAT_FILE_TYPES = ['application/pdf'] as const;
+export const MAX_CHAT_PHOTOS = 10;
+export const MAX_CHAT_PHOTO_BYTES = 15 * 1024 * 1024;
+export const MAX_CHAT_FILE_BYTES = 20 * 1024 * 1024;
+export const MAX_CHAT_CAPTION = 1000;
+
+/**
+ * The long edge photos are shrunk to before they go: about 2,000 px (around
+ * 0.5 MB), or 1,280 px on a slow line (around 200 KB). Full size goes
+ * through an album. The server keeps at most 2,048 px either way.
+ */
+export const CHAT_PHOTO_EDGE = 2000;
+export const CHAT_PHOTO_EDGE_SLOW = 1280;
+export function chatPhotoEdge(quality: ConnectionQuality): number {
+  return quality === 'slow' ? CHAT_PHOTO_EDGE_SLOW : CHAT_PHOTO_EDGE;
+}
+
+export type ChatAttachmentKind = 'photo' | 'file';
+export type ChatAttachmentStatus = 'uploading' | 'ready' | 'failed';
+
+/** A photo or a file on a message. */
+export interface ChatAttachment {
+  id: string;
+  kind: ChatAttachmentKind;
+  /**
+   * 'uploading' until its bytes arrive and are checked; 'failed' if they
+   * never did (a day on) or could not be read. Only 'ready' has links.
+   */
+  status: ChatAttachmentStatus;
+  /** A file's name, and what either saves as. */
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  /** A photo's size in pixels, for drawing its box before it loads. */
+  width: number | null;
+  height: number | null;
+  /** A PDF's page count, when it could be read. */
+  pages: number | null;
+  /** About 300 bytes: paint it first, and instead of the photo on a slow line. */
+  blur: string | null;
+  /** The photo's 640 px copy, for the thread. Signed for half a day. */
+  thumbUrl: string | null;
+  /** The photo or PDF itself, signed for half a day. */
+  url: string | null;
+}
+
+/** A photos or file message's own words, drawn under the photos or the file. */
+export interface FilesContext {
+  caption: string | null;
+}
+
+export function isFilesMessage(m: Pick<ConversationMessage, 'kind'>): boolean {
+  return m.kind === 'photos' || m.kind === 'file';
+}
+
+/** The caption the sender typed, or null. */
+export function filesCaption(m: Pick<ConversationMessage, 'kind' | 'context'>): string | null {
+  if (!isFilesMessage(m)) return null;
+  const caption = (m.context as FilesContext | null | undefined)?.caption;
+  return typeof caption === 'string' && caption.trim() ? caption : null;
+}
+
+/** "4 photos", "Photo". */
+export function photoCountLabel(count: number): string {
+  return count === 1 ? 'Photo' : `${count} photos`;
+}
+
+/** "1.2 MB", "340 KB", "12 KB": what a file or a set of photos costs to load. */
+export function chatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/** The line under a file's name: "3 pages · 1.2 MB", or "PDF · 1.2 MB". */
+export function fileDetailLine(a: Pick<ChatAttachment, 'pages' | 'sizeBytes'>): string {
+  const pages = a.pages ? (a.pages === 1 ? '1 page' : `${a.pages} pages`) : 'PDF';
+  return `${pages} · ${chatFileSize(a.sizeBytes)}`;
+}
+
+/**
+ * Whether an attachment's picture loads on its own. A photo's small copy is
+ * well under AUTO_DOWNLOAD_MAX_BYTES, so it follows the setting; the full
+ * photo and a PDF only ever load when tapped.
+ */
+export function shouldAutoLoadThumb(setting: MediaAutoLoad, quality: ConnectionQuality): boolean {
+  return shouldAutoLoadMedia(setting, quality);
+}
+
+/** What an upload link is for: one photo or one file of a message. */
+export interface ChatUploadTicket {
+  /** The attachment's id: what the message names, and what is finished. */
+  id: string;
+  uploadUrl: string;
+  /** Send exactly these with the PUT: the type and size are signed in. */
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
+/** One photo or file about to be sent: what it is, and how big. */
+export interface NewChatFile {
+  contentType: string;
+  contentLength: number;
+  name?: string;
+}
+
+export interface SendFilesInput {
+  /** The uploads, in the order they show. */
+  attachmentIds: string[];
+  caption?: string;
+  /** As on a typed message: the same one again returns what was stored. */
+  clientId?: string;
+  replyToId?: string;
+}
+
+/** What your chat photos and files use, and where, for the storage screen. */
+export interface ChatFilesUsage {
+  bytes: number;
+  files: number;
+  /** Largest first, up to twenty. Includes chats you have left. */
+  chats: {
+    conversationId: string;
+    title: string;
+    isGroup: boolean;
+    /** False for a chat you have left: what you sent there still counts. */
+    member: boolean;
+    bytes: number;
+    files: number;
+  }[];
+}
+
+/** Whether an upload link is about to lapse, and should be asked for again. */
+export function uploadTicketExpired(ticket: Pick<ChatUploadTicket, 'expiresAt'>, now = Date.now()): boolean {
+  const at = Date.parse(ticket.expiresAt);
+  return !Number.isFinite(at) || at - now < 60_000;
+}
+
+/** One line for a pin in the strip and the Pinned sheet: its words, or what the card is. */
+export function pinLine(m: ConversationMessage): string {
+  if (m.kind && m.kind !== 'text' && m.kind !== 'notice') {
+    const card = cardSummary(m);
+    if (card) return card.title ? `${card.label}: ${card.title}` : card.label;
+  }
+  return (m.body ?? '').split('\n')[0] || 'Message';
+}
+
+/** What a search inside one chat found: ids and times, newest first. */
+export interface ChatSearchMatch {
+  id: string;
+  createdAt: string;
+}
+
+/** A group's settings an admin changes. Each left out stays as it is. */
+export interface GroupPatch {
+  title?: string;
+  about?: string | null;
+  /** The public address of a photo you uploaded (scope 'avatars'), or null to take it off. */
+  photoUrl?: string | null;
+  addPolicy?: GroupAddPolicy;
 }
 
 /**
@@ -334,6 +593,271 @@ export interface JobAcceptedContext {
   /** Which of the post's roles. Null on posts that only ever wanted one. */
   role: string | null;
   bookingId: string;
+}
+
+// ─── Cards: Virgo things shared in a chat ───────────────────────────────────
+
+/**
+ * What a chat can carry from the rest of Virgo. Each card stores what the
+ * thing is, and the server fills in how it is now every time the thread is
+ * read: a moved date or a new payment shows on a card sent last week. A field
+ * filled in as null means the thing is gone, or no longer its sender's to
+ * show, and the card says so.
+ */
+export const CARD_KINDS = ['album-photos', 'booking', 'job-post', 'post', 'package', 'date-plan'] as const;
+export type CardKind = (typeof CARD_KINDS)[number];
+
+export function isCardKind(kind: string | null | undefined): kind is CardKind {
+  return !!kind && (CARD_KINDS as readonly string[]).includes(kind);
+}
+
+/** The calendar's kinds of entry a date can be. A shoot is 'event' there. */
+export const PLAN_TYPES = ['event', 'meeting', 'editing', 'review', 'delivery'] as const;
+export type PlanType = (typeof PLAN_TYPES)[number];
+export const PLAN_TYPE_LABEL: Record<PlanType, string> = {
+  event: 'Shoot',
+  meeting: 'Meeting',
+  editing: 'Editing',
+  review: 'Review',
+  delivery: 'Delivery',
+};
+
+/** Photos in one card. The API enforces it too. */
+export const MAX_CARD_FILES = 500;
+
+export interface AlbumCardContext {
+  albumId: string;
+  linkId: string;
+  /** The client link made for just these files. Opening the card opens it. */
+  url: string;
+  album: {
+    name: string;
+    /** The one section everything is in, when there is one. */
+    sectionName: string | null;
+    total: number;
+    counts: { image: number; video: number; audio: number };
+    /** Up to four small thumbnails. */
+    thumbs: string[];
+    /** Each thumbnail's tiny blurred stand-in, in the same order. */
+    blurs: (string | null)[];
+  } | null;
+}
+
+export interface BookingCardContext {
+  bookingId: string;
+  booking: {
+    id: string;
+    postTitle: string;
+    postSlug: string;
+    role: string | null;
+    eventDate: string | null;
+    location: string | null;
+    rateMinor: number | null;
+    currency: string;
+    /** Both sides have agreed. */
+    confirmed: boolean;
+    cancelled: boolean;
+    /** The two on it, who alone can open it. */
+    parties: string[];
+  } | null;
+}
+
+export interface JobPostCardContext {
+  postId: string;
+  job: {
+    slug: string;
+    title: string;
+    eventDate: string | null;
+    location: string | null;
+    roles: string[];
+    /** Centavos. */
+    budgetMin: number | null;
+    budgetMax: number | null;
+    status: string;
+    postedBy: string | null;
+  } | null;
+}
+
+export interface PostCardContext {
+  showcaseId: string;
+  post: {
+    id: string;
+    title: string | null;
+    likeCount: number;
+    makerId: string;
+    makerName: string;
+    thumbUrl: string;
+    blur: string | null;
+    /** The first piece is a film. */
+    film: boolean;
+    pieces: number;
+  } | null;
+}
+
+export interface PackageCardContext {
+  packageId: string;
+  package: {
+    id: string;
+    title: string;
+    totalMinor: number;
+    receivedMinor: number;
+    balanceMinor: number;
+    paidInFull: boolean;
+    /** The statement page. Null once its sender stops sharing it. */
+    statementUrl: string | null;
+  } | null;
+}
+
+export type PlanAnswer = 'pending' | 'accepted' | 'declined';
+
+export interface DatePlanCardContext {
+  eventId: string;
+  plan: {
+    eventId: string;
+    title: string;
+    /** YYYY-MM-DD. */
+    date: string;
+    /** HH:MM, or null for a whole day. */
+    time: string | null;
+    type: string;
+    typeOther: string | null;
+    location: string | null;
+    organiserId: string;
+    /** Everyone invited, and what they said. The organiser is not in it. */
+    answers: { userId: string; status: PlanAnswer }[];
+  } | null;
+}
+
+export type SendCardInput = { clientId?: string } & (
+  | { kind: 'album-photos'; albumId: string; keys: string[] }
+  | { kind: 'booking'; bookingId: string }
+  | { kind: 'job-post'; postId: string }
+  | { kind: 'post'; showcaseId: string }
+  | { kind: 'package'; packageId: string }
+  | {
+      kind: 'date-plan';
+      type: PlanType;
+      /** Empty is fine: the date is then called by its type. */
+      title: string;
+      /** YYYY-MM-DD. */
+      date: string;
+      /** HH:MM. */
+      time?: string;
+      place?: string;
+      /** Everyone else in the chat you are connected with. */
+      inviteEveryone: boolean;
+    }
+);
+
+function utcDay(date: string | null | undefined): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date ?? '');
+  return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
+}
+
+/** "Sat, Dec 6" from "2026-12-06": the day as written, wherever the phone is. */
+export function planDayLabel(date: string | null | undefined): string | null {
+  const day = utcDay(date);
+  return day
+    ? day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+    : null;
+}
+
+/** "4:00 PM" from "16:00". */
+export function planTimeLabel(time: string | null | undefined): string | null {
+  const m = /^(\d{2}):(\d{2})/.exec(time ?? '');
+  if (!m) return null;
+  const h = Number(m[1]);
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** The date's badge: "DEC" over "6". */
+export function planBadge(date: string | null | undefined): { month: string; day: string } | null {
+  const day = utcDay(date);
+  if (!day) return null;
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  return { month: months[day.getUTCMonth()], day: String(day.getUTCDate()) };
+}
+
+/** "Sat · 4:00 PM · Sirao Garden, Cebu". */
+export function planWhenLine(plan: NonNullable<DatePlanCardContext['plan']>): string {
+  const day = utcDay(plan.date);
+  const weekday = day ? day.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }) : null;
+  return [weekday, planTimeLabel(plan.time) ?? 'All day', plan.location].filter(Boolean).join(' · ');
+}
+
+/** Who is going, who can't, and who hasn't said, as account ids. */
+export function planTally(plan: NonNullable<DatePlanCardContext['plan']>): {
+  going: string[];
+  cant: string[];
+  waiting: string[];
+} {
+  const of = (status: PlanAnswer) => plan.answers.filter((a) => a.status === status).map((a) => a.userId);
+  return { going: of('accepted'), cant: of('declined'), waiting: of('pending') };
+}
+
+/** Your answer, or null when you were not invited (the organiser, or not connected to them). */
+export function myPlanAnswer(
+  plan: DatePlanCardContext['plan'] | undefined,
+  myId: string | null | undefined,
+): PlanAnswer | null {
+  if (!plan || !myId) return null;
+  return plan.answers.find((a) => a.userId === myId)?.status ?? null;
+}
+
+/** "₱8,000 – ₱12,000", one amount, or null when the post names no budget. */
+export function budgetRangeLabel(min: number | null | undefined, max: number | null | undefined): string | null {
+  if (min && max && min !== max) return `${formatMoney(min)} – ${formatMoney(max)}`;
+  const one = min || max;
+  return one ? formatMoney(one) : null;
+}
+
+/** "12 photos", "12 photos and 2 films". */
+export function albumCardCount(album: NonNullable<AlbumCardContext['album']>): string {
+  return album.total > 0 ? describeAlbumCount(album.counts) : 'Nothing left in it';
+}
+
+/**
+ * A line for any shared card where only a line fits: the held copy, a
+ * reply's quote. The kind's name, and what it is.
+ */
+export function cardSummary(
+  message: Pick<ConversationMessage, 'kind' | 'context' | 'body'>,
+): { label: string; title: string } | null {
+  const fallback = message.body.split('\n')[0] ?? '';
+  switch (message.kind) {
+    case 'album-photos': {
+      const album = (message.context as AlbumCardContext | null)?.album;
+      return { label: 'Album photos', title: album ? `${albumCardCount(album)} · ${album.name}` : fallback };
+    }
+    case 'booking': {
+      const b = (message.context as BookingCardContext | null)?.booking;
+      return { label: 'Booking', title: b ? [b.role, b.postTitle].filter(Boolean).join(' · ') : fallback };
+    }
+    case 'job-post':
+      return { label: 'Job post', title: (message.context as JobPostCardContext | null)?.job?.title ?? fallback };
+    case 'post':
+      return {
+        label: 'Post',
+        title: (message.context as PostCardContext | null)?.post?.title?.trim() || fallback,
+      };
+    case 'package':
+      return { label: 'Package', title: (message.context as PackageCardContext | null)?.package?.title ?? fallback };
+    case 'date-plan': {
+      const p = (message.context as DatePlanCardContext | null)?.plan;
+      return { label: 'Date', title: p ? [p.title, planDayLabel(p.date)].filter(Boolean).join(' · ') : fallback };
+    }
+    case 'photos': {
+      const count = (message as Pick<ConversationMessage, 'attachments'>).attachments?.length ?? 0;
+      const caption = filesCaption(message);
+      return { label: count > 0 ? photoCountLabel(count) : 'Photos', title: caption ?? '' };
+    }
+    case 'file': {
+      const file = (message as Pick<ConversationMessage, 'attachments'>).attachments?.[0];
+      return { label: 'File', title: file?.name ?? fallback.replace(/^Sent a file: /, '') };
+    }
+    default:
+      return null;
+  }
 }
 
 export interface SendMessageInput {
@@ -391,6 +915,13 @@ export interface Participant {
   blocked_by_me?: boolean;
   /** Your block on them, which is what unblocking takes. Null when there is none. */
   block_id?: string | null;
+  /** One of the group's admins. Absent from an older API. */
+  is_admin?: boolean;
+  /** When they joined this chat: "in this group since Nov 12". */
+  joined_at?: string;
+  /** What they do, from their profile: role keys, then roles in their own words. */
+  roles?: string[];
+  custom_roles?: string[];
 }
 
 export interface Thread {
@@ -408,6 +939,11 @@ export interface Thread {
   /** Whether it is frozen because you blocked them, which you can undo. */
   blockedByMe?: boolean;
   blockId?: string | null;
+  /**
+   * Only on a thread asked for around one message: whether there are newer
+   * messages than the newest here. False means it reaches the newest.
+   */
+  hasNewer?: boolean;
 }
 
 /**
@@ -469,12 +1005,138 @@ export const chatApi = {
     return api.get(`/messages/${id}/messages`, { query: { limit, before, after } });
   },
 
+  /**
+   * The messages around one: a search match or a pin, to open the chat at.
+   * Twenty either side, newest first, with `hasNewer`.
+   */
+  messagesAround(id: string, messageId: string): Promise<Thread> {
+    return api.get(`/messages/${id}/messages`, { query: { around: messageId } });
+  },
+
+  /** Every message in this chat with these words in it, newest first. */
+  search(id: string, q: string): Promise<{ matches: ChatSearchMatch[] }> {
+    return api.get(`/messages/${id}/search`, { query: { q } });
+  },
+
+  /** The chat's pinned messages, newest pin first. */
+  pins(id: string): Promise<{ data: ConversationMessage[]; total: number }> {
+    return api.get(`/messages/${id}/pins`);
+  },
+
+  /**
+   * Pins a message for everyone. With three pinned already it answers 409
+   * (isPinsFull) unless `replace` names the pin to take down for it.
+   */
+  pin(id: string, messageId: string, replace?: string): Promise<{ pins: ConversationMessage[] }> {
+    return api.post(`/messages/${id}/messages/${messageId}/pin`, { body: replace ? { replace } : {} });
+  },
+
+  unpin(id: string, messageId: string): Promise<{ pins: ConversationMessage[] }> {
+    return api.delete(`/messages/${id}/messages/${messageId}/pin`);
+  },
+
+  /** An admin takes somebody out of the group. */
+  removeMember(id: string, userId: string): Promise<{ removed: boolean }> {
+    return api.delete(`/messages/${id}/members/${userId}`);
+  },
+
+  /** An admin makes somebody an admin, or stops them being one. */
+  setAdmin(id: string, userId: string, admin: boolean): Promise<{ isAdmin: boolean }> {
+    return api.post(`/messages/${id}/members/${userId}/admin`, { body: { admin } });
+  },
+
+  /** An admin changes the group's name, About, photo, or who can add people. */
+  updateGroup(
+    id: string,
+    patch: GroupPatch,
+  ): Promise<{ id: string; title: string; about: string | null; photoUrl: string | null; addPolicy: GroupAddPolicy }> {
+    return api.patch(`/messages/${id}`, { body: patch });
+  },
+
+  /** Starts the crew chat for one of your job posts, or opens the one it has. */
+  startCrew(postId: string): Promise<{ id: string }> {
+    return api.post('/messages/crews', { body: { postId } });
+  },
+
+  /**
+   * Upload links for one message's photos (up to ten) or one PDF, in order.
+   * Each ticket's id is the attachment: name it in sendFiles, and finish it
+   * once its bytes are up. STORAGE_FULL (isStorageFull) when it won't fit.
+   */
+  createUploads(id: string, files: NewChatFile[]): Promise<ChatUploadTicket[]> {
+    return api.post(`/messages/${id}/uploads`, { body: { files } });
+  },
+
+  /** A fresh link for an upload still on its way, after a long drop. */
+  resignUpload(id: string, attachmentId: string): Promise<ChatUploadTicket> {
+    return api.post(`/messages/${id}/uploads/${attachmentId}/url`);
+  },
+
+  /**
+   * The bytes are up: checked and made ready, and everyone in the chat gets
+   * the message again as an edit frame. 409 NOT_UPLOADED (isNotUploaded)
+   * while they are not there yet.
+   */
+  finishUpload(id: string, attachmentId: string): Promise<ChatAttachment> {
+    return api.post(`/messages/${id}/uploads/${attachmentId}/done`);
+  },
+
+  /** Sends the uploads as one message, before they finish: the words go first. */
+  sendFiles(id: string, input: SendFilesInput): Promise<ConversationMessage> {
+    return api.post(`/messages/${id}/files`, { body: input });
+  },
+
+  /** An hour's link that saves a photo or file under its own name. */
+  attachmentLink(id: string, messageId: string, attachmentId: string): Promise<{ url: string }> {
+    return api.get(`/messages/${id}/messages/${messageId}/files/${attachmentId}/link`);
+  },
+
+  /** Files a copy of a chat photo or PDF into one of your albums, counted there. */
+  addToAlbum(
+    id: string,
+    messageId: string,
+    attachmentId: string,
+    albumId: string,
+  ): Promise<{ added: boolean }> {
+    return api.post(`/messages/${id}/messages/${messageId}/files/${attachmentId}/album`, {
+      body: { albumId },
+    });
+  },
+
+  /** What your chat photos and files use, and in which chats. */
+  filesUsage(): Promise<ChatFilesUsage> {
+    return api.get('/messages/files/usage');
+  },
+
+  /** Your own photo and file messages in one chat, newest first, 60 a page. */
+  sentFiles(
+    conversationId: string,
+    before?: string,
+  ): Promise<{ data: ConversationMessage[]; total: number }> {
+    return api.get(`/messages/files/sent/${conversationId}`, before ? { query: { before } } : {});
+  },
+
+  /** Unsends your own photo and file messages, from the storage screen, even in a chat you left. */
+  unsendFiles(messageIds: string[]): Promise<{ unsent: number }> {
+    return api.post('/messages/files/unsend', { body: { messageIds } });
+  },
+
   participants(id: string): Promise<{ data: Participant[]; total: number }> {
     return api.get(`/messages/${id}/participants`);
   },
 
   send(id: string, input: SendMessageInput): Promise<ConversationMessage> {
     return api.post(`/messages/${id}/messages`, { body: input });
+  },
+
+  /** Shares a Virgo thing as a card: album photos, a booking, a job post, a post, a package or a date. */
+  sendCard(id: string, input: SendCardInput): Promise<ConversationMessage> {
+    return api.post(`/messages/${id}/cards`, { body: input });
+  },
+
+  /** Going, or can't go, to a date planned in the chat. Answers with the card as it now stands. */
+  answerDate(id: string, messageId: string, going: boolean): Promise<ConversationMessage> {
+    return api.post(`/messages/${id}/messages/${messageId}/answer`, { body: { going } });
   },
 
   /** Sends one of your ways to pay as a card, optionally for one of your packages. */

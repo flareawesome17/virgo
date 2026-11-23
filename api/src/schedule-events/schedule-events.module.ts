@@ -17,7 +17,8 @@ import { ScheduleEventsService } from './schedule-events.service';
     EventAttendeesService,
     EventCleanupService,
   ],
-  // Exported so reminders can verify schedule_event ownership.
-  exports: [ScheduleEventsService],
+  // Exported so reminders can verify schedule_event ownership, and so a
+  // date planned in a chat can invite the chat and take its answers.
+  exports: [ScheduleEventsService, EventAttendeesService],
 })
 export class ScheduleEventsModule {}

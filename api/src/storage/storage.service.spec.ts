@@ -8,6 +8,7 @@ import type { BillingService } from '../billing/billing.service';
 import type { MailConfig } from '../mail/mail.config';
 import type { SupportFilesService } from './support-files.service';
 import type { ReceiptFilesService } from './receipt-files.service';
+import type { ChatFilesService } from './chat-files.service';
 import type { MailService } from '../mail/mail.service';
 import type { QuotaService } from '../quota/quota.service';
 import type { MediaLinkService } from './media-link.service';
@@ -441,6 +442,7 @@ describe('AccountService.remove and the profile cover', () => {
     };
     const supportFiles = { eraseFor: jest.fn(options.supportErase ?? (async () => 0)) };
     const receipts = { eraseFor: jest.fn(options.receiptErase ?? (async () => 0)) };
+    const chatFiles = { eraseFor: jest.fn(async () => 0) };
     const account = new AccountService(
       users as unknown as UsersRepository,
       wipe.storage,
@@ -449,9 +451,17 @@ describe('AccountService.remove and the profile cover', () => {
       billing as unknown as BillingService,
       supportFiles as unknown as SupportFilesService,
       receipts as unknown as ReceiptFilesService,
+      chatFiles as unknown as ChatFilesService,
     );
-    return { account, users, wipe, billing, supportFiles, receipts };
+    return { account, users, wipe, billing, supportFiles, receipts, chatFiles };
   }
+
+  it('erases the photos and files they sent in chats along with their library', async () => {
+    const { account, chatFiles, users } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });
+    await account.remove(PHOTOGRAPHER, PASSWORD);
+    expect(chatFiles.eraseFor).toHaveBeenCalledWith(PHOTOGRAPHER);
+    expect(users.remove).toHaveBeenCalled();
+  });
 
   it('erases the receipts on their money entries along with their library', async () => {
     const { account, receipts, users } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });

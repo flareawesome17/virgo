@@ -5,12 +5,14 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { FriendsService } from '../friends/friends.service';
 import { MailConfig } from '../mail/mail.config';
 import { MailService } from '../mail/mail.service';
 import { jobApplication, jobPostReported } from '../mail/mail.templates';
+import { ChatCrewService } from '../messages/crew/chat-crew.service';
 import { MessagesService } from '../messages/messages.service';
 import { NotifyService } from '../notifications/notify.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -22,20 +24,8 @@ import { slugify } from './slug';
 import { canonicalLocation, coordsFor, locationKey } from './locations';
 import { positionOf } from '../discover/position-sql';
 
-/**
- * An application that holds its role: accepted, with a booking that has not
- * been cancelled.
- *
- * Accepted alone was the rule, and a cancelled booking left its application
- * accepted — so the role read filled for ever, the poster could never hire
- * anyone else for it, and a post whose only booking fell through dropped off
- * the board. An accepted application from before bookings existed has none,
- * and still holds its role.
- */
-export const HOLDS_ROLE = (a: string): string => `(${a}.status = 'accepted'
-  and not exists (select 1 from job_bookings jb
-                   where jb.application_id = ${a}.id
-                     and jb.cancelled_at is not null))`;
+export { HOLDS_ROLE } from './holds-role';
+import { HOLDS_ROLE } from './holds-role';
 
 /**
  * A post's status as everybody sees it.
@@ -178,6 +168,16 @@ export interface PublicJobPost {
    * always knows who is asking and can just say.
    */
   isMine: boolean;
+  /**
+   * How many people are hired on it, once each: what "Start crew chat" needs
+   * two of.
+   */
+  hiredCount: number;
+  /**
+   * The job's crew chat, when it has one and the reader is in it. Null
+   * otherwise, so the poster's page offers to start one.
+   */
+  crewChatId: string | null;
 }
 
 /** The owner's view, and an applicant's view of their own application. */
@@ -243,6 +243,8 @@ interface PostRow {
   applicant_count: string;
   new_applicant_count: string;
   my_applications: PublicJobPost['myApplications'] | null;
+  hired_count: string;
+  crew_chat_id: string | null;
   /** Only selected by the board query, and only when the reader has a position. */
   distance_km?: string | number | null;
 }
@@ -289,6 +291,8 @@ export class HiringService {
     private readonly realtime: RealtimeGateway,
     private readonly bookings: BookingsService,
     private readonly blocks: BlocksService,
+    // Optional so the specs and a module without crew chats still build.
+    @Optional() private readonly crews?: ChatCrewService,
   ) {}
 
   /**
@@ -371,7 +375,16 @@ export class HiringService {
               ),
               '[]'::json)
        from hiring_applications a
-      where a.post_id = p.id and a.user_id = ${viewer}) as my_applications`;
+      where a.post_id = p.id and a.user_id = ${viewer}) as my_applications,
+    (select count(distinct a.user_id)::text
+       from hiring_applications a
+      where a.post_id = p.id and ${HOLDS_ROLE('a')}) as hired_count,
+    /* The crew chat, only for somebody in it. */
+    (select c.id
+       from conversations c
+       join conversation_participants cp
+         on cp.conversation_id = c.id and cp.user_id = ${viewer}
+      where c.hiring_post_id = p.id) as crew_chat_id`;
   }
 
   /** The board. Open, visible, unexpired — nothing else. */
@@ -1555,6 +1568,9 @@ export class HiringService {
       });
     }
 
+    // Into the job's crew chat, if its poster has started one.
+    await this.crews?.hired(row.post_id, row.user_id);
+
     /*
      * If that was the last role, say so.
      *
@@ -1737,6 +1753,8 @@ export class HiringService {
       applicantCount: Number(row.applicant_count ?? 0),
       newApplicantCount: Number(row.new_applicant_count ?? 0),
       isMine: row.user_id === viewerId,
+      hiredCount: Number(row.hired_count ?? 0),
+      crewChatId: row.crew_chat_id ?? null,
     };
   }
 

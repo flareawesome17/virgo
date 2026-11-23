@@ -30,6 +30,8 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { DiscoverModule } from './discover/discover.module';
 import { DownloadsModule } from './downloads/downloads.module';
 import { MessagesModule } from './messages/messages.module';
+import { ChatCardsModule } from './messages/cards/chat-cards.module';
+import { ChatCrewModule } from './messages/crew/chat-crew.module';
 import { LinkPreviewsModule } from './link-previews/link-previews.module';
 import { WorkspaceActivityModule } from './workspaces/workspace-activity.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
@@ -74,6 +76,8 @@ import { MoneyModule } from './money/money.module';
     NotificationsModule,
     DiscoverModule,
     MessagesModule,
+    ChatCardsModule,
+    ChatCrewModule,
     LinkPreviewsModule,
     BillingModule,
     ProfilesModule,

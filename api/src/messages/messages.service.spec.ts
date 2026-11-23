@@ -93,6 +93,20 @@ function harness(
     if (/select user_id from conversation_participants\s+where conversation_id = \$1 and user_id = \$2/.test(sql)) {
       return [{ user_id: ME }];
     }
+    // Where the caller stands in a group: an admin of an ordinary one.
+    if (/me\.is_admin, c\.add_policy/.test(sql)) {
+      return [
+        {
+          is_group: true,
+          is_admin: true,
+          add_policy: 'everyone',
+          workspace_id: null,
+          hiring_post_id: null,
+          anchor_id: null,
+          photo_url: null,
+        },
+      ];
+    }
     return [];
   };
 
@@ -291,7 +305,9 @@ describe('MessagesService groups across a block', () => {
 
 describe('MessagesService.deleteMessage across a block', () => {
   const mine = (sql: string) =>
-    /select sender_id, deleted_at from messages/.test(sql) ? [{ sender_id: ME, deleted_at: null }] : undefined;
+    /select sender_id, deleted_at, kind, pinned_at from messages/.test(sql)
+      ? [{ sender_id: ME, deleted_at: null, kind: 'text', pinned_at: null }]
+      : undefined;
 
   it('keeps what the blocked person sent: no delete for everyone', async () => {
     const h = harness({

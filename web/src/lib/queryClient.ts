@@ -94,7 +94,14 @@ export const queryClient = new QueryClient({
 // list's rows say pinned, archived and marked unread, and its first page how
 // many are archived. A saved list would draw no Pinned section and no
 // Archived row until its first refetch.
-const CACHE_VERSION = 'v13-chat-basics';
+// v14: chat messages can be cards (album photos, bookings, job posts, posts,
+// packages, dates), and an album link preview carries blurred stand-ins.
+// v15: crew chats. Chats carry About, admins, who can add people and what made
+// them (a workspace or a job), messages can be notices and carry when they
+// were pinned, and people carry admin, joined and roles.
+// v16: messages can carry photos and a file from somebody's device, with
+// their attachments; storage counts what you sent in chats.
+const CACHE_VERSION = 'v16-chat-files';
 
 /**
  * Queries never written to disk, whatever their staleTime says.

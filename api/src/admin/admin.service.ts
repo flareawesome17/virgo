@@ -73,7 +73,8 @@ export class AdminService {
          (select count(*) from albums)::text                                  as albums,
          (select count(*) from workspaces)::text                              as workspaces,
          (select count(*) from user_files)::text                              as files,
-         (select coalesce(sum(size_bytes), 0) from user_files)::text          as bytes,
+         ((select coalesce(sum(size_bytes), 0) from user_files)
+          + (select coalesce(sum(size_bytes), 0) from message_attachments))::text as bytes,
          (select count(*) from album_share_links where revoked_at is null)::text as share_links,
          (select count(*) from hiring_posts where status = 'open')::text      as jobs_open,
          (select count(*) from hiring_applications)::text                     as applications,
@@ -167,7 +168,9 @@ export class AdminService {
                u.created_at, u.last_seen_at, u.email_verified_at,
                u.disabled_at, u.disabled_until, u.suspended_at, u.handle, u.public_profile,
                u.two_factor_enabled_at is not null as two_factor,
-               (select coalesce(sum(f.size_bytes), 0) from user_files f where f.user_id = u.id)::bigint
+               ((select coalesce(sum(f.size_bytes), 0) from user_files f where f.user_id = u.id)
+                + (select coalesce(sum(a.size_bytes), 0) from message_attachments a
+                    where a.user_id = u.id))::bigint
                  as storage_bytes,
                -- Claimed promos, which raise the ceiling above what the plan
                -- name implies. Computed here rather than by calling

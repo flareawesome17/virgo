@@ -22,6 +22,7 @@ import {
   isConversationMuted,
   noteLiveMessage,
 } from '@/src/hooks/useChat';
+import { crewKeys } from '@/src/hooks/useChatCrew';
 import { removeFromOutbox } from '@/src/lib/outbox';
 import { setChatSocketLive } from '@/src/hooks/useConnectionQuality';
 import { applyWorkspaceDeleted, applyWorkspaceRestored } from '@/src/hooks/useWorkspaces';
@@ -63,6 +64,8 @@ type ServerEvent =
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
   | { type: 'conversation'; conversationId: string }
+  /** A chat's pinned messages changed. Only the id: the pins are asked for. */
+  | { type: 'pins'; conversationId: string }
   // Ambient board change. Not a notification: nothing is addressed to you, so
   // it must not toast or buzz — it only marks the list and the badge stale.
   | { type: 'job-posted'; slug: string; at: string }
@@ -321,6 +324,10 @@ export function useRealtime(enabled: boolean): void {
           queryClient.invalidateQueries({ queryKey: chatKeys.participants(event.conversationId) });
           queryClient.invalidateQueries({ queryKey: chatKeys.thread(event.conversationId) });
           queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+          break;
+        case 'pins':
+          // Somebody pinned a message or took one down. One small request.
+          queryClient.invalidateQueries({ queryKey: crewKeys.pins(event.conversationId) });
           break;
         case 'workspace-deleted':
           applyWorkspaceDeleted(queryClient, event.workspaceId);
