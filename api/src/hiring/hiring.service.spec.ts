@@ -12,7 +12,7 @@ import type { MessagesService } from '../messages/messages.service';
 import type { NotifyService } from '../notifications/notify.service';
 import type { RealtimeGateway } from '../realtime/realtime.gateway';
 import type { BlocksService } from '../safety/blocks.service';
-import { HiringService } from './hiring.service';
+import { HiringService, HOLDS_ROLE } from './hiring.service';
 
 /**
  * The job board and applications across a block.
@@ -247,6 +247,76 @@ describe('HiringService board', () => {
     expect(lookup.params).toEqual(['wedding-in-cebu', ME]);
     expect(lookup.sql).toMatch(/user_blocks/);
     expect(lookup.sql).toMatch(/pu\.suspended_at is null/);
+  });
+});
+
+describe('HiringService.apply', () => {
+  /*
+   * The only accepted Videographer application on the post has a cancelled
+   * booking. The job page counts filled roles with HOLDS_ROLE and shows
+   * Videographer open; applying counted plain `accepted` and refused it.
+   *
+   * The fake answers the filled roles the way Postgres would for whichever
+   * rule the lookup uses, so going back to plain `accepted` fails here and
+   * not only on a phone.
+   */
+  const cancelledVideographer =
+    (wanted: string[], heldElsewhere: string[] = []) =>
+    (sql: string): Row[] | undefined => {
+      if (/from hiring_posts\s+where slug = \$1/.test(sql)) {
+        const cancelledFreesIt = sql.includes(HOLDS_ROLE('a'));
+        return [
+          {
+            id: POST,
+            user_id: ME,
+            title: 'Wedding in Cebu',
+            status: 'open',
+            event_date: null,
+            roles_wanted: wanted,
+            filled_roles: cancelledFreesIt ? heldElsewhere : [...heldElsewhere, 'Videographer'],
+          },
+        ];
+      }
+      if (/insert into hiring_applications/.test(sql)) return [{ id: APPLICATION }];
+      return undefined;
+    };
+
+  it('counts filled roles by HOLDS_ROLE, as the job page does', async () => {
+    const h = harness({ pool: cancelledVideographer(['Videographer']) });
+
+    await h.service.apply(THEM, 'wedding-in-cebu');
+
+    const [lookup] = h.ran(/from hiring_posts\s+where slug = \$1/);
+    expect(lookup.sql).toContain(HOLDS_ROLE('a'));
+    expect(lookup.sql).not.toMatch(/and a\.status = 'accepted'\s+and a\.role is not null/);
+  });
+
+  it('takes an application for the only role once its booking was cancelled', async () => {
+    const h = harness({ pool: cancelledVideographer(['Videographer']) });
+
+    await expect(h.service.apply(THEM, 'wedding-in-cebu')).resolves.toMatchObject({
+      id: APPLICATION,
+    });
+
+    const [insert] = h.ran(/insert into hiring_applications/);
+    expect(insert.params).toEqual([POST, THEM, 'Videographer', null]);
+    expect(h.notifier.notify).toHaveBeenCalledWith([ME], expect.anything());
+  });
+
+  it('takes it for that role on a post with others still booked, and not for those', async () => {
+    const h = harness({
+      pool: cancelledVideographer(['Photographer', 'Videographer'], ['Photographer']),
+    });
+
+    await expect(
+      h.service.apply(THEM, 'wedding-in-cebu', { role: 'Videographer' }),
+    ).resolves.toMatchObject({ id: APPLICATION });
+    const [insert] = h.ran(/insert into hiring_applications/);
+    expect(insert.params[2]).toBe('Videographer');
+
+    await expect(
+      h.service.apply(THEM, 'wedding-in-cebu', { role: 'Photographer' }),
+    ).rejects.toThrow(new BadRequestException('Photographer has already been filled'));
   });
 });
 

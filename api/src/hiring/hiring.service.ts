@@ -1090,11 +1090,15 @@ export class HiringService {
       roles_wanted: string[] | null;
       filled_roles: string[] | null;
     }>(
+      // Filled the way the board and the job page count it (HOLDS_ROLE). Plain
+      // `accepted` here kept a role whose booking was cancelled filled at the
+      // door, so the page said Videographer was open and applying for it
+      // answered "Videographer has already been filled".
       `select id, user_id, title, status, event_date, roles_wanted,
               (select coalesce(array_agg(distinct a.role), '{}')
                  from hiring_applications a
                 where a.post_id = hiring_posts.id
-                  and a.status = 'accepted'
+                  and ${HOLDS_ROLE('a')}
                   and a.role is not null) as filled_roles
          from hiring_posts
         where slug = $1 and hidden_at is null and expires_at > now()
