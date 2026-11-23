@@ -69,12 +69,14 @@ import { ReactionBar } from '@/components/chat/reactions';
 import { SeenBy } from '@/components/chat/seen-by';
 import { SavedRepliesButton } from '@/components/chat/saved-replies';
 import { ForwardDialog } from '@/components/chat/forward-dialog';
+import { PayChatCard } from '@/components/money/pay-card';
 import { chatProblem } from '@/components/chat/chat-errors';
 import {
   ApiError,
   firstVirgoLink,
   myReaction,
   type ConversationMessage,
+  type JobAcceptedContext,
   type Participant,
   type ReactionKey,
 } from '@/api';
@@ -813,7 +815,7 @@ export function Thread({
                     />
                   )}
                 >
-                  <JobAcceptedCard context={message.context} />
+                  <JobAcceptedCard context={message.context as JobAcceptedContext} />
                 </MessageFrame>
               );
             }
@@ -828,6 +830,11 @@ export function Thread({
                   </div>
                 </div>
               );
+            }
+
+            // How to pay the sender: a card on their side, like their own line.
+            if (message.kind === 'pay-card') {
+              return <PayChatCard key={message.id} message={message} mine={mine} />;
             }
 
             const state = mine ? deliveryOf(message.created_at) : 'sent';

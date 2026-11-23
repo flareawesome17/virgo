@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MoneyModule } from '../money/money.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
@@ -12,7 +13,8 @@ import { BookingsService } from './bookings.service';
  * this feature exists to remove.
  */
 @Module({
-  imports: [NotificationsModule],
+  // Money: a confirmed booking shows the poster the creative's way to pay.
+  imports: [NotificationsModule, MoneyModule],
   controllers: [BookingsController],
   providers: [BookingsService],
   exports: [BookingsService],

@@ -12,10 +12,12 @@ import {
   firstVirgoLink,
   splitLinks,
   type ConversationMessage,
+  type JobAcceptedContext,
   type ReactionKey,
 } from '@/src/api';
 import type { OutboxItem } from '@/src/lib/outbox';
 import { JobAcceptedCard } from '@/components/JobAcceptedCard';
+import { PayChatCard } from '@/components/money/PayChatCard';
 import { PALETTES } from '@/theme';
 import type { HeldRect } from './HoldOverlay';
 import { LinkPreviewCard } from './LinkPreviewCard';
@@ -405,7 +407,7 @@ export const MessageBubble = memo(function MessageBubble({
           accessibilityActions={actions}
           onAccessibilityAction={onAction}
         >
-          <JobAcceptedCard context={message.context} />
+          <JobAcceptedCard context={message.context as JobAcceptedContext} />
         </Pressable>
         {pills}
       </View>
@@ -431,6 +433,11 @@ export const MessageBubble = memo(function MessageBubble({
         {pills}
       </View>
     );
+  }
+
+  // How to pay the sender: a card on their side, like their own line.
+  if (message.kind === 'pay-card') {
+    return <PayChatCard message={message} mine={mine} time={time} onLongPress={() => hold()} />;
   }
 
   const who = mine ? 'You' : (message.sender_name ?? 'Someone');

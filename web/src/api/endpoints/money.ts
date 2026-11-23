@@ -133,6 +133,55 @@ export interface MoneyPayMethod {
   detailsChangedAt?: string;
 }
 
+/**
+ * Somebody's way to pay as another person is shown it: on a pay card in a
+ * chat, or on a booking that owes them. The details and a short-lived link
+ * to the QR, read fresh each time.
+ */
+export interface PayCardMethod {
+  id: string;
+  kind: PayMethodKind;
+  label: string | null;
+  accountName: string | null;
+  accountNumber: string | null;
+  qrUrl: string | null;
+  detailsChangedAt: string;
+}
+
+/** What a pay card message carries. */
+export interface PayCardContext {
+  payMethodId: string;
+  /** The package it was sent for, with what was left to pay when it was sent. */
+  package?: { id: string; title: string; balanceMinor: number } | null;
+  /**
+   * The sender's way to pay as it is now; null once they removed it. Absent
+   * only from an API too old to fill it in.
+   */
+  method?: PayCardMethod | null;
+}
+
+/** A pay card's way to pay in the shape the QR screen and buttons take. */
+export function payCardAsMethod(card: PayCardMethod): MoneyPayMethod {
+  return {
+    id: card.id,
+    kind: card.kind,
+    label: card.label,
+    accountName: card.accountName,
+    accountNumber: card.accountNumber,
+    qr: card.qrUrl
+      ? { id: `card-${card.id}`, name: 'qr', contentType: 'image/png', sizeBytes: 0, url: card.qrUrl }
+      : null,
+    detailsChangedAt: card.detailsChangedAt,
+  };
+}
+
+/** Whether a way to pay changed within the last day: a card then says so. */
+export function payDetailsAreNew(detailsChangedAt: string | undefined, now = Date.now()): boolean {
+  if (!detailsChangedAt) return false;
+  const at = Date.parse(detailsChangedAt);
+  return Number.isFinite(at) && now - at < 24 * 60 * 60 * 1000;
+}
+
 export interface MoneyPayMethodInput {
   kind: PayMethodKind;
   label?: string | null;

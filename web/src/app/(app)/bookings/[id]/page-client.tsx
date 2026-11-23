@@ -12,6 +12,7 @@ import { Screen } from '@/components/app-shell';
 import { CenteredSpinner } from '@/components/states';
 import { bookingState } from '@/components/jobs/booking-card';
 import { BookingMoney } from '@/components/money/booking-money';
+import { BookingPayCard } from '@/components/money/pay-card';
 import {
   useBooking,
   useCancelBooking,
@@ -184,6 +185,10 @@ function View({ booking, onEdit }: { booking: Booking; onEdit: () => void }) {
             ? 'Changing anything here clears their confirmation, so you cannot alter agreed terms on your own.'
             : `Only ${booking.otherParty.displayName} can change these terms — they posted the job. If something is not right, say so in the chat.`)}
       </p>
+
+      {/* How to pay them: for the poster, once the creative has confirmed.
+          The server sends it only then; this draws nothing otherwise. */}
+      <BookingPayCard booking={booking} />
 
       {/* What it earned or cost, in Money. The "Got paid?" notification opens
           this page, so this is where it is answered. */}
