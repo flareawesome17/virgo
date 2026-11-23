@@ -10,6 +10,7 @@ import { downloadsPaused, formatBytes, type UsageSummary } from '@/src/api';
 import { useStorageBreakdown, useUnassignedFiles, useUsage, useTheme } from '@/src/hooks';
 import { SELLS_PLANS_HERE } from '@/src/lib/store-purchasing';
 import { LoadFailed } from '@/components/LoadFailed';
+import { ChatStorageSection } from '@/components/chat/files/ChatStorageSection';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 cssInterop(HardDriveIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -134,6 +135,10 @@ export default function StorageOverviewScreen() {
             </View>
 
             {usage.downloads ? <ClientDownloads downloads={usage.downloads} /> : null}
+
+            {/* Albums against what you sent in chats from your phone, and the
+                chats using the most: each one opens what you sent there. */}
+            <ChatStorageSection usedBytes={storageUsedBytes} limitBytes={storageLimitBytes} />
           </>
         ) : null}
 

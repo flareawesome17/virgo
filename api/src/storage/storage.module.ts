@@ -13,6 +13,7 @@ import { DisplayBackfillService } from './display-backfill.service';
 import { FilmPosterService } from './film-poster.service';
 import { SupportFilesService } from './support-files.service';
 import { ReceiptFilesService } from './receipt-files.service';
+import { ChatFilesService } from './chat-files.service';
 
 @Module({
   controllers: [StorageController],
@@ -30,6 +31,7 @@ import { ReceiptFilesService } from './receipt-files.service';
     FilmPosterService,
     SupportFilesService,
     ReceiptFilesService,
+    ChatFilesService,
   ],
   // StorageConfig is exported so other modules can turn an object key into a
   // public URL without depending on the whole storage service. MediaLinkService
@@ -39,6 +41,7 @@ import { ReceiptFilesService } from './receipt-files.service';
   // and that happens in AlbumShareService. SupportFilesService is shared by
   // the support desk and by account deletion, which erases a customer's files;
   // ReceiptFilesService the same way, by the money ledger and account deletion.
+  // ChatFilesService by chat and by account deletion, like receipts.
   // FilmPosterService because posting a film to a showcase is what makes its
   // poster frame.
   exports: [
@@ -52,6 +55,7 @@ import { ReceiptFilesService } from './receipt-files.service';
     FilmPosterService,
     SupportFilesService,
     ReceiptFilesService,
+    ChatFilesService,
   ],
 })
 export class StorageModule {}

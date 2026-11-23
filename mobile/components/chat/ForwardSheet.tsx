@@ -3,12 +3,13 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View 
 import { CheckIcon, ForwardIcon, SearchIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { BottomSheet } from '@/components/BottomSheet';
-import { MAX_FORWARD_TARGETS, type ConversationMessage } from '@/src/api';
+import { isStorageFull, MAX_FORWARD_TARGETS, type ConversationMessage } from '@/src/api';
 import { useTheme } from '@/src/hooks';
 import { useConversations, useForwardMessage } from '@/src/hooks/useChat';
 import { PALETTES } from '@/theme';
 import { ChatAvatar } from './ChatAvatar';
 import { chatError } from './chat-words';
+import { alertStorageFull, quoteLine } from './files/files-words';
 
 for (const Icon of [CheckIcon, ForwardIcon, SearchIcon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -103,7 +104,11 @@ function ForwardContent({
       { messageId: message.id, targetIds: picked },
       {
         onSuccess: ({ sent, skipped }) => onSent(sent, skipped),
-        onError: (err) => Alert.alert("Couldn't forward it", chatError(err)),
+        onError: (err) => {
+          // Photos and a file go on as your own copies, so they need room.
+          if (isStorageFull(err)) alertStorageFull();
+          else Alert.alert("Couldn't forward it", chatError(err));
+        },
       },
     );
   };
@@ -131,7 +136,7 @@ function ForwardContent({
       <View className="mx-5 mt-1 mb-3 px-3 py-2.5 rounded-[14px] bg-background flex-row items-start gap-2.5">
         <ForwardIcon size={16} className="text-muted-foreground" style={{ marginTop: 2 }} />
         <Text className="flex-1 text-secondary-foreground text-[14px] leading-5" numberOfLines={3}>
-          {message.body}
+          {quoteLine(message)}
         </Text>
       </View>
 
@@ -211,6 +216,9 @@ function ForwardContent({
           {full
             ? `Up to ${MAX_FORWARD_TARGETS} chats at a time. Sent as your own message, marked Forwarded`
             : 'Sent as your own message, marked Forwarded'}
+          {message.kind === 'photos' || message.kind === 'file'
+            ? '. Your own copies go, and count toward your storage'
+            : ''}
         </Text>
         <Pressable
           onPress={send}

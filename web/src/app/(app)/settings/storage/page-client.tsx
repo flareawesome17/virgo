@@ -59,6 +59,8 @@ import {
 import { useDeleteFiles } from '@/hooks/useMediaSelection';
 import { useWipeStorage } from '@/hooks/useStorageAdmin';
 import { useAlbums } from '@/hooks/useAlbums';
+import { useChatFilesUsage } from '@/hooks/useChatFiles';
+import { ChatStorageSection } from '@/components/chat/files/chat-storage';
 import { fileNameFromKey } from '@/hooks/useAlbumFiles';
 import { downloadsPaused, formatBytes } from '@/api';
 
@@ -288,6 +290,11 @@ function UnassignedFiles() {
 export default function StorageSettingsPage() {
   const { usage, storageUsedBytes, storageLimitBytes, storageFraction } = useUsage();
   const { breakdown, isLoading, loadFailed, refetch } = useStorageBreakdown();
+  // Photos and files sent in chats are inside the used figure; the bar shows
+  // them apart (board ChatStorage).
+  const chatBytes = Math.min(useChatFilesUsage().usage?.bytes ?? 0, storageUsedBytes);
+  const leftBytes =
+    storageLimitBytes != null ? Math.max(0, storageLimitBytes - storageUsedBytes) : null;
 
   const byType = breakdown?.byType ?? [];
   const byAlbum = breakdown?.byAlbum ?? [];
@@ -349,7 +356,42 @@ export default function StorageSettingsPage() {
               </div>
             </div>
             {storageLimitBytes ? (
-              <Progress value={storageFraction * 100} className="mt-4 h-2" />
+              chatBytes > 0 ? (
+                <>
+                  <div
+                    role="progressbar"
+                    aria-label="Storage used"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(storageFraction * 100)}
+                    className="mt-4 flex h-2 overflow-hidden rounded-full bg-muted"
+                  >
+                    <span
+                      className="h-full bg-primary"
+                      style={{ width: `${((storageUsedBytes - chatBytes) / storageLimitBytes) * 100}%` }}
+                    />
+                    <span
+                      className="h-full bg-primary/45"
+                      style={{ width: `${Math.max((chatBytes / storageLimitBytes) * 100, 0.6)}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <span className="size-2 rounded-[2px] bg-primary" aria-hidden />
+                      Albums and uploads {formatBytes(storageUsedBytes - chatBytes)}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="size-2 rounded-[2px] bg-primary/45" aria-hidden />
+                      Sent in chats {formatBytes(chatBytes)}
+                    </span>
+                    {leftBytes != null && (
+                      <span className="ml-auto font-semibold text-foreground">{formatBytes(leftBytes)} left</span>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <Progress value={storageFraction * 100} className="mt-4 h-2" />
+              )
             ) : null}
 
             <div className="mt-5 grid grid-cols-2 gap-3">
@@ -399,6 +441,9 @@ export default function StorageSettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Photos and files sent in chats, and the chats using the most. */}
+        <ChatStorageSection />
 
         {/* By type */}
         <h2 className="mb-2 mt-8 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">

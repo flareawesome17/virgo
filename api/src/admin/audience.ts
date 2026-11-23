@@ -77,7 +77,9 @@ export function planStorageCase(column: string): string {
 
 /** What the account stores, and what claimed promos add to its allowance. */
 export const STORED_BYTES =
-  '(select coalesce(sum(f.size_bytes), 0) from user_files f where f.user_id = u.id)';
+  // Chat photos and files count too (migration 114), as they do for the plan.
+  '((select coalesce(sum(f.size_bytes), 0) from user_files f where f.user_id = u.id)' +
+  ' + (select coalesce(sum(a.size_bytes), 0) from message_attachments a where a.user_id = u.id))';
 export const BONUS_BYTES = `(select coalesce(sum(p.storage_bytes), 0)
      from promo_grants g join promos p on p.id = g.promo_id
     where g.user_id = u.id and g.claimed_at is not null)`;

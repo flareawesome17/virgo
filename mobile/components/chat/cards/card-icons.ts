@@ -2,7 +2,9 @@ import {
   BriefcaseIcon,
   CalendarPlusIcon,
   ClipboardCheckIcon,
+  FileTextIcon,
   GalleryVerticalEndIcon,
+  ImageIcon,
   ImagesIcon,
   MessageSquareTextIcon,
   ReceiptIcon,
@@ -13,7 +15,8 @@ import { cssInterop } from 'nativewind';
 import type { ConversationMessage } from '@/src/api';
 
 for (const Icon of [
-  BriefcaseIcon, CalendarPlusIcon, ClipboardCheckIcon, GalleryVerticalEndIcon, ImagesIcon,
+  BriefcaseIcon, CalendarPlusIcon, ClipboardCheckIcon, FileTextIcon, GalleryVerticalEndIcon,
+  ImageIcon, ImagesIcon,
   MessageSquareTextIcon, ReceiptIcon, WalletIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -35,6 +38,9 @@ export const CARD_ICON: Record<Exclude<MessageKind, 'text' | 'notice'>, LucideIc
   post: GalleryVerticalEndIcon,
   package: ReceiptIcon,
   'date-plan': CalendarPlusIcon,
+  // From your phone (phase 4): the + sheet's Photos and A file.
+  photos: ImageIcon,
+  file: FileTextIcon,
 };
 
 /** Saved replies' tile, which is not a card. */

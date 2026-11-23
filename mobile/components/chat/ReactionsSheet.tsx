@@ -10,6 +10,7 @@ import {
   type ReactionKey,
 } from '@/src/api';
 import { ChatAvatar } from './ChatAvatar';
+import { quoteLine } from './files/files-words';
 
 /**
  * Who reacted to a message, and with what: All, or one kind at a time.
@@ -80,7 +81,7 @@ export function ReactionsSheet({
         </Text>
         {message?.body ? (
           <Text className="text-muted-foreground text-[13px] leading-[18px] px-5 mt-0.5" numberOfLines={1}>
-            {message.body}
+            {quoteLine(message)}
           </Text>
         ) : null}
 

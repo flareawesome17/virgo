@@ -264,10 +264,14 @@ export class QuotaService {
    * someone at their limit makes room, so the room is there at once.
    */
   async storageUsed(userId: string): Promise<number> {
+    // Plus photos and files sent in chats (migration 114), counted from the
+    // moment their upload is signed so a burst of tickets cannot spend room
+    // the account does not have.
     const row = await this.db.queryOne<{ total: string }>(
-      `select coalesce(sum(f.size_bytes), 0)::text as total
-         from user_files f
-        where f.user_id = $1 and ${NOT_IN_TRASH('f')}`,
+      `select (coalesce((select sum(f.size_bytes) from user_files f
+                          where f.user_id = $1 and ${NOT_IN_TRASH('f')}), 0)
+               + coalesce((select sum(a.size_bytes) from message_attachments a
+                            where a.user_id = $1), 0))::text as total`,
       [userId],
     );
     return Number(row?.total ?? 0);

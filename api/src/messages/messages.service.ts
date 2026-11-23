@@ -2,10 +2,12 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { MoneyPackagesService } from '../money/money-packages.service';
@@ -19,6 +21,13 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { blockedBetween } from '../safety/block-sql';
 import { BlocksService } from '../safety/blocks.service';
 import { StorageService } from '../storage/storage.service';
+import {
+  ChatFilesService,
+  MAX_CHAT_CAPTION,
+  type ChatAttachment,
+  type ChatUploadTicket,
+  type NewChatFile,
+} from '../storage/chat-files.service';
 import type { CardKind } from './cards/card-kinds';
 import { unreadMessagesCount } from './unread-sql';
 
@@ -177,7 +186,13 @@ export interface MessageRow {
    * things somebody shared from Virgo (CardKind), filled in the same way by
    * ChatCardsService.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | CardKind;
+  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | 'photos' | 'file' | CardKind;
+  /**
+   * Photos and files sent from somebody's device, in order: on 'photos' and
+   * 'file' messages only. One can still be `uploading` (the words go first on
+   * a weak signal) and turns `ready` through a `message-edited` frame.
+   */
+  attachments?: ChatAttachment[];
   /** Whatever the card needs to render. Null on a typed message. */
   context?: Record<string, unknown> | null;
   /**
@@ -383,6 +398,9 @@ export class MessagesService {
     // tidied out of, the uploader's own avatars. Without it a photo cannot be
     // set and nothing is deleted.
     @Optional() private readonly storage?: StorageService,
+    // Photos and files from people's phones (Phase 4). Without it they show
+    // as their plain line and none can be sent.
+    @Optional() private readonly chatFiles?: ChatFilesService,
   ) {}
 
   private readonly log = new Logger(MessagesService.name);
@@ -401,6 +419,7 @@ export class MessagesService {
    */
   private async withCards<T extends MessageRow>(rows: T[]): Promise<T[]> {
     await this.withPayCards(rows);
+    await this.withFiles(rows);
     if (this.cardFiller && rows.some((r) => r.kind && r.kind !== 'text' && r.kind !== 'notice')) {
       await this.cardFiller.fill(rows);
     }
@@ -441,6 +460,24 @@ export class MessagesService {
             }
           : null;
       row.context = { ...row.context, method };
+    }
+    return rows;
+  }
+
+  /**
+   * The photos and files on these rows, in order. An unsent one keeps none,
+   * whatever an open report is still holding on to.
+   */
+  private async withFiles<T extends MessageRow>(rows: T[]): Promise<T[]> {
+    const carrying = rows.filter((r) => r.kind === 'photos' || r.kind === 'file');
+    if (carrying.length === 0) return rows;
+    const live = carrying.filter((r) => !r.deleted_at);
+    const found = this.chatFiles
+      ? await this.chatFiles.forMessages(live.map((r) => r.id))
+      : new Map<string, ChatAttachment[]>();
+    for (const row of carrying) {
+      row.attachments = row.deleted_at ? [] : (found.get(row.id) ?? []);
+      if (row.deleted_at) row.context = null;
     }
     return rows;
   }
@@ -1836,26 +1873,8 @@ export class MessagesService {
           "Messages in this conversation can't be deleted for everyone any more.",
         );
       }
-      // Unsent also takes it off the pins.
-      await this.db.query(
-        `update messages set body = '', deleted_at = now(), pinned_at = null, pinned_by = null
-          where id = $1 and deleted_at is null`,
-        [messageId],
-      );
-      // Unsent means gone: the words it had before an edit, and the
-      // reactions on it, go with the text.
-      await this.db.query('delete from message_edits where message_id = $1', [messageId]);
-      await this.db.query('delete from message_reactions where message_id = $1', [messageId]);
-      // Every participant, blocked or not. A retraction reveals nothing, and a
-      // blocked member with the thread open must still lose the text.
-      const everyone = await this.participantIds(conversationId);
-      this.realtime.emitToUsers(everyone, {
-        type: 'message-deleted',
-        conversationId,
-        messageId,
-        scope,
-      });
-      if (message.pinned_at) this.announcePins(everyone, conversationId);
+      // Unsent also takes it off the pins, and takes its photos and files.
+      await this.unsend(conversationId, messageId, message.pinned_at !== null, message.kind);
       return { deleted: true, scope };
     }
 
@@ -2086,6 +2105,38 @@ export class MessagesService {
     await this.assertMember(userId, conversationId);
     const message = await this.visibleMessage(userId, conversationId, messageId);
     if (message.deleted_at) throw new BadRequestException('That message was unsent');
+
+    // Photos and a file go on as the forwarder's own copies, counted toward
+    // their storage: the sender unsending theirs takes nothing from the chat
+    // they were forwarded to.
+    if (message.kind === 'photos' || message.kind === 'file') {
+      const chatFiles = this.requireFiles();
+      const caption =
+        typeof message.context?.caption === 'string' ? message.context.caption : null;
+      let copied = 0;
+      let full: unknown = null;
+      for (const target of targets) {
+        try {
+          await this.assertMember(userId, target);
+          await this.assertCanSend(userId, target);
+          const ids = await chatFiles.copyForForward(userId, messageId, target);
+          await this.sendFiles(userId, target, { attachmentIds: ids, caption, forwarded: true });
+          copied += 1;
+        } catch (err) {
+          // Not a member, frozen by a block, or out of room: that one is
+          // skipped. Out of room is said, since nothing else will go either.
+          const body = err instanceof HttpException ? err.getResponse() : null;
+          if (body && typeof body === 'object' && (body as { code?: string }).code === 'STORAGE_FULL') {
+            full = err;
+          }
+        }
+      }
+      if (copied === 0) {
+        if (full) throw full;
+        throw new BadRequestException("That couldn't be forwarded");
+      }
+      return { sent: copied, skipped: targets.length - copied };
+    }
     if (message.kind !== 'text') {
       throw new BadRequestException('That message cannot be forwarded');
     }
@@ -2238,7 +2289,11 @@ export class MessagesService {
                            where d.message_id = m.id and d.user_id = $2)
           -- position(), not ilike: what someone types is words, and a % or
           -- _ in it should not turn into a pattern.
-          and position(lower($3) in lower(case when m.kind = 'text' then m.body
+          -- Photos by their caption alone ("Sent 4 photos" is every photo
+          -- message), a file by its name and caption.
+          and position(lower($3) in lower(case when m.kind in ('text', 'file') then m.body
+                                               when m.kind = 'photos'
+                                                 then coalesce(m.context->>'caption', '')
                                                else split_part(m.body, chr(10), 1) end)) > 0
         order by m.created_at desc, m.id desc
         limit ${MAX_SEARCH_MATCHES}`,
@@ -2292,7 +2347,16 @@ export class MessagesService {
        * by a request. The body is then the card's plain line, which is what
        * the list, the push and an app from before cards show.
        */
-      card?: { kind: CardKind | 'pay-card'; context: Record<string, unknown> };
+      card?: {
+        kind: CardKind | 'pay-card' | 'photos' | 'file';
+        context: Record<string, unknown>;
+      };
+      /**
+       * Uploads to put on the message, in order: set by sendFiles(), never by
+       * a request. They go on inside the transaction that writes it, so a
+       * message never exists with some of them missing.
+       */
+      attachmentIds?: string[];
     } = {},
   ): Promise<MessageRow> {
     // Before the text is even looked at: a frozen thread refuses whatever is
@@ -2334,23 +2398,32 @@ export class MessagesService {
     // response it never got — stores nothing new. The conflict target names
     // the partial index's predicate, which is how Postgres finds it.
     const clientId = options.clientId ?? null;
-    const inserted = await this.db.queryOne<{ id: string }>(
-      `insert into messages (conversation_id, sender_id, body, reply_to_id, mentions, client_id, forwarded, kind, context)
+    const insertSql = `insert into messages (conversation_id, sender_id, body, reply_to_id, mentions, client_id, forwarded, kind, context)
        values ($1, $2, $3, $4, $5::uuid[], $6::uuid, $7, $8, $9::jsonb)
        on conflict (sender_id, client_id) where client_id is not null do nothing
-       returning id`,
-      [
-        conversationId,
-        userId,
-        text,
-        replyToId,
-        mentions,
-        clientId,
-        options.forwarded === true,
-        options.card?.kind ?? 'text',
-        options.card ? JSON.stringify(options.card.context) : null,
-      ],
-    );
+       returning id`;
+    const insertParams = [
+      conversationId,
+      userId,
+      text,
+      replyToId,
+      mentions,
+      clientId,
+      options.forwarded === true,
+      options.card?.kind ?? 'text',
+      options.card ? JSON.stringify(options.card.context) : null,
+    ];
+    const attachmentIds = options.attachmentIds ?? [];
+    const files = this.chatFiles;
+    const inserted =
+      attachmentIds.length > 0 && files
+        ? await this.db.transaction(async (tx) => {
+            const result = await tx.query<{ id: string }>(insertSql, insertParams);
+            const id = result.rows[0]?.id;
+            if (id) await files.attach(tx, userId, id, attachmentIds);
+            return result.rows[0] ?? null;
+          })
+        : await this.db.queryOne<{ id: string }>(insertSql, insertParams);
 
     if (!inserted) {
       // The first attempt got through. Answer with what it stored and nothing
@@ -2395,6 +2468,285 @@ export class MessagesService {
     // from Santos Wedding", not a client link's address on a lock screen.
     void this.notify(userId, conversationId, options.card ? text.split('\n')[0] : text, mentions);
     return row!;
+  }
+
+  // ─── Photos and files from your device (Phase 4) ─────────────────────────
+
+  private requireFiles(): ChatFilesService {
+    if (!this.chatFiles) {
+      throw new ServiceUnavailableException("Photos and files can't be sent right now.");
+    }
+    return this.chatFiles;
+  }
+
+  /**
+   * Signs the uploads for one message: up to ten photos, or one PDF. Refused
+   * before anything is signed in a chat the caller is not in or cannot send
+   * to, so no storage is spent on a message that could never go.
+   */
+  async createUploads(
+    userId: string,
+    conversationId: string,
+    files: NewChatFile[],
+  ): Promise<ChatUploadTicket[]> {
+    const chatFiles = this.requireFiles();
+    await this.assertMember(userId, conversationId);
+    await this.assertCanSend(userId, conversationId);
+    return chatFiles.createUploads(userId, conversationId, files);
+  }
+
+  /** A fresh link for an upload still on its way, after a long drop. */
+  async resignUpload(
+    userId: string,
+    conversationId: string,
+    attachmentId: string,
+  ): Promise<ChatUploadTicket> {
+    await this.assertMember(userId, conversationId);
+    return this.requireFiles().resign(userId, attachmentId);
+  }
+
+  /**
+   * An upload has arrived: it is checked and made ready, and when its message
+   * is already in the chat, everyone there gets it as an edit frame.
+   */
+  async finishUpload(
+    userId: string,
+    conversationId: string,
+    attachmentId: string,
+  ): Promise<ChatAttachment> {
+    await this.assertMember(userId, conversationId);
+    const done = await this.requireFiles().finish(userId, attachmentId);
+    if (done.conversationId !== conversationId) {
+      throw new NotFoundException("That can't be sent any more. Pick it again.");
+    }
+    if (done.messageId) await this.announceChanged(userId, conversationId, done.messageId);
+    return done.attachment;
+  }
+
+  /**
+   * Sends photos or a file, with an optional caption. The message goes now,
+   * even before the bytes have all arrived: on a weak signal the words come
+   * first, and the photos fill in as they land.
+   *
+   * The body is the plain line ("Sent 4 photos", then the caption under it):
+   * what the list, the push and an app from before Phase 4 show. The caption
+   * is also kept on its own, for the apps that draw it under the photos.
+   */
+  async sendFiles(
+    userId: string,
+    conversationId: string,
+    input: {
+      attachmentIds: string[];
+      caption?: string | null;
+      clientId?: string;
+      replyToId?: string;
+      /** Set by forward(), never by a request. */
+      forwarded?: boolean;
+    },
+  ): Promise<MessageRow> {
+    const chatFiles = this.requireFiles();
+    // A retry of one that got through answers with what it stored, before
+    // its uploads (on that message now) are checked as if they were new.
+    if (input.clientId) {
+      const earlier = await this.db.queryOne<{ id: string }>(
+        `select id from messages
+          where sender_id = $1 and client_id = $2::uuid and conversation_id = $3`,
+        [userId, input.clientId, conversationId],
+      );
+      if (earlier) return (await this.joinedMessage(earlier.id))!;
+    }
+    await this.assertMember(userId, conversationId);
+    await this.assertCanSend(userId, conversationId);
+
+    const info = await chatFiles.check(userId, conversationId, input.attachmentIds);
+    const caption = (input.caption ?? '').trim().slice(0, MAX_CHAT_CAPTION) || null;
+    const line =
+      info.kind === 'file'
+        ? `Sent a file: ${info.fileName}`
+        : info.count === 1
+          ? 'Sent a photo'
+          : `Sent ${info.count} photos`;
+    return this.send(userId, conversationId, caption ? `${line}\n${caption}` : line, {
+      clientId: input.clientId,
+      replyToId: input.replyToId,
+      forwarded: input.forwarded,
+      card: { kind: info.kind, context: { caption } },
+      attachmentIds: input.attachmentIds,
+    });
+  }
+
+  /** A photo or file on a message the caller can see, as an hour's download link. */
+  async attachmentLink(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    attachmentId: string,
+  ): Promise<{ url: string }> {
+    const message = await this.visibleMessage(userId, conversationId, messageId);
+    if (message.deleted_at) throw new NotFoundException('That message was unsent');
+    return { url: await this.requireFiles().downloadUrl(messageId, attachmentId) };
+  }
+
+  /**
+   * Files a copy of a chat photo or PDF into an album the caller may add to,
+   * counted as an upload there would be.
+   */
+  async addToAlbum(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    attachmentId: string,
+    albumId: string,
+  ): Promise<{ added: boolean }> {
+    const message = await this.visibleMessage(userId, conversationId, messageId);
+    if (message.deleted_at) throw new NotFoundException('That message was unsent');
+    await this.requireFiles().toAlbum(userId, messageId, attachmentId, albumId);
+    return { added: true };
+  }
+
+  /**
+   * What the caller's chat photos and files take up, and in which chats, for
+   * the storage screen. A chat they have left is still listed: what they sent
+   * there still counts, and they can still take it back.
+   */
+  async filesUsage(userId: string): Promise<{
+    bytes: number;
+    files: number;
+    chats: {
+      conversationId: string;
+      title: string;
+      isGroup: boolean;
+      member: boolean;
+      bytes: number;
+      files: number;
+    }[];
+  }> {
+    const usage = await this.requireFiles().usage(userId);
+    const top = usage.chats.slice(0, 20);
+    const names = await this.db.query<{
+      id: string;
+      is_group: boolean;
+      title: string | null;
+      member: boolean;
+      other_name: string | null;
+    }>(
+      `select c.id, c.is_group, c.title,
+              exists (select 1 from conversation_participants p
+                       where p.conversation_id = c.id and p.user_id = $1) as member,
+              (select coalesce(u.display_name, split_part(u.email, '@', 1))
+                 from conversation_participants p
+                 join users u on u.id = p.user_id
+                where p.conversation_id = c.id and p.user_id <> $1
+                order by p.joined_at limit 1) as other_name
+         from conversations c
+        where c.id = any($2::uuid[])`,
+      [userId, top.map((c) => c.conversationId)],
+    );
+    const byId = new Map(names.map((n) => [n.id, n]));
+    return {
+      bytes: usage.bytes,
+      files: usage.files,
+      chats: top.flatMap((c) => {
+        const n = byId.get(c.conversationId);
+        if (!n) return [];
+        return [
+          {
+            conversationId: c.conversationId,
+            title: (n.is_group ? n.title : n.other_name) ?? (n.is_group ? 'Group' : 'Chat'),
+            isGroup: n.is_group,
+            member: n.member,
+            bytes: c.bytes,
+            files: c.files,
+          },
+        ];
+      }),
+    };
+  }
+
+  /**
+   * The caller's own photo and file messages in one chat, newest first, for
+   * the storage screen's "what you sent". Theirs whether or not they are
+   * still in the chat.
+   */
+  async sentFiles(
+    userId: string,
+    conversationId: string,
+    before?: string,
+  ): Promise<MessageRow[]> {
+    this.requireFiles();
+    const rows = await this.db.query<MessageRow>(
+      `select ${MESSAGE_COLUMNS}
+         from messages m
+         ${MESSAGE_JOINS}
+        where m.conversation_id = $1 and m.sender_id = $2
+          and m.kind in ('photos', 'file') and m.deleted_at is null
+          and ($3::uuid is null
+               or (m.created_at, m.id) < (select b.created_at, b.id from messages b where b.id = $3))
+        order by m.created_at desc, m.id desc
+        limit 60`,
+      [conversationId, userId, before ?? null],
+    );
+    return this.withCards(rows);
+  }
+
+  /**
+   * Unsends the caller's own photo and file messages, from the storage
+   * screen: to free room, whether or not they are still in the chat. A block
+   * does not stop it, as it stops unsending in the thread: this is the
+   * sender's own storage, and taking something back reveals nothing.
+   */
+  async unsendFiles(userId: string, messageIds: string[]): Promise<{ unsent: number }> {
+    this.requireFiles();
+    const rows = await this.db.query<{ id: string; conversation_id: string; pinned_at: Date | null }>(
+      `select id, conversation_id, pinned_at from messages
+        where id = any($1::uuid[]) and sender_id = $2
+          and kind in ('photos', 'file') and deleted_at is null`,
+      [[...new Set(messageIds)], userId],
+    );
+    for (const row of rows) {
+      await this.unsend(row.conversation_id, row.id, row.pinned_at !== null, 'photos');
+    }
+    return { unsent: rows.length };
+  }
+
+  /**
+   * Unsending, wherever it is asked for: the words, earlier versions,
+   * reactions and pin go, and so do any photos and files (unless an open
+   * report holds them). Everyone in the chat is told.
+   */
+  private async unsend(
+    conversationId: string,
+    messageId: string,
+    pinned: boolean,
+    kind: string,
+  ): Promise<void> {
+    await this.db.query(
+      `update messages set body = '', deleted_at = now(), pinned_at = null, pinned_by = null
+        where id = $1 and deleted_at is null`,
+      [messageId],
+    );
+    // Unsent means gone: the words it had before an edit, and the
+    // reactions on it, go with the text.
+    await this.db.query('delete from message_edits where message_id = $1', [messageId]);
+    await this.db.query('delete from message_reactions where message_id = $1', [messageId]);
+    if ((kind === 'photos' || kind === 'file') && this.chatFiles) {
+      try {
+        await this.chatFiles.removeForMessages([messageId]);
+      } catch (err) {
+        // The message is unsent either way; the sweep tries the files again.
+        this.log.warn(`Unsent files not removed yet: ${String(err).slice(0, 160)}`);
+      }
+    }
+    // Every participant, blocked or not. A retraction reveals nothing, and a
+    // blocked member with the thread open must still lose the text.
+    const everyone = await this.participantIds(conversationId);
+    this.realtime.emitToUsers(everyone, {
+      type: 'message-deleted',
+      conversationId,
+      messageId,
+      scope: 'everyone',
+    });
+    if (pinned) this.announcePins(everyone, conversationId);
   }
 
   /**

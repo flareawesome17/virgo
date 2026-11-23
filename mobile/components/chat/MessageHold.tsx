@@ -46,7 +46,9 @@ function heldCardLine(message: ConversationMessage): { label: string | null; tit
   }
   if (kind === 'pay-card') return { label: null, title: 'How to pay' };
   const summary = cardSummary(message);
-  return summary ? { label: summary.label, title: summary.title } : { label: null, title: message.body };
+  if (!summary) return { label: null, title: message.body };
+  // Photos with no caption: "4 photos" is the whole of it.
+  return summary.title ? { label: summary.label, title: summary.title } : { label: null, title: summary.label };
 }
 
 /**
