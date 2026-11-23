@@ -49,6 +49,7 @@ import { reportableMessageIds } from '@/src/hooks/useChat';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PersonSafetySheet, firstName, usePersonSafety } from '@/components/PersonSafetySheet';
 import { PALETTES } from '@/theme';
+import { MUTE_OPTIONS, mutedUntilLabel } from '@/components/chat/chat-words';
 
 for (const Icon of [
   ArrowLeftIcon, UsersIcon, BellIcon, BellOffIcon, PencilIcon, UserPlusIcon,
@@ -56,25 +57,6 @@ for (const Icon of [
   EllipsisIcon, SearchIcon, UserIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-}
-
-/** Mute durations, in minutes. A year stands in for "until I turn it back on". */
-const MUTE_OPTIONS: { label: string; minutes: number }[] = [
-  { label: '1 hour', minutes: 60 },
-  { label: '8 hours', minutes: 480 },
-  { label: '1 week', minutes: 60 * 24 * 7 },
-  { label: 'Until I turn it back on', minutes: 525_600 },
-];
-
-function mutedUntilLabel(iso: string | null): string {
-  if (!iso) return '';
-  const until = new Date(iso);
-  const days = (until.getTime() - Date.now()) / 86_400_000;
-  if (days > 300) return 'Muted';
-  if (until.toDateString() === new Date().toDateString()) {
-    return `Muted until ${until.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
-  }
-  return `Muted until ${until.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`;
 }
 
 /**

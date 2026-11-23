@@ -1,18 +1,30 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import { View, Text, Pressable, type AccessibilityActionEvent } from 'react-native';
 import {
   AlertCircleIcon,
   CheckCheckIcon,
   CheckIcon,
   ClockIcon,
+  ForwardIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import type { ConversationMessage, JobAcceptedContext } from '@/src/api';
+import {
+  firstVirgoLink,
+  splitLinks,
+  type ConversationMessage,
+  type JobAcceptedContext,
+  type ReactionKey,
+} from '@/src/api';
 import type { OutboxItem } from '@/src/lib/outbox';
 import { JobAcceptedCard } from '@/components/JobAcceptedCard';
 import { PayChatCard } from '@/components/money/PayChatCard';
+import { PALETTES } from '@/theme';
+import type { HeldRect } from './HoldOverlay';
+import { LinkPreviewCard } from './LinkPreviewCard';
+import { openChatLink } from './links';
+import { ReactionPills } from './ReactionPills';
 
-for (const Icon of [AlertCircleIcon, CheckCheckIcon, CheckIcon, ClockIcon]) {
+for (const Icon of [AlertCircleIcon, CheckCheckIcon, CheckIcon, ClockIcon, ForwardIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -212,27 +224,75 @@ export function useMentionMatcher(names: readonly string[]) {
 
 export type MentionMatcher = ReturnType<typeof useMentionMatcher>;
 
-function Body({ body, mine, matcher }: { body: string; mine: boolean; matcher: MentionMatcher }) {
+/** The mentions in a run of words, bold — and on your own bubble, underlined. */
+function withMentions(text: string, mine: boolean, matcher: MentionMatcher, key: string) {
+  if (!matcher || !text.includes('@')) return <Text key={key}>{text}</Text>;
+  return text.split(matcher.pattern).map((part, i) =>
+    matcher.names.has(part) ? (
+      // Underlined on your own bubble: a lighter tint of the text did not
+      // reach a readable contrast on the bubble colour.
+      <Text
+        key={`${key}-${i}`}
+        className={mine ? 'font-bold' : 'font-bold text-primary'}
+        style={mine ? { textDecorationLine: 'underline' } : undefined}
+      >
+        {part}
+      </Text>
+    ) : (
+      <Text key={`${key}-${i}`}>{part}</Text>
+    ),
+  );
+}
+
+/**
+ * A message's words: mentions in bold, links underlined and tappable.
+ *
+ * A Virgo link opens its own screen, anything else the in-app browser. A
+ * long press on a link is a long press on the message, as anywhere else in
+ * the bubble.
+ */
+export function MessageBody({
+  body,
+  mine,
+  matcher,
+  onLongPress,
+  numberOfLines,
+  inert = false,
+}: {
+  body: string;
+  mine: boolean;
+  matcher: MentionMatcher;
+  onLongPress?: () => void;
+  numberOfLines?: number;
+  /** Drawn as links but not tappable: the copy lifted over a dimmed thread. */
+  inert?: boolean;
+}) {
   const colour = mine ? 'text-action-foreground' : 'text-foreground';
-  if (!matcher || !body.includes('@')) {
-    return <Text className={`text-[15px] leading-5 ${colour}`}>{body}</Text>;
+  const parts = useMemo(() => splitLinks(body), [body]);
+  const hasLink = parts.some((p) => p.kind === 'link');
+  if (!hasLink && (!matcher || !body.includes('@'))) {
+    return (
+      <Text className={`text-[15px] leading-5 ${colour}`} numberOfLines={numberOfLines}>
+        {body}
+      </Text>
+    );
   }
-  const parts = body.split(matcher.pattern);
   return (
-    <Text className={`text-[15px] leading-5 ${colour}`}>
+    <Text className={`text-[15px] leading-5 ${colour}`} numberOfLines={numberOfLines}>
       {parts.map((part, i) =>
-        matcher.names.has(part) ? (
-          // Underlined on your own bubble: a lighter tint of the text did not
-          // reach a readable contrast on the bubble colour.
+        part.kind === 'link' ? (
           <Text
-            key={i}
-            className={mine ? 'font-bold' : 'font-bold text-primary'}
-            style={mine ? { textDecorationLine: 'underline' } : undefined}
+            key={`l${i}`}
+            onPress={inert ? undefined : () => openChatLink(part.href)}
+            onLongPress={inert ? undefined : onLongPress}
+            accessibilityRole={inert ? undefined : 'link'}
+            className={mine ? '' : 'text-primary'}
+            style={{ textDecorationLine: 'underline' }}
           >
-            {part}
+            {part.text}
           </Text>
         ) : (
-          <Text key={i}>{part}</Text>
+          withMentions(part.text, mine, matcher, `t${i}`)
         ),
       )}
     </Text>
@@ -250,7 +310,21 @@ interface MessageBubbleProps {
   showSeenBy: boolean;
   matcher: MentionMatcher;
   isDark: boolean;
-  onLongPress: (message: ConversationMessage) => void;
+  /** With where the bubble sits on screen, so the hold can lift it in place. */
+  onLongPress: (message: ConversationMessage, rect: HeldRect) => void;
+  myId: string | undefined;
+  /** False in a frozen thread: reactions show, and cannot be changed. */
+  canReact: boolean;
+  onToggleReaction: (message: ConversationMessage, reaction: ReactionKey) => void;
+  onShowReactions: (message: ConversationMessage) => void;
+  /** Your own message, in a group: who has seen it. */
+  onShowSeenBy: (message: ConversationMessage) => void;
+  /** The one the composer is changing. */
+  beingEdited: boolean;
+  /** Your change to it is waiting for a connection. */
+  waiting: boolean;
+  /** Whether pictures load by themselves on this connection and setting. */
+  autoLoadMedia: boolean;
 }
 
 /**
@@ -270,31 +344,83 @@ export const MessageBubble = memo(function MessageBubble({
   matcher,
   isDark,
   onLongPress,
+  myId,
+  canReact,
+  onToggleReaction,
+  onShowReactions,
+  onShowSeenBy,
+  beingEdited,
+  waiting,
+  autoLoadMedia,
 }: MessageBubbleProps) {
+  const bubbleRef = useRef<View>(null);
+  const hold = useCallback(() => {
+    const node = bubbleRef.current;
+    if (!node) return;
+    node.measureInWindow((x, y, width, height) => onLongPress(message, { x, y, width, height }));
+  }, [message, onLongPress]);
+
+  // Reacting on a deleted message is not offered, and neither is reacting in
+  // a frozen thread, where the pills only say who.
+  const reactable = canReact && !message.deleted_at;
+  const pills = (
+    <ReactionPills
+      reactions={message.reactions}
+      myId={myId}
+      align={mine && message.kind !== 'job-accepted' ? 'end' : 'start'}
+      canReact={reactable}
+      onToggle={(reaction) => onToggleReaction(message, reaction)}
+      onShowWho={() => onShowReactions(message)}
+    />
+  );
+  const link = useMemo(
+    () => (message.deleted_at || message.kind === 'job-accepted' ? null : firstVirgoLink(message.body)),
+    [message.body, message.deleted_at, message.kind],
+  );
+
+  const time = timeLabel(message.created_at);
+  const actions = [{ name: 'longpress', label: 'Message actions' }];
+  const onAction = (e: AccessibilityActionEvent) => {
+    if (e.nativeEvent.actionName === 'longpress') hold();
+    if (e.nativeEvent.actionName === 'openLink') {
+      const first = splitLinks(message.body).find((p) => p.kind === 'link');
+      if (first?.kind === 'link') openChatLink(first.href);
+    }
+  };
+
   /*
    * Not a bubble, and not anyone's side of the conversation.
    *
    * The app wrote this one, so it sits full width rather than left or right —
    * attaching it to the poster would read as something they typed, and the
    * applicant would have no more reason to act on it than on any other line
-   * they sent.
+   * they sent. It can be reacted to, so it can be held.
    */
   if (message.kind === 'job-accepted' && message.context) {
-    return <JobAcceptedCard context={message.context as JobAcceptedContext} />;
+    return (
+      <View>
+        <Pressable
+          ref={bubbleRef}
+          onLongPress={hold}
+          delayLongPress={300}
+          accessible={false}
+          accessibilityActions={actions}
+          onAccessibilityAction={onAction}
+        >
+          <JobAcceptedCard context={message.context as JobAcceptedContext} />
+        </Pressable>
+        {pills}
+      </View>
+    );
   }
-
-  const time = timeLabel(message.created_at);
-  const actions = [{ name: 'longpress', label: 'Message actions' }];
-  const onAction = (e: AccessibilityActionEvent) => {
-    if (e.nativeEvent.actionName === 'longpress') onLongPress(message);
-  };
 
   if (message.deleted_at) {
     const words = mine ? 'You deleted this message' : 'This message was deleted';
     return (
       <View className={mine ? 'items-end' : 'items-start'}>
         <Pressable
-          onLongPress={() => onLongPress(message)}
+          ref={bubbleRef}
+          onLongPress={hold}
           delayLongPress={300}
           accessibilityLabel={`${words}, ${time}`}
           accessibilityActions={actions}
@@ -304,26 +430,50 @@ export const MessageBubble = memo(function MessageBubble({
         >
           <Text className="text-muted-foreground text-sm italic">{words}</Text>
         </Pressable>
+        {pills}
       </View>
     );
   }
 
   // How to pay the sender: a card on their side, like their own line.
   if (message.kind === 'pay-card') {
-    return <PayChatCard message={message} mine={mine} time={time} onLongPress={onLongPress} />;
+    return <PayChatCard message={message} mine={mine} time={time} onLongPress={() => hold()} />;
   }
 
   const who = mine ? 'You' : (message.sender_name ?? 'Someone');
+  const edited = !!message.edited_at;
+  const reactionCount = message.reactions?.length ?? 0;
   const label = [
+    message.forwarded ? 'Forwarded' : null,
     `${who}: ${message.body}`,
     message.reply_to_id
       ? `replying to ${message.reply_to_sender ?? 'a message'}`
       : null,
     time,
+    waiting ? 'change waiting for a connection' : edited ? 'edited' : null,
     mine ? DELIVERY_WORDS[state] : null,
+    mine && showSeenBy && seenBy > 0 ? `seen by ${seenBy}` : null,
+    reactionCount > 0 ? `${reactionCount} reaction${reactionCount === 1 ? '' : 's'}` : null,
   ]
     .filter(Boolean)
     .join(', ');
+  const hasLink = splitLinks(message.body).some((p) => p.kind === 'link');
+  const bubbleActions = hasLink ? [...actions, { name: 'openLink', label: 'Open link' }] : actions;
+  const metaColour = mine ? 'text-action-foreground' : 'text-muted-foreground';
+  const timeLine = (
+    <>
+      <Text className={`text-[11px] ${metaColour}`}>
+        {time}
+        {/* A change still on this phone is not a failure: it goes when the
+            signal comes back, and says so quietly. */}
+        {waiting ? ' · Waiting for a connection' : edited ? ' · Edited' : ''}
+      </Text>
+      {mine && <DeliveryMark state={state} />}
+      {mine && showSeenBy && seenBy > 0 && (
+        <Text className="text-action-foreground text-[11px]">Seen by {seenBy}</Text>
+      )}
+    </>
+  );
 
   return (
     <View className={mine ? 'items-end' : 'items-start'}>
@@ -335,15 +485,35 @@ export const MessageBubble = memo(function MessageBubble({
         </Text>
       )}
       <Pressable
-        onLongPress={() => onLongPress(message)}
+        ref={bubbleRef}
+        onLongPress={hold}
         delayLongPress={300}
         accessibilityLabel={label}
-        accessibilityHint="Long press for reply, copy and delete"
-        accessibilityActions={actions}
+        accessibilityHint="Long press to react, reply, forward, copy, edit or delete"
+        accessibilityActions={bubbleActions}
         onAccessibilityAction={onAction}
         className={`rounded-[20px] px-3.5 py-2.5 active:opacity-80 ${mine ? 'bg-action' : 'bg-card border border-border/40'}`}
-        style={{ maxWidth: '80%' }}
+        style={[
+          { maxWidth: '80%' },
+          // The one being changed, ringed and dimmed, so it is plain which
+          // message the box below is editing.
+          beingEdited
+            ? {
+                opacity: 0.55,
+                outlineWidth: 2,
+                outlineStyle: 'solid',
+                outlineOffset: 3,
+                outlineColor: (isDark ? PALETTES.dark : PALETTES.light).primary,
+              }
+            : null,
+        ]}
       >
+        {message.forwarded ? (
+          <View className="flex-row items-center gap-1 mb-1">
+            <ForwardIcon size={12} className={metaColour} />
+            <Text className={`text-[12px] ${metaColour}`}>Forwarded</Text>
+          </View>
+        ) : null}
         {/* What this message answers. Shown even when the original was
             deleted, so a reply never reads as a non-sequitur. */}
         {message.reply_to_id ? (
@@ -372,18 +542,37 @@ export const MessageBubble = memo(function MessageBubble({
           </View>
         ) : null}
 
-        <Body body={message.body} mine={mine} matcher={matcher} />
+        <MessageBody body={message.body} mine={mine} matcher={matcher} onLongPress={hold} />
 
-        <View className="flex-row items-center gap-1 mt-1 self-end">
-          <Text className={`text-[11px] ${mine ? 'text-action-foreground' : 'text-muted-foreground'}`}>
-            {time}
-          </Text>
-          {mine && <DeliveryMark state={state} />}
-          {mine && showSeenBy && seenBy > 0 && (
-            <Text className="text-action-foreground text-[11px]">{seenBy}</Text>
-          )}
-        </View>
+        {link ? (
+          <LinkPreviewCard
+            url={link}
+            onBubble={mine ? 'mine' : 'theirs'}
+            onLongPress={hold}
+            autoLoad={autoLoadMedia}
+          />
+        ) : null}
+
+        {/* In a group, your own message's line says who has seen it, and a
+            tap on it names them. */}
+        {mine && showSeenBy ? (
+          <Pressable
+            onPress={() => onShowSeenBy(message)}
+            onLongPress={hold}
+            delayLongPress={300}
+            hitSlop={{ top: 10, bottom: 10, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel={seenBy > 0 ? `Seen by ${seenBy}` : 'Not seen yet'}
+            accessibilityHint="Shows who has seen it"
+            className="flex-row items-center gap-1 mt-1 self-end active:opacity-60"
+          >
+            {timeLine}
+          </Pressable>
+        ) : (
+          <View className="flex-row items-center gap-1 mt-1 self-end">{timeLine}</View>
+        )}
       </Pressable>
+      {pills}
     </View>
   );
 });

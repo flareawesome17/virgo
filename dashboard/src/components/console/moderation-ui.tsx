@@ -184,6 +184,21 @@ export function Evidence({
                 <span title={new Date(m.sent_at).toLocaleString()}>{when(m.sent_at)}</span>
               </p>
               <p className="whitespace-pre-wrap wrap-anywhere">{m.body}</p>
+              {(m.earlier_bodies?.length ?? 0) > 0 && (
+                <div className="mt-2 border-t pt-2">
+                  <p className="text-[11px] font-semibold text-muted-foreground">
+                    Edited. Before that it said:
+                  </p>
+                  {m.earlier_bodies!.map((before, i) => (
+                    <p
+                      key={i}
+                      className="mt-1 whitespace-pre-wrap wrap-anywhere text-muted-foreground line-through decoration-muted-foreground/40"
+                    >
+                      {before}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           </li>
         ))}

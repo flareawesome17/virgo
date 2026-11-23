@@ -63,13 +63,20 @@ import { useAuth } from '@/hooks/useAuth';
 import { PersonSafetyMenu, usePersonSafety } from '@/components/people/person-safety';
 import { firstName } from '@/lib/workspaces';
 
-/** Minutes. A year stands in for "until I turn it back on". */
-const MUTE_OPTIONS = [
+/** Minutes. A year stands in for "until I turn it back on". Shared with the list's menu. */
+export const MUTE_OPTIONS = [
   { label: '1 hour', minutes: 60 },
   { label: '8 hours', minutes: 480 },
   { label: '1 week', minutes: 60 * 24 * 7 },
   { label: 'Until I turn it back on', minutes: 525_600 },
 ];
+
+/** What deleting a chat does, said the same from this sheet and from the list. */
+export function deleteChatDescription(isGroup: boolean): string {
+  return isGroup
+    ? 'This removes the conversation and its history from your account, and leaves the group.'
+    : 'This clears the conversation from your account. The other person keeps their copy, and a new message from them will start the thread again.';
+}
 
 function mutedUntilLabel(iso: string | null): string {
   if (!iso) return '';
@@ -477,9 +484,7 @@ export function ConversationInfo({
             <AlertDialogDescription>
               {confirming === 'leave'
                 ? 'You will stop receiving messages here. The conversation continues for everyone else.'
-                : isGroup
-                  ? 'This removes the conversation and its history from your account, and leaves the group.'
-                  : 'This clears the conversation from your account. The other person keeps their copy, and a new message from them will start the thread again.'}
+                : deleteChatDescription(isGroup)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

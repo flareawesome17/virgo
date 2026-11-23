@@ -401,6 +401,11 @@ export interface EvidenceMessage {
   kind: string;
   sent_at: string;
   captured_at: string;
+  /**
+   * What it said before the sender edited it, oldest first. Empty when it was
+   * never edited, and absent from an API older than chat editing.
+   */
+  earlier_bodies?: string[];
 }
 
 export interface ModerationComment {

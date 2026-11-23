@@ -82,6 +82,12 @@ export interface ConversationSummary {
   otherUserId: string | null;
   otherOnline: boolean | null;
   otherLastSeenAt: Date | null;
+  /** Kept at the top of this person's list. */
+  pinned: boolean;
+  /** Moved out of the list until something new is said in it. */
+  archived: boolean;
+  /** Marked unread by hand, to come back to. Cleared when it is read. */
+  markedUnread: boolean;
 }
 
 export interface MessageRow {
@@ -118,6 +124,44 @@ export interface MessageRow {
    * anything sent before apps made one, and on system messages.
    */
   client_id?: string | null;
+  /** When the sender last changed the words. Null on a message never edited. */
+  edited_at?: Date | null;
+  /** Sent with Forward rather than typed. */
+  forwarded?: boolean;
+  /**
+   * Who reacted and with what, oldest first. One entry per person. The apps
+   * count and group them, and name people from the participant list they
+   * already hold.
+   */
+  reactions?: { userId: string; reaction: Reaction }[];
+}
+
+/**
+ * The reactions there are. A fixed set: six cover what a crew says with one
+ * tap, and a seventh would be a picker nobody reads on a busy shoot day.
+ * Keys rather than emoji — see migration 111.
+ */
+export const REACTIONS = ['like', 'love', 'haha', 'wow', 'sad', 'thanks'] as const;
+export type Reaction = (typeof REACTIONS)[number];
+
+/**
+ * How long after sending you can still fix a message. Long enough to catch a
+ * wrong time or a typo in a rate, short enough that nobody rewrites what the
+ * other person already answered.
+ */
+export const EDIT_WINDOW_MINUTES = 15;
+
+/** Chats one person can keep pinned at the top of their list. */
+export const MAX_PINNED = 5;
+
+/** Chats one Forward can go to at once. */
+export const MAX_FORWARD_TARGETS = 5;
+
+/** What one person can change about how a chat sits in their own list. */
+export interface ListStatePatch {
+  pinned?: boolean;
+  archived?: boolean;
+  markedUnread?: boolean;
 }
 
 /**
@@ -131,6 +175,15 @@ export interface MessageRow {
  */
 const MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.created_at,
                 m.deleted_at, m.mentions, m.reply_to_id, m.kind, m.context, m.client_id,
+                m.edited_at, m.forwarded,
+                -- Every reaction on it, as one small array. The primary key
+                -- starts with message_id, so this is an index lookup per row.
+                coalesce((
+                  select json_agg(json_build_object('userId', mr.user_id, 'reaction', mr.reaction)
+                                  order by mr.created_at)
+                    from message_reactions mr
+                   where mr.message_id = m.id
+                ), '[]'::json) as reactions,
                 -- A tombstone carries no text. Cleared on delete, so this is
                 -- belt and braces rather than the only thing hiding it.
                 case when m.deleted_at is null then m.body else '' end as body,
@@ -157,6 +210,11 @@ export interface ConversationsOptions {
   q?: string;
   /** Just this one conversation. */
   id?: string;
+  /**
+   * The archived chats instead of the list. Ignored by a search, which looks
+   * everywhere, and by a lookup of one chat by id.
+   */
+  archived?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -725,6 +783,7 @@ export class MessagesService {
     const q = options.q;
     const term = q?.trim() ? `%${q.trim()}%` : null;
     const only = options.id ?? null;
+    const archived = options.archived === true;
     const limit = Math.min(Math.max(options.limit ?? 100, 1), 100);
     const offset = Math.max(options.offset ?? 0, 0);
 
@@ -743,6 +802,9 @@ export class MessagesService {
       match_body: string | null;
       muted_until: Date | null;
       other_blocked: boolean;
+      pinned_at: Date | null;
+      archived_at: Date | null;
+      marked_unread: boolean;
     }>(
       `select c.id, c.is_group, c.title,
               -- For a direct chat the title is the other participant.
@@ -784,6 +846,9 @@ export class MessagesService {
               ) as unread,
               hit.body as match_body,
               me.muted_until,
+              me.pinned_at,
+              me.archived_at,
+              me.marked_unread,
               -- A direct chat across a block, whichever way round, so its dot
               -- can be darkened rather than showing when they come and go.
               (not c.is_group and exists (
@@ -841,6 +906,13 @@ export class MessagesService {
           -- first page of the list. Asked for by id, it is found even when
           -- deleted from the list: the thread itself is still open.
           and ($3::uuid is null or c.id = $3)
+          -- The list, or the archived chats. A search and a lookup by id find
+          -- a chat wherever it is kept.
+          and (
+            $3::uuid is not null
+            or $2::text is not null
+            or (me.archived_at is not null) = $6::boolean
+          )
           and (
             $2::text is null
             or c.title ilike $2
@@ -854,11 +926,13 @@ export class MessagesService {
                     and coalesce(u.display_name, split_part(u.email, '@', 1)) ilike $2
                )
           )
-        -- The id breaks ties, so a page boundary between two rows with the
-        -- same time cannot show one of them twice and the other never.
-        order by coalesce(last.created_at, c.created_at) desc, c.id desc
+        -- Pinned chats first, then by activity. The id breaks ties, so a page
+        -- boundary between two rows with the same time cannot show one of
+        -- them twice and the other never.
+        order by (me.pinned_at is not null) desc,
+                 coalesce(last.created_at, c.created_at) desc, c.id desc
         limit $4 offset $5`,
-      [userId, term, only, limit, offset],
+      [userId, term, only, limit, offset, archived],
     );
 
     // Listing conversations is proof their messages reached this device.
@@ -898,7 +972,88 @@ export class MessagesService {
         : !r.other_blocked && online.has(r.other_id ?? ''),
       otherLastSeenAt:
         r.is_group || r.other_blocked ? null : (seen.get(r.other_id ?? '') ?? null),
+      pinned: !!r.pinned_at,
+      archived: !!r.archived_at,
+      markedUnread: r.marked_unread === true,
     }));
+  }
+
+  /**
+   * How many chats are waiting in Archived, for the row at the top of the
+   * list. Counted the way the list shows them: one deleted from the list and
+   * quiet since does not count.
+   */
+  async archivedCount(userId: string): Promise<number> {
+    const row = await this.db.queryOne<{ count: string }>(
+      `select count(*)::text as count
+         from conversation_participants me
+        where me.user_id = $1
+          and me.archived_at is not null
+          and (me.cleared_at is null
+               or exists (select 1 from messages m
+                           where m.conversation_id = me.conversation_id
+                             and m.created_at > me.cleared_at))`,
+      [userId],
+    );
+    return Number(row?.count ?? 0);
+  }
+
+  /**
+   * Pins, archives or marks a chat unread, for the caller only.
+   *
+   * Pinned and archived exclude each other: a chat pinned to the top of the
+   * list cannot also be out of it. Archiving unpins; pinning brings it back.
+   */
+  async setListState(
+    userId: string,
+    conversationId: string,
+    patch: ListStatePatch,
+  ): Promise<{ pinned: boolean; archived: boolean; markedUnread: boolean }> {
+    await this.assertMember(userId, conversationId);
+
+    if (patch.pinned === true) {
+      const row = await this.db.queryOne<{ count: string }>(
+        `select count(*)::text as count from conversation_participants
+          where user_id = $1 and pinned_at is not null and conversation_id <> $2`,
+        [userId, conversationId],
+      );
+      if (Number(row?.count ?? 0) >= MAX_PINNED) {
+        throw new BadRequestException(`You can pin up to ${MAX_PINNED} chats`);
+      }
+    }
+
+    const sets: string[] = [];
+    if (patch.pinned !== undefined) {
+      // Keeps the original time when pinned twice, so the order holds.
+      sets.push(patch.pinned ? 'pinned_at = coalesce(pinned_at, now())' : 'pinned_at = null');
+      if (patch.pinned) sets.push('archived_at = null');
+    }
+    if (patch.archived !== undefined) {
+      sets.push(patch.archived ? 'archived_at = coalesce(archived_at, now())' : 'archived_at = null');
+      if (patch.archived) sets.push('pinned_at = null');
+    }
+    if (patch.markedUnread !== undefined) {
+      sets.push(`marked_unread = ${patch.markedUnread ? 'true' : 'false'}`);
+    }
+    if (sets.length === 0) throw new BadRequestException('Nothing to change');
+
+    const row = await this.db.queryOne<{
+      pinned_at: Date | null;
+      archived_at: Date | null;
+      marked_unread: boolean;
+    }>(
+      `update conversation_participants set ${sets.join(', ')}
+        where conversation_id = $1 and user_id = $2
+        returning pinned_at, archived_at, marked_unread`,
+      [conversationId, userId],
+    );
+    // Only the caller: their other devices move the row too.
+    this.announce([userId], conversationId);
+    return {
+      pinned: !!row?.pinned_at,
+      archived: !!row?.archived_at,
+      markedUnread: row?.marked_unread === true,
+    };
   }
 
   /** One conversation as the list shows it, for a thread opened from anywhere. */
@@ -918,6 +1073,13 @@ export class MessagesService {
      * the same millisecond are never skipped at a page boundary.
      */
     before?: string,
+    /**
+     * Only messages newer than this one: catching up after a dropped
+     * connection without downloading the newest page again. Still newest
+     * first and still capped at `limit`; a full page back means there may be
+     * a gap, and the app fetches the newest page instead.
+     */
+    after?: string,
   ): Promise<Thread> {
     const state = await this.sendState(conversationId, userId);
 
@@ -948,9 +1110,17 @@ export class MessagesService {
                         where b.id = $4 and b.conversation_id = $1
                      )
                 )
+            -- Catching up: only what is newer than the app's newest.
+            and (
+                  $5::uuid is null
+                  or (m.created_at, m.id) > (
+                       select a.created_at, a.id from messages a
+                        where a.id = $5 and a.conversation_id = $1
+                     )
+                )
           order by m.created_at desc, m.id desc
           limit $2`,
-        [conversationId, Math.min(Math.max(limit, 1), 200), userId, before ?? null],
+        [conversationId, Math.min(Math.max(limit, 1), 200), userId, before ?? null, after ?? null],
       ),
       this.db.queryOne<{ last_read_at: Date | null }>(
         `select last_read_at from conversation_participants
@@ -1021,6 +1191,10 @@ export class MessagesService {
           where id = $1 and deleted_at is null`,
         [messageId],
       );
+      // Unsent means gone: the words it had before an edit, and the
+      // reactions on it, go with the text.
+      await this.db.query('delete from message_edits where message_id = $1', [messageId]);
+      await this.db.query('delete from message_reactions where message_id = $1', [messageId]);
       // Every participant, blocked or not. A retraction reveals nothing, and a
       // blocked member with the thread open must still lose the text.
       this.realtime.emitToUsers(await this.participantIds(conversationId), {
@@ -1059,11 +1233,233 @@ export class MessagesService {
     return row ? (await this.withPayCards([row]))[0] : null;
   }
 
+  /**
+   * Brings an archived chat back into everyone's list. Something new was
+   * said in it, and an archive that swallowed new messages would be a mute
+   * nobody asked for.
+   */
+  private async unarchive(conversationId: string): Promise<void> {
+    await this.db.query(
+      `update conversation_participants set archived_at = null
+        where conversation_id = $1 and archived_at is not null`,
+      [conversationId],
+    );
+  }
+
+  /**
+   * A message the caller can see, or a 404. The same rules as the thread:
+   * not hidden by "delete for me", not before they cleared the chat.
+   */
+  private async visibleMessage(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<{
+    id: string;
+    sender_id: string;
+    body: string;
+    kind: string;
+    context: Record<string, unknown> | null;
+    deleted_at: Date | null;
+    created_at: Date;
+  }> {
+    const row = await this.db.queryOne<{
+      id: string;
+      sender_id: string;
+      body: string;
+      kind: string;
+      context: Record<string, unknown> | null;
+      deleted_at: Date | null;
+      created_at: Date;
+    }>(
+      `select m.id, m.sender_id, m.body, m.kind, m.context, m.deleted_at, m.created_at
+         from messages m
+         join conversation_participants me
+           on me.conversation_id = m.conversation_id and me.user_id = $3
+        where m.id = $1 and m.conversation_id = $2
+          and (me.cleared_at is null or m.created_at > me.cleared_at)
+          and not exists (select 1 from message_deletions d
+                           where d.message_id = m.id and d.user_id = $3)`,
+      [messageId, conversationId, userId],
+    );
+    if (!row) throw new NotFoundException('Message not found');
+    return row;
+  }
+
+  /**
+   * Reacts to a message, changes the reaction, or takes it back (`null`).
+   *
+   * One per person. Not on an unsent message, and not in a thread a block has
+   * frozen — a reaction is a small message, and the same rule applies.
+   * Nobody is pushed: a reaction is not worth a phone lighting up.
+   */
+  async react(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    reaction: Reaction | null,
+  ): Promise<{ reactions: { userId: string; reaction: Reaction }[] }> {
+    const state = await this.sendState(conversationId, userId);
+    if (frozen(state)) {
+      throw refusal('CHAT_UNAVAILABLE', "You can't react in this conversation.");
+    }
+    const message = await this.visibleMessage(userId, conversationId, messageId);
+    if (message.deleted_at) throw new BadRequestException('That message was unsent');
+
+    if (reaction === null) {
+      await this.db.query(
+        'delete from message_reactions where message_id = $1 and user_id = $2',
+        [messageId, userId],
+      );
+    } else {
+      await this.db.query(
+        `insert into message_reactions (message_id, user_id, reaction)
+         values ($1, $2, $3)
+         on conflict (message_id, user_id)
+         do update set reaction = excluded.reaction, created_at = now()`,
+        [messageId, userId, reaction],
+      );
+    }
+
+    const rows = await this.db.query<{ user_id: string; reaction: Reaction }>(
+      `select user_id, reaction from message_reactions
+        where message_id = $1 order by created_at`,
+      [messageId],
+    );
+    const reactions = rows.map((r) => ({ userId: r.user_id, reaction: r.reaction }));
+
+    // Like a read, not across a block.
+    this.realtime.emitToUsers(await this.participantIdsVisibleTo(conversationId, userId), {
+      type: 'reaction',
+      conversationId,
+      messageId,
+      userId,
+      reaction,
+    });
+    return { reactions };
+  }
+
+  /**
+   * Changes the words of your own message, within EDIT_WINDOW_MINUTES of
+   * sending it.
+   *
+   * What it said before is kept in message_edits, so a report filed later
+   * still has it. Only typed messages: a card is the app's own words.
+   * Mentions are kept as they were unless the edit names people again;
+   * nobody is pushed for an edit.
+   */
+  async edit(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    body: string,
+    mentionIds?: string[],
+  ): Promise<MessageRow> {
+    const state = await this.sendState(conversationId, userId);
+    if (frozen(state)) {
+      throw refusal('CHAT_UNAVAILABLE', "You can't change messages in this conversation.");
+    }
+    const text = body.trim();
+    if (!text) throw new BadRequestException('Message cannot be empty');
+
+    const message = await this.visibleMessage(userId, conversationId, messageId);
+    if (message.sender_id !== userId) {
+      throw new ForbiddenException('You can only edit your own messages');
+    }
+    if (message.deleted_at) throw new BadRequestException('That message was unsent');
+    if (message.kind !== 'text') throw new BadRequestException('That message cannot be edited');
+    if (Date.now() - new Date(message.created_at).getTime() > EDIT_WINDOW_MINUTES * 60_000) {
+      throw new BadRequestException(
+        `Messages can be edited for ${EDIT_WINDOW_MINUTES} minutes after sending`,
+      );
+    }
+
+    if (text !== message.body) {
+      let mentions: string[] | null = null;
+      if (mentionIds) {
+        const rows = await this.db.query<{ user_id: string }>(
+          `select p.user_id from conversation_participants p
+            where p.conversation_id = $1
+              and p.user_id = any($2::uuid[])
+              and p.user_id <> $3
+              and not ${blockedBetween('$3', 'p.user_id')}`,
+          [conversationId, [...new Set(mentionIds)], userId],
+        );
+        mentions = rows.map((r) => r.user_id);
+      }
+      await this.db.transaction(async (client) => {
+        await client.query(
+          'insert into message_edits (message_id, body) values ($1, $2)',
+          [messageId, message.body],
+        );
+        await client.query(
+          `update messages
+              set body = $2, edited_at = now(), mentions = coalesce($3::uuid[], mentions)
+            where id = $1`,
+          [messageId, text, mentions],
+        );
+      });
+    }
+
+    const row = (await this.joinedMessage(messageId))!;
+    this.realtime.emitToUsers(await this.participantIdsVisibleTo(conversationId, userId), {
+      type: 'message-edited',
+      conversationId,
+      message: row,
+    });
+    return row;
+  }
+
+  /**
+   * Sends a message on to other chats, as the caller's own, marked Forwarded.
+   *
+   * Only typed messages for now. Each target must be a chat the caller is in
+   * and can still write to; one that cannot be written to is skipped rather
+   * than failing the rest, and the answer says how many went.
+   */
+  async forward(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    targetIds: string[],
+  ): Promise<{ sent: number; skipped: number }> {
+    const targets = [...new Set(targetIds)];
+    if (targets.length === 0) throw new BadRequestException('Pick a chat to forward to');
+    if (targets.length > MAX_FORWARD_TARGETS) {
+      throw new BadRequestException(`Forward to up to ${MAX_FORWARD_TARGETS} chats at once`);
+    }
+
+    await this.assertMember(userId, conversationId);
+    const message = await this.visibleMessage(userId, conversationId, messageId);
+    if (message.deleted_at) throw new BadRequestException('That message was unsent');
+    if (message.kind !== 'text') {
+      throw new BadRequestException('That message cannot be forwarded');
+    }
+
+    let sent = 0;
+    for (const target of targets) {
+      try {
+        await this.send(userId, target, message.body, { forwarded: true });
+        sent += 1;
+      } catch {
+        // Not a member, or frozen by a block: that one is skipped.
+      }
+    }
+    if (sent === 0) throw new BadRequestException("That couldn't be forwarded");
+    return { sent, skipped: targets.length - sent };
+  }
+
   async send(
     userId: string,
     conversationId: string,
     body: string,
-    options: { replyToId?: string; mentionIds?: string[]; clientId?: string } = {},
+    options: {
+      replyToId?: string;
+      mentionIds?: string[];
+      clientId?: string;
+      /** Set by forward(), never by a request. */
+      forwarded?: boolean;
+    } = {},
   ): Promise<MessageRow> {
     // Before the text is even looked at: a frozen thread refuses whatever is
     // sent to it, and the reason must not depend on what was typed.
@@ -1110,11 +1506,11 @@ export class MessagesService {
     // the partial index's predicate, which is how Postgres finds it.
     const clientId = options.clientId ?? null;
     const inserted = await this.db.queryOne<{ id: string }>(
-      `insert into messages (conversation_id, sender_id, body, reply_to_id, mentions, client_id)
-       values ($1, $2, $3, $4, $5::uuid[], $6::uuid)
+      `insert into messages (conversation_id, sender_id, body, reply_to_id, mentions, client_id, forwarded)
+       values ($1, $2, $3, $4, $5::uuid[], $6::uuid, $7)
        on conflict (sender_id, client_id) where client_id is not null do nothing
        returning id`,
-      [conversationId, userId, text, replyToId, mentions, clientId],
+      [conversationId, userId, text, replyToId, mentions, clientId, options.forwarded === true],
     );
 
     if (!inserted) {
@@ -1138,6 +1534,7 @@ export class MessagesService {
     await this.db.query('update conversations set updated_at = now() where id = $1', [
       conversationId,
     ]);
+    await this.unarchive(conversationId);
 
     // Live first: an open client should see the message now, not after the
     // push round trip. Muting does not apply here — it silences interruptions,
@@ -1190,6 +1587,7 @@ export class MessagesService {
     await this.db.query('update conversations set updated_at = now() where id = $1', [
       conversationId,
     ]);
+    await this.unarchive(conversationId);
 
     this.realtime.emitToUsers(await this.participantIds(conversationId), {
       type: 'message',
@@ -1280,8 +1678,9 @@ export class MessagesService {
   /** Marks the thread read up to now. */
   async markRead(userId: string, conversationId: string): Promise<{ read: boolean }> {
     await this.assertMember(userId, conversationId);
+    // Reading it is also the end of "marked unread".
     await this.db.query(
-      `update conversation_participants set last_read_at = now()
+      `update conversation_participants set last_read_at = now(), marked_unread = false
         where conversation_id = $1 and user_id = $2`,
       [conversationId, userId],
     );

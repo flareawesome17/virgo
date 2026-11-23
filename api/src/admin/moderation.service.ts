@@ -236,7 +236,8 @@ export class ModerationService {
     );
     if (!report) throw new NotFoundException('No such report');
     const messages = await this.db.query(
-      `select message_id, sender_role, sender_name, body, kind, sent_at, captured_at
+      `select message_id, sender_role, sender_name, body, kind, sent_at, captured_at,
+              earlier_bodies
          from report_evidence where report_id = $1 order by sent_at`,
       [reportId],
     );

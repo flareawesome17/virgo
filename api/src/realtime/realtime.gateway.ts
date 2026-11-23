@@ -68,6 +68,19 @@ export type ServerEvent =
   | { type: 'ready'; userId: string }
   | { type: 'message'; conversationId: string; message: unknown }
   | { type: 'message-deleted'; conversationId: string; messageId: string; scope: 'me' | 'everyone' }
+  /** The sender changed a message's words. Carries the message as readers get it. */
+  | { type: 'message-edited'; conversationId: string; message: unknown }
+  /**
+   * Somebody reacted to a message, changed their reaction, or took it back
+   * (`reaction: null`). One reaction per person, so this replaces theirs.
+   */
+  | {
+      type: 'reaction';
+      conversationId: string;
+      messageId: string;
+      userId: string;
+      reaction: string | null;
+    }
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
   | { type: 'conversation'; conversationId: string }
