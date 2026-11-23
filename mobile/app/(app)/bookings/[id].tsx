@@ -29,6 +29,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { DateTimeField } from '@/components/DateTimeField';
 import { dateToKey, parseDateKey } from '@/src/lib/calendar';
 import { BookingMoney } from '@/components/money/BookingMoney';
+import { BookingPayCard } from '@/components/money/BookingPayCard';
 
 /**
  * One booking, and the two things you can do to it.
@@ -171,6 +172,10 @@ function Details({ booking, onEdit }: { booking: Booking; onEdit: () => void }) 
             ? ' Changing anything here clears their confirmation, so you cannot alter agreed terms on your own.'
             : ` Only ${booking.otherParty.displayName} can change these terms — they posted the job. If something is not right, say so in the chat.`)}
       </Text>
+
+      {/* How to pay them: for the poster, once the creative has confirmed.
+          The server sends it only then; this draws nothing otherwise. */}
+      <BookingPayCard booking={booking} />
 
       {/* What it earned or cost, in Money. The "Got paid?" notification
           opens this screen, so this is where it is answered. */}

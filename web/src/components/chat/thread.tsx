@@ -67,7 +67,8 @@ import { PresenceDot, PresenceLine, TypingIndicator } from '@/components/presenc
 import { sendTyping } from '@/lib/presence-store';
 import { buzzForMessage } from '@/lib/alerts';
 import { JobAcceptedCard } from '@/components/chat/job-accepted-card';
-import { ApiError, type ConversationMessage, type Participant } from '@/api';
+import { PayChatCard } from '@/components/money/pay-card';
+import { ApiError, type ConversationMessage, type JobAcceptedContext, type Participant } from '@/api';
 
 type Delivery = 'sending' | 'failed' | 'sent' | 'delivered' | 'read';
 
@@ -641,7 +642,7 @@ export function Thread({
              */
             if (message.kind === 'job-accepted' && message.context) {
               return (
-                <JobAcceptedCard key={message.id} context={message.context} />
+                <JobAcceptedCard key={message.id} context={message.context as JobAcceptedContext} />
               );
             }
 
@@ -655,6 +656,11 @@ export function Thread({
                   </div>
                 </div>
               );
+            }
+
+            // How to pay the sender: a card on their side, like their own line.
+            if (message.kind === 'pay-card') {
+              return <PayChatCard key={message.id} message={message} mine={mine} />;
             }
 
             const state = mine ? deliveryOf(message.created_at) : 'sent';

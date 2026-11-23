@@ -80,6 +80,21 @@ export class SendMessageDto {
   clientId?: string;
 }
 
+/** One of your ways to pay, sent as a card; optionally for one of your packages. */
+export class SendPayCardDto {
+  @IsUUID('all')
+  payMethodId!: string;
+
+  @IsOptional()
+  @IsUUID('all')
+  packageId?: string;
+
+  /** As on a typed message: a retry with the same id stores nothing new. */
+  @IsOptional()
+  @IsUUID('all')
+  clientId?: string;
+}
+
 export class MuteDto {
   /**
    * Minutes to stay muted. Omitted or 0 unmutes; anything at or above a year
@@ -243,6 +258,17 @@ export class MessagesController {
       mentionIds: dto.mentionIds,
       clientId: dto.clientId,
     });
+  }
+
+  /** Sends one of your ways to pay as a card. */
+  @HttpCode(201)
+  @Post(':id/pay-card')
+  sendPayCard(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() dto: SendPayCardDto,
+  ) {
+    return this.messages.sendPayCard(userId, id, dto);
   }
 
   /** Deletes one message, for yourself or for everyone. */

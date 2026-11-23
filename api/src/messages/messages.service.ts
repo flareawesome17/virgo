@@ -3,8 +3,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { MoneyPackagesService } from '../money/money-packages.service';
+import { MoneyPayMethodsService } from '../money/money-pay-methods.service';
+import { pesoText } from '../money/money-nudges.service';
 import { MIRRORED_ACCEPTED_JOIN } from '../friends/friend-sql';
 import { FriendsService } from '../friends/friends.service';
 import { PushService } from '../notifications/push.service';
@@ -101,9 +105,11 @@ export interface MessageRow {
    *
    * 'text' is somebody typing. 'job-accepted' is the app itself, marking the
    * moment an application was accepted — rendered as a card with the job, the
-   * role and the booking rather than as a bubble.
+   * role and the booking rather than as a bubble. 'pay-card' is somebody
+   * sending how to pay them: its context names their way to pay, and the
+   * details are filled in fresh on every read (withPayCards).
    */
-  kind?: 'text' | 'job-accepted';
+  kind?: 'text' | 'job-accepted' | 'pay-card';
   /** Whatever the card needs to render. Null on a typed message. */
   context?: Record<string, unknown> | null;
   /**
@@ -136,6 +142,14 @@ const MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.created_at,
 const MESSAGE_JOINS = `join users u on u.id = m.sender_id
            left join messages r on r.id = m.reply_to_id
            left join users ru on ru.id = r.sender_id`;
+
+/** A wallet's name on a pay card's text line; a bank or "other" says its own. */
+const PAY_KIND_NAMES: Record<string, string> = {
+  gcash: 'GCash',
+  maya: 'Maya',
+  bank: 'Bank',
+  other: 'Other',
+};
 
 /** What the conversation list can be narrowed or paged by. */
 export interface ConversationsOptions {
@@ -224,7 +238,49 @@ export class MessagesService {
     private readonly realtime: RealtimeGateway,
     private readonly presence: PresenceService,
     private readonly blocks: BlocksService,
+    // Optional so a module without Money still builds; pay cards then show
+    // as their plain text and cannot be sent.
+    @Optional() private readonly payMethods?: MoneyPayMethodsService,
+    @Optional() private readonly packages?: MoneyPackagesService,
   ) {}
+
+  /**
+   * Fills each pay card with its sender's way to pay as it is now: the
+   * details, a fresh link to the QR, and when they last changed. A card whose
+   * way to pay was removed, or that names one its sender does not own, gets
+   * `method: null`. A card deleted for everyone keeps nothing.
+   */
+  private async withPayCards<T extends MessageRow>(rows: T[]): Promise<T[]> {
+    const cards = rows.filter((r) => r.kind === 'pay-card');
+    if (cards.length === 0) return rows;
+    const ids = cards
+      .map((r) => r.context?.payMethodId)
+      .filter((id): id is string => typeof id === 'string');
+    const found = this.payMethods ? await this.payMethods.cardsByIds(ids) : new Map();
+    for (const row of cards) {
+      if (row.deleted_at) {
+        row.context = null;
+        continue;
+      }
+      const id = row.context?.payMethodId;
+      const card = typeof id === 'string' ? found.get(id) : undefined;
+      // Only the sender's own: a card cannot show somebody else's account.
+      const method =
+        card && card.ownerId === row.sender_id
+          ? {
+              id: card.id,
+              kind: card.kind,
+              label: card.label,
+              accountName: card.accountName,
+              accountNumber: card.accountNumber,
+              qrUrl: card.qrUrl,
+              detailsChangedAt: card.detailsChangedAt,
+            }
+          : null;
+      row.context = { ...row.context, method };
+    }
+    return rows;
+  }
 
   /** Everyone in a conversation, for fan-out. */
   private async participantIds(conversationId: string): Promise<string[]> {
@@ -911,7 +967,7 @@ export class MessagesService {
     // single block for a notice to offer to undo.
     const blockedByMe = !state.isGroup && !!state.myBlockId;
     return {
-      messages,
+      messages: await this.withPayCards(messages),
       lastReadAt: me?.last_read_at ?? null,
       canSend: !frozen(state),
       blockedByMe,
@@ -993,13 +1049,14 @@ export class MessagesService {
 
   /** One message, joined the way a reader sees it. */
   private async joinedMessage(messageId: string): Promise<MessageRow | null> {
-    return this.db.queryOne<MessageRow>(
+    const row = await this.db.queryOne<MessageRow>(
       `select ${MESSAGE_COLUMNS}
          from messages m
          ${MESSAGE_JOINS}
         where m.id = $1`,
       [messageId],
     );
+    return row ? (await this.withPayCards([row]))[0] : null;
   }
 
   async send(
@@ -1140,6 +1197,83 @@ export class MessagesService {
       message: row,
     });
 
+    return row!;
+  }
+
+  /**
+   * Sends one of your ways to pay as a card: its details and QR, filled in
+   * fresh whenever the thread is read (withPayCards). It can name one of your
+   * packages, with what was left to pay on it when it was sent.
+   *
+   * Sent like a typed message — the same refusals in a frozen thread, the
+   * same live frame and push — with a plain line as its body, which is what
+   * the conversation list, the push and an app from before cards show.
+   */
+  async sendPayCard(
+    userId: string,
+    conversationId: string,
+    input: { payMethodId: string; packageId?: string; clientId?: string },
+  ): Promise<MessageRow> {
+    const state = await this.sendState(conversationId, userId);
+    if (frozen(state)) {
+      throw !state.isGroup && state.myBlockId
+        ? refusal('YOU_BLOCKED', 'You blocked this person. Unblock them to send messages.')
+        : refusal('CHAT_UNAVAILABLE', "You can't reply to this conversation.");
+    }
+    if (!this.payMethods) throw new BadRequestException('Ways to pay cannot be sent from here.');
+
+    // Only your own: the card is how somebody pays you.
+    const card = (await this.payMethods.cardsByIds([input.payMethodId])).get(input.payMethodId);
+    if (!card || card.ownerId !== userId) throw new NotFoundException('That way to pay was not found');
+
+    let pkg: { id: string; title: string; balanceMinor: number } | null = null;
+    if (input.packageId && this.packages) {
+      // Throws Not Found for a package that is not the sender's.
+      const { package: found } = await this.packages.get(userId, input.packageId);
+      pkg = { id: found.id, title: found.title, balanceMinor: found.balanceMinor };
+    }
+
+    const name =
+      (card.kind === 'bank' || card.kind === 'other') && card.label
+        ? card.label
+        : PAY_KIND_NAMES[card.kind];
+    const body = [
+      `How to pay: ${[name, card.accountName, card.accountNumber].filter(Boolean).join(' · ')}`,
+      pkg && pkg.balanceMinor > 0 ? `${pkg.title}, balance ${pesoText(pkg.balanceMinor)}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const context = { payMethodId: card.id, ...(pkg ? { package: pkg } : {}) };
+
+    const clientId = input.clientId ?? null;
+    const inserted = await this.db.queryOne<{ id: string }>(
+      `insert into messages (conversation_id, sender_id, body, kind, context, client_id)
+       values ($1, $2, $3, 'pay-card', $4::jsonb, $5::uuid)
+       on conflict (sender_id, client_id) where client_id is not null do nothing
+       returning id`,
+      [conversationId, userId, body, JSON.stringify(context), clientId],
+    );
+    if (!inserted) {
+      // A retry of one that got through: answer with it, send nothing again.
+      const earlier = await this.db.queryOne<{ id: string }>(
+        `select id from messages
+          where sender_id = $1 and client_id = $2::uuid and conversation_id = $3`,
+        [userId, clientId, conversationId],
+      );
+      if (!earlier) throw new BadRequestException('That message id is already in use');
+      return (await this.joinedMessage(earlier.id))!;
+    }
+
+    const row = await this.joinedMessage(inserted.id);
+    await this.db.query('update conversations set updated_at = now() where id = $1', [
+      conversationId,
+    ]);
+    this.realtime.emitToUsers(await this.participantIdsVisibleTo(conversationId, userId), {
+      type: 'message',
+      conversationId,
+      message: row,
+    });
+    void this.notify(userId, conversationId, body, []);
     return row!;
   }
 
