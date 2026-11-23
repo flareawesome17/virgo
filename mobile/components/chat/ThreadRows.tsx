@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from 'react';
+import { memo, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { View, Text, Pressable, type AccessibilityActionEvent } from 'react-native';
 import {
   AlertCircleIcon,
@@ -11,6 +11,7 @@ import { cssInterop } from 'nativewind';
 import {
   firstVirgoLink,
   isCardKind,
+  isNotice,
   splitLinks,
   type ConversationMessage,
   type JobAcceptedContext,
@@ -119,6 +120,8 @@ export function buildThreadRows({
     entries.forEach((e, i) => {
       if (
         e.kind === 'message' &&
+        // A notice is never unread: the divider never sits over one.
+        !isNotice(e.message) &&
         e.message.sender_id !== meId &&
         new Date(e.message.created_at).getTime() > boundary
       ) {
@@ -145,7 +148,9 @@ export function buildThreadRows({
         i !== firstUnread &&
         older?.kind === 'message' &&
         older.message.sender_id === m.sender_id &&
-        !isCentredCard(older.message.kind);
+        !isCentredCard(older.message.kind) &&
+        // After "Jo joined", Jo's first line still says who it is.
+        !isNotice(older.message);
       rows.push({
         kind: 'message',
         key: m.id,
@@ -164,6 +169,20 @@ export const DaySeparator = memo(function DaySeparator({ label }: { label: strin
     <View className="items-center py-2" accessibilityRole="header">
       <View className="px-3 py-1">
         <Text className="text-muted-foreground text-[12px] font-semibold">{label}</Text>
+      </View>
+    </View>
+  );
+});
+
+/**
+ * The chat saying who joined, left, was added or removed: a small centred
+ * line, never a bubble, with no sender and nothing to hold.
+ */
+export const NoticeLine = memo(function NoticeLine({ body }: { body: string }) {
+  return (
+    <View className="items-center py-1.5">
+      <View className="rounded-full bg-muted px-3 py-1" style={{ maxWidth: '88%' }}>
+        <Text className="text-secondary-foreground text-[12px] leading-4 text-center">{body}</Text>
       </View>
     </View>
   );
@@ -228,9 +247,49 @@ export function useMentionMatcher(names: readonly string[]) {
 
 export type MentionMatcher = ReturnType<typeof useMentionMatcher>;
 
+/**
+ * Every place a search term appears in a run of words, picked out. Matched
+ * the way the server matches: the whole term, any case.
+ */
+function withHighlight(text: string, term: string | null | undefined, mine: boolean, key: string): ReactNode {
+  if (!term) return text;
+  const lower = text.toLowerCase();
+  const wanted = term.toLowerCase();
+  let at = lower.indexOf(wanted);
+  if (at < 0) return text;
+  const out: ReactNode[] = [];
+  let from = 0;
+  let n = 0;
+  while (at >= 0) {
+    if (at > from) out.push(text.slice(from, at));
+    out.push(
+      <Text
+        key={`${key}-h${n++}`}
+        // On your own bubble a pale chip with dark words: a tint of the bubble
+        // colour would not read.
+        className={mine ? 'bg-background text-foreground' : 'bg-warning/25 text-foreground'}
+      >
+        {text.slice(at, at + wanted.length)}
+      </Text>,
+    );
+    from = at + wanted.length;
+    at = lower.indexOf(wanted, from);
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
+}
+
 /** The mentions in a run of words, bold — and on your own bubble, underlined. */
-function withMentions(text: string, mine: boolean, matcher: MentionMatcher, key: string) {
-  if (!matcher || !text.includes('@')) return <Text key={key}>{text}</Text>;
+function withMentions(
+  text: string,
+  mine: boolean,
+  matcher: MentionMatcher,
+  key: string,
+  highlight?: string | null,
+) {
+  if (!matcher || !text.includes('@')) {
+    return <Text key={key}>{withHighlight(text, highlight, mine, key)}</Text>;
+  }
   return text.split(matcher.pattern).map((part, i) =>
     matcher.names.has(part) ? (
       // Underlined on your own bubble: a lighter tint of the text did not
@@ -240,10 +299,10 @@ function withMentions(text: string, mine: boolean, matcher: MentionMatcher, key:
         className={mine ? 'font-bold' : 'font-bold text-primary'}
         style={mine ? { textDecorationLine: 'underline' } : undefined}
       >
-        {part}
+        {withHighlight(part, highlight, mine, `${key}-${i}`)}
       </Text>
     ) : (
-      <Text key={`${key}-${i}`}>{part}</Text>
+      <Text key={`${key}-${i}`}>{withHighlight(part, highlight, mine, `${key}-${i}`)}</Text>
     ),
   );
 }
@@ -262,6 +321,7 @@ export function MessageBody({
   onLongPress,
   numberOfLines,
   inert = false,
+  highlight = null,
 }: {
   body: string;
   mine: boolean;
@@ -270,6 +330,8 @@ export function MessageBody({
   numberOfLines?: number;
   /** Drawn as links but not tappable: the copy lifted over a dimmed thread. */
   inert?: boolean;
+  /** Searching this chat: every place the term appears is picked out. */
+  highlight?: string | null;
 }) {
   const colour = mine ? 'text-action-foreground' : 'text-foreground';
   const parts = useMemo(() => splitLinks(body), [body]);
@@ -277,7 +339,7 @@ export function MessageBody({
   if (!hasLink && (!matcher || !body.includes('@'))) {
     return (
       <Text className={`text-[15px] leading-5 ${colour}`} numberOfLines={numberOfLines}>
-        {body}
+        {withHighlight(body, highlight, mine, 'b')}
       </Text>
     );
   }
@@ -293,10 +355,10 @@ export function MessageBody({
             className={mine ? '' : 'text-primary'}
             style={{ textDecorationLine: 'underline' }}
           >
-            {part.text}
+            {withHighlight(part.text, highlight, mine, `l${i}`)}
           </Text>
         ) : (
-          withMentions(part.text, mine, matcher, `t${i}`)
+          withMentions(part.text, mine, matcher, `t${i}`, highlight)
         ),
       )}
     </Text>
@@ -333,6 +395,10 @@ interface MessageBubbleProps {
   people: ChatPeople;
   /** A short word over the foot of the thread, from a card: a failed answer. */
   notify: (words: string) => void;
+  /** Searching this chat: the term, picked out wherever it appears. */
+  highlight?: string | null;
+  /** The search match you are on, or the pin you jumped to: ringed. */
+  lit?: boolean;
 }
 
 /**
@@ -362,6 +428,8 @@ export const MessageBubble = memo(function MessageBubble({
   autoLoadMedia,
   people,
   notify,
+  highlight = null,
+  lit = false,
 }: MessageBubbleProps) {
   const bubbleRef = useRef<View>(null);
   const hold = useCallback(() => {
@@ -406,8 +474,18 @@ export const MessageBubble = memo(function MessageBubble({
    * applicant would have no more reason to act on it than on any other line
    * they sent. It can be reacted to, so it can be held.
    */
+  // Nobody's line: no name, no hold, no reactions.
+  if (isNotice(message)) return <NoticeLine body={message.body} />;
+
+  /*
+   * What is not a bubble of words — a card, a deleted message — is lit by a
+   * band behind it rather than a ring, which would hug the wrong shape.
+   */
+  const band = (node: ReactNode) =>
+    lit ? <View className="rounded-[24px] bg-warning/15 -mx-2 px-2 py-1.5">{node}</View> : node;
+
   if (message.kind === 'job-accepted' && message.context) {
-    return (
+    return band(
       <View>
         <Pressable
           ref={bubbleRef}
@@ -420,13 +498,13 @@ export const MessageBubble = memo(function MessageBubble({
           <JobAcceptedCard context={message.context as JobAcceptedContext} />
         </Pressable>
         {pills}
-      </View>
+      </View>,
     );
   }
 
   if (message.deleted_at) {
     const words = mine ? 'You deleted this message' : 'This message was deleted';
-    return (
+    return band(
       <View className={mine ? 'items-end' : 'items-start'}>
         <Pressable
           ref={bubbleRef}
@@ -441,14 +519,14 @@ export const MessageBubble = memo(function MessageBubble({
           <Text className="text-muted-foreground text-sm italic">{words}</Text>
         </Pressable>
         {pills}
-      </View>
+      </View>,
     );
   }
 
   // How to pay the sender: a card on their side, like their own line.
   if (message.kind === 'pay-card') {
-    return (
-      <PayChatCard ref={bubbleRef} message={message} mine={mine} time={time} onLongPress={hold} pills={pills} />
+    return band(
+      <PayChatCard ref={bubbleRef} message={message} mine={mine} time={time} onLongPress={hold} pills={pills} />,
     );
   }
 
@@ -461,7 +539,7 @@ export const MessageBubble = memo(function MessageBubble({
         : showSeenBy && seenBy > 0
           ? `Seen by ${seenBy}`
           : DELIVERY_WORDS[state];
-    return (
+    return band(
       <ChatCard
         kind={message.kind}
         message={message}
@@ -475,7 +553,7 @@ export const MessageBubble = memo(function MessageBubble({
         people={people}
         autoLoadMedia={autoLoadMedia}
         notify={notify}
-      />
+      />,
     );
   }
 
@@ -534,6 +612,16 @@ export const MessageBubble = memo(function MessageBubble({
         className={`rounded-[20px] px-3.5 py-2.5 active:opacity-80 ${mine ? 'bg-action' : 'bg-card border border-border/40'}`}
         style={[
           { maxWidth: '80%' },
+          // The match you are on, or the pin you jumped to: ringed, so it
+          // stands out from the other matches on screen.
+          lit && !beingEdited
+            ? {
+                outlineWidth: 2.5,
+                outlineStyle: 'solid',
+                outlineOffset: 3,
+                outlineColor: (isDark ? PALETTES.dark : PALETTES.light).ring,
+              }
+            : null,
           // The one being changed, ringed and dimmed, so it is plain which
           // message the box below is editing.
           beingEdited
@@ -581,7 +669,13 @@ export const MessageBubble = memo(function MessageBubble({
           </View>
         ) : null}
 
-        <MessageBody body={message.body} mine={mine} matcher={matcher} onLongPress={hold} />
+        <MessageBody
+          body={message.body}
+          mine={mine}
+          matcher={matcher}
+          onLongPress={hold}
+          highlight={highlight}
+        />
 
         {link ? (
           <LinkPreviewCard

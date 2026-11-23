@@ -19,6 +19,8 @@ export const unreadMessagesCount = (user: string): string => `(
       on p.conversation_id = m.conversation_id and p.user_id = ${user}
    where m.sender_id <> ${user}
      and m.deleted_at is null
+     -- A notice ("Jo joined") is never something to read.
+     and m.kind <> 'notice'
      and (p.cleared_at is null or m.created_at > p.cleared_at)
      and (p.last_read_at is null or m.created_at > p.last_read_at)
      -- Muted conversations are left out. Somebody muting a busy group is

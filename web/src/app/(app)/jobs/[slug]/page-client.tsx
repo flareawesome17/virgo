@@ -47,6 +47,7 @@ import {
   ApplicationState,
 } from '@/components/jobs/application-state';
 import { copyJobLink } from '@/components/jobs/copy-job-link';
+import { CrewChatCard } from '@/components/jobs/crew-chat-card';
 
 /** "Photographer and HMUA", "a, b and c" — a list a sentence can contain. */
 function listOf(items: readonly string[]): string {
@@ -316,6 +317,9 @@ export default function JobPage() {
                 {post.description}
               </p>
             </div>
+
+            {/* One group for the poster and everyone hired (board 137). */}
+            <CrewChatCard post={post} />
 
             {/* Your own post offers management, not an application — the API
                 refuses a self-apply, so offering it would only let somebody

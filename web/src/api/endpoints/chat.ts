@@ -42,6 +42,52 @@ export interface Conversation {
   archived?: boolean;
   /** Marked unread by you, to come back to. Cleared when you read it. */
   markedUnread?: boolean;
+  /*
+   * Crew chats (phase 3). Optional so an older API's response still
+   * type-checks; absent reads as an ordinary chat where you are not an admin.
+   */
+  /** The message a search matched: what the list opens the chat at. */
+  matchId?: string | null;
+  /** Groups: the one line at the top of group info. */
+  about?: string | null;
+  /** Whether you are one of the group's admins. */
+  isAdmin?: boolean;
+  /** Who can add people. Absent reads as 'everyone'. */
+  addPolicy?: GroupAddPolicy;
+  /** A workspace's team chat, or a job's crew chat. Null on anything else. */
+  origin?: GroupOrigin | null;
+  /** The workspace's id, or the job post's. */
+  originId?: string | null;
+  /** The workspace's name, or the job's title, as they are now. */
+  originTitle?: string | null;
+}
+
+/** Who can add people to a group. */
+export type GroupAddPolicy = 'everyone' | 'admins';
+
+/** What made a group: a workspace's team, or the people hired on a job. */
+export type GroupOrigin = 'workspace' | 'crew';
+
+/** Pinned messages one chat can hold, the same for everyone in it. */
+export const MAX_PINNED_MESSAGES = 3;
+
+/** How long a group's About can be. */
+export const GROUP_ABOUT_MAX = 200;
+
+/** People hired on a job before its poster can start a crew chat. */
+export const MIN_CREW = 2;
+
+/** "Team chat · 6 people", "5 people · From the Santos Wedding job": the line under a group's name. */
+export function groupSubtitle(
+  c: Pick<Conversation, 'isGroup' | 'participantCount' | 'origin' | 'originTitle'>,
+): string | null {
+  if (!c.isGroup) return null;
+  const people = `${c.participantCount} ${c.participantCount === 1 ? 'person' : 'people'}`;
+  if (c.origin === 'workspace') return `Team chat · ${people}`;
+  if (c.origin === 'crew') {
+    return c.originTitle ? `${people} · From the ${c.originTitle} job` : `Crew chat · ${people}`;
+  }
+  return people;
 }
 
 /**
@@ -305,7 +351,7 @@ export interface ConversationMessage {
    * The rest (CardKind) are Virgo things somebody shared: album photos, a
    * booking, a job post, a post, a package, a date.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card' | CardKind;
+  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | CardKind;
   /** What the card needs. Null on a typed message. Read it by `kind`. */
   context?:
     | JobAcceptedContext
@@ -316,6 +362,7 @@ export interface ConversationMessage {
     | PostCardContext
     | PackageCardContext
     | DatePlanCardContext
+    | NoticeContext
     | null;
   /**
    * The id the sender's app gave this message before sending it — how that app
@@ -329,6 +376,53 @@ export interface ConversationMessage {
   forwarded?: boolean;
   /** One per person, oldest first. Absent from an older API. */
   reactions?: MessageReaction[];
+  /** When somebody pinned it for the chat. Null or absent when it is not pinned. */
+  pinned_at?: string | null;
+  /** Who pinned it. Only on the pins list. */
+  pinned_by_name?: string | null;
+}
+
+/**
+ * A notice: the chat saying who joined, left, was added or removed. Drawn as
+ * a small centred line from `body`, never as a bubble, and nobody replies to,
+ * reacts to, pins or forwards one. Never unread.
+ */
+export interface NoticeContext {
+  event: 'team-chat' | 'crew-chat' | 'joined' | 'left' | 'added' | 'removed';
+  /** What a join or a leave followed: the workspace, or being hired on the job. */
+  via?: 'workspace' | 'crew';
+  actorId?: string;
+  subjectId?: string;
+  workspaceId?: string;
+  postId?: string;
+}
+
+export function isNotice(m: Pick<ConversationMessage, 'kind'>): boolean {
+  return m.kind === 'notice';
+}
+
+/** One line for a pin in the strip and the Pinned sheet: its words, or what the card is. */
+export function pinLine(m: ConversationMessage): string {
+  if (m.kind && m.kind !== 'text' && m.kind !== 'notice') {
+    const card = cardSummary(m);
+    if (card) return card.title ? `${card.label}: ${card.title}` : card.label;
+  }
+  return (m.body ?? '').split('\n')[0] || 'Message';
+}
+
+/** What a search inside one chat found: ids and times, newest first. */
+export interface ChatSearchMatch {
+  id: string;
+  createdAt: string;
+}
+
+/** A group's settings an admin changes. Each left out stays as it is. */
+export interface GroupPatch {
+  title?: string;
+  about?: string | null;
+  /** The public address of a photo you uploaded (scope 'avatars'), or null to take it off. */
+  photoUrl?: string | null;
+  addPolicy?: GroupAddPolicy;
 }
 
 /**
@@ -659,6 +753,13 @@ export interface Participant {
   blocked_by_me?: boolean;
   /** Your block on them, which is what unblocking takes. Null when there is none. */
   block_id?: string | null;
+  /** One of the group's admins. Absent from an older API. */
+  is_admin?: boolean;
+  /** When they joined this chat: "in this group since Nov 12". */
+  joined_at?: string;
+  /** What they do, from their profile: role keys, then roles in their own words. */
+  roles?: string[];
+  custom_roles?: string[];
 }
 
 export interface Thread {
@@ -676,6 +777,11 @@ export interface Thread {
   /** Whether it is frozen because you blocked them, which you can undo. */
   blockedByMe?: boolean;
   blockId?: string | null;
+  /**
+   * Only on a thread asked for around one message: whether there are newer
+   * messages than the newest here. False means it reaches the newest.
+   */
+  hasNewer?: boolean;
 }
 
 /**
@@ -735,6 +841,59 @@ export const chatApi = {
     after?: string,
   ): Promise<Thread> {
     return api.get(`/messages/${id}/messages`, { query: { limit, before, after } });
+  },
+
+  /**
+   * The messages around one: a search match or a pin, to open the chat at.
+   * Twenty either side, newest first, with `hasNewer`.
+   */
+  messagesAround(id: string, messageId: string): Promise<Thread> {
+    return api.get(`/messages/${id}/messages`, { query: { around: messageId } });
+  },
+
+  /** Every message in this chat with these words in it, newest first. */
+  search(id: string, q: string): Promise<{ matches: ChatSearchMatch[] }> {
+    return api.get(`/messages/${id}/search`, { query: { q } });
+  },
+
+  /** The chat's pinned messages, newest pin first. */
+  pins(id: string): Promise<{ data: ConversationMessage[]; total: number }> {
+    return api.get(`/messages/${id}/pins`);
+  },
+
+  /**
+   * Pins a message for everyone. With three pinned already it answers 409
+   * (isPinsFull) unless `replace` names the pin to take down for it.
+   */
+  pin(id: string, messageId: string, replace?: string): Promise<{ pins: ConversationMessage[] }> {
+    return api.post(`/messages/${id}/messages/${messageId}/pin`, { body: replace ? { replace } : {} });
+  },
+
+  unpin(id: string, messageId: string): Promise<{ pins: ConversationMessage[] }> {
+    return api.delete(`/messages/${id}/messages/${messageId}/pin`);
+  },
+
+  /** An admin takes somebody out of the group. */
+  removeMember(id: string, userId: string): Promise<{ removed: boolean }> {
+    return api.delete(`/messages/${id}/members/${userId}`);
+  },
+
+  /** An admin makes somebody an admin, or stops them being one. */
+  setAdmin(id: string, userId: string, admin: boolean): Promise<{ isAdmin: boolean }> {
+    return api.post(`/messages/${id}/members/${userId}/admin`, { body: { admin } });
+  },
+
+  /** An admin changes the group's name, About, photo, or who can add people. */
+  updateGroup(
+    id: string,
+    patch: GroupPatch,
+  ): Promise<{ id: string; title: string; about: string | null; photoUrl: string | null; addPolicy: GroupAddPolicy }> {
+    return api.patch(`/messages/${id}`, { body: patch });
+  },
+
+  /** Starts the crew chat for one of your job posts, or opens the one it has. */
+  startCrew(postId: string): Promise<{ id: string }> {
+    return api.post('/messages/crews', { body: { postId } });
   },
 
   participants(id: string): Promise<{ data: Participant[]; total: number }> {

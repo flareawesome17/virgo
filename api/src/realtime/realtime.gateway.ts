@@ -85,6 +85,11 @@ export type ServerEvent =
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
   | { type: 'conversation'; conversationId: string }
   /**
+   * A chat's pinned messages changed. Only the id: each app asks for the pins
+   * it may see. Apps from before pins ignore it.
+   */
+  | { type: 'pins'; conversationId: string }
+  /**
    * Everything that is not chat: friend requests, invitations, reminders.
    *
    * One envelope rather than an event type per feature. Each of these needs

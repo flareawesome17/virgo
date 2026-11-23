@@ -84,9 +84,14 @@ export default function ChatScreen({ embedded = false }: { embedded?: boolean } 
 
   const renderConversation = useCallback(
     ({ item }: { item: Conversation }) => (
-      <ConversationRow item={item} onHold={hold} dividerAfter={item.id === lastPinnedId} />
+      <ConversationRow
+        item={item}
+        onHold={hold}
+        dividerAfter={item.id === lastPinnedId}
+        searchTerm={searching ? term : undefined}
+      />
     ),
-    [hold, lastPinnedId],
+    [hold, lastPinnedId, searching, term],
   );
 
   const onRefresh = useCallback(async () => {

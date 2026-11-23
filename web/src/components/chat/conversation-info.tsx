@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Ban,
@@ -10,17 +10,12 @@ import {
   Check,
   ChevronRight,
   Flag,
-  Loader2,
   LogOut,
-  Pencil,
   Trash2,
-  UserPlus,
   UserRound,
-  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -49,18 +44,17 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  useAddConversationMember,
   useConversation,
   useDeleteConversation,
   useLeaveConversation,
   useMuteConversation,
   useParticipants,
-  useRenameConversation,
   reportableMessageIds,
 } from '@/hooks/useChat';
 import { useAllConnections } from '@/hooks/useFriends';
 import { useAuth } from '@/hooks/useAuth';
-import { PersonSafetyMenu, usePersonSafety } from '@/components/people/person-safety';
+import { usePersonSafety } from '@/components/people/person-safety';
+import { GroupInfoBody } from '@/components/chat/group-info';
 import { firstName } from '@/lib/workspaces';
 
 /** Minutes. A year stands in for "until I turn it back on". Shared with the list's menu. */
@@ -117,14 +111,21 @@ export function ConversationInfo({
   const { friends } = useAllConnections({ enabled: open });
 
   const mute = useMuteConversation(conversationId);
-  const rename = useRenameConversation(conversationId);
-  const addMember = useAddConversationMember(conversationId);
   const leave = useLeaveConversation();
   const remove = useDeleteConversation();
 
-  const [renaming, setRenaming] = useState(false);
-  const [titleDraft, setTitleDraft] = useState('');
   const [confirming, setConfirming] = useState<'leave' | 'delete' | null>(null);
+
+  /*
+   * Search and Pinned in group info open in the chat behind the sheet. They
+   * run once the sheet has gone, not as it starts to go: the closing sheet
+   * still holds focus, and would take it back from the search box.
+   */
+  const afterClose = useRef<(() => void) | null>(null);
+  const closeThen = (run: () => void) => {
+    afterClose.current = run;
+    onOpenChange(false);
+  };
 
   // The server's word first: a group down to two members is still a group.
   const isGroup = conversation?.isGroup ?? participants.length > 2;
@@ -149,7 +150,16 @@ export function ConversationInfo({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="w-full gap-0 sm:max-w-sm">
+        <SheetContent
+          className="w-full gap-0 sm:max-w-sm"
+          onCloseAutoFocus={(event) => {
+            const run = afterClose.current;
+            if (!run) return;
+            afterClose.current = null;
+            event.preventDefault();
+            run();
+          }}
+        >
           <SheetHeader>
             <SheetTitle>{isGroup ? 'Group info' : 'Contact info'}</SheetTitle>
             <SheetDescription className="sr-only">
@@ -159,83 +169,40 @@ export function ConversationInfo({
 
           <ScrollArea className="min-h-0 flex-1">
             <div className="px-4 pb-6">
+              {isGroup ? (
+                <GroupInfoBody
+                  conversationId={conversationId}
+                  conversation={conversation}
+                  participants={participants}
+                  meId={user?.id}
+                  addable={addable}
+                  muteOptions={MUTE_OPTIONS}
+                  mutedLabel={muted ? mutedUntilLabel(conversation?.mutedUntil ?? null) : ''}
+                  safety={safety}
+                  closeThen={closeThen}
+                  onNavigate={() => onOpenChange(false)}
+                />
+              ) : (
+              <>
               {/* Identity */}
               <div className="flex flex-col items-center py-4 text-center">
-                {isGroup ? (
-                  <div className="grid size-20 place-items-center rounded-full bg-info/15">
-                    <Users className="size-8 text-info" />
-                  </div>
-                ) : (
-                  <Avatar className="size-20">
-                    {others[0]?.avatar_url && <AvatarImage src={others[0].avatar_url} alt="" />}
-                    <AvatarFallback className="bg-primary/15 text-2xl font-bold text-primary">
-                      {title.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-
-                {renaming ? (
-                  <div className="mt-4 w-full">
-                    <Input
-                      value={titleDraft}
-                      onChange={(e) => setTitleDraft(e.target.value)}
-                      placeholder="Group name"
-                      autoFocus
-                      className="text-center"
-                    />
-                    <div className="mt-3 flex gap-2">
-                      <Button variant="outline" className="flex-1" onClick={() => setRenaming(false)}>
-                        Cancel
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        disabled={!titleDraft.trim() || rename.isPending}
-                        onClick={() =>
-                          rename.mutate(titleDraft.trim(), {
-                            onSuccess: () => setRenaming(false),
-                            onError: fail('Could not rename'),
-                          })
-                        }
-                      >
-                        {rename.isPending && <Loader2 className="size-4 animate-spin" />}
-                        Save
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <h3 className="mt-3 text-lg font-bold">{title}</h3>
-                    <p className="mt-0.5 text-sm text-muted-foreground">
-                      {isGroup
-                        ? `${participants.length} member${participants.length === 1 ? '' : 's'}`
-                        : (others[0]?.name ?? '')}
-                    </p>
-                    {isGroup && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="mt-2"
-                        onClick={() => {
-                          setTitleDraft(conversation?.title ?? '');
-                          setRenaming(true);
-                        }}
-                      >
-                        <Pencil className="size-3.5" />
-                        Rename group
-                      </Button>
-                    )}
-                    {/* Their profile, the obvious next stop from a chat. Only
-                        when they have a public page to open. */}
-                    {direct?.handle && (
-                      <Button asChild variant="outline" size="sm" className="mt-3">
-                        <Link href={`/u/${direct.handle}`} onClick={() => onOpenChange(false)}>
-                          <UserRound className="size-3.5" />
-                          View profile
-                          <ChevronRight className="size-3.5 text-muted-foreground" />
-                        </Link>
-                      </Button>
-                    )}
-                  </>
+                <Avatar className="size-20">
+                  {others[0]?.avatar_url && <AvatarImage src={others[0].avatar_url} alt="" />}
+                  <AvatarFallback className="bg-primary/15 text-2xl font-bold text-primary">
+                    {title.slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <h3 className="mt-3 text-lg font-bold">{title}</h3>
+                {/* Their profile, the obvious next stop from a chat. Only
+                    when they have a public page to open. */}
+                {direct?.handle && (
+                  <Button asChild variant="outline" size="sm" className="mt-3">
+                    <Link href={`/u/${direct.handle}`} onClick={() => onOpenChange(false)}>
+                      <UserRound className="size-3.5" />
+                      View profile
+                      <ChevronRight className="size-3.5 text-muted-foreground" />
+                    </Link>
+                  </Button>
                 )}
               </div>
 
@@ -289,42 +256,10 @@ export function ConversationInfo({
 
               <Separator className="my-4" />
 
-              {/* Members */}
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                  {isGroup ? 'Members' : 'Contact'}
-                </p>
-                {isGroup && addable.length > 0 && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <UserPlus className="size-3.5" />
-                        Add
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      {addable.map((friend) => (
-                        <DropdownMenuItem
-                          key={friend.id}
-                          onSelect={() =>
-                            addMember.mutate(friend.friend_user_id!, {
-                              onError: fail('Could not add'),
-                            })
-                          }
-                        >
-                          <Avatar className="size-5">
-                            <AvatarFallback className="bg-primary/15 text-[9px] font-bold text-primary">
-                              {friend.friend_name.slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          {friend.friend_name}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-
+              {/* Who is in it */}
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                Contact
+              </p>
               <ul className="flex flex-col gap-1">
                 {participants.map((person) => (
                   <li key={person.id} className="flex items-center gap-3 rounded-lg px-1 py-1.5">
@@ -344,27 +279,6 @@ export function ConversationInfo({
                       <Badge variant="outline" className="text-[10px]">
                         BLOCKED
                       </Badge>
-                    )}
-                    {addMember.isPending && <Loader2 className="size-3.5 animate-spin" />}
-                    {/* A direct chat has its own Safety rows below instead. */}
-                    {isGroup && person.id !== user?.id && (
-                      <PersonSafetyMenu
-                        safety={safety}
-                        subject={{
-                          name: person.name,
-                          target: { userId: person.id },
-                          blockId: person.block_id ?? null,
-                        }}
-                      >
-                        {person.handle && (
-                          <DropdownMenuItem asChild>
-                            <Link href={`/u/${person.handle}`} onClick={() => onOpenChange(false)}>
-                              <UserRound />
-                              View profile
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                      </PersonSafetyMenu>
                     )}
                   </li>
                 ))}
@@ -446,6 +360,9 @@ export function ConversationInfo({
                     )}
                   </div>
                 </>
+              )}
+
+              </>
               )}
 
               <Separator className="my-4" />

@@ -1,6 +1,6 @@
 # Chat: what it does today, and how it could do more
 
-Status: **all five phases approved (2026-11-17), designs approved (boards 120–148).** Phase 1 is PR #244. Phase 2 is being built on `feat/chat-cards`, on top of Phase 1 and the pay card (PR #243); see *Phase 2 as built* at the end.
+Status: **all five phases approved (2026-11-17), designs approved (boards 120–148).** Phase 1 is PR #244. Phase 2 is PR #245, on top of Phase 1 and the pay card (PR #243). Phase 3 is being built on `feat/chat-crew`, on top of Phase 2. See *Phase 2 as built* and *Phase 3 as built* at the end.
 
 > "elevate the features for the chat too, be able to do more"
 
@@ -207,3 +207,39 @@ On `feat/chat-cards`, which carries Phase 1 (`feat/chat-basics`, PR #244) and th
 - Forward and Edit stay text-only. Forwarding someone's package or booking card would show it to a chat they didn't choose.
 - Reports copy a card's body, which holds the link, but not its context: `report_evidence` has no column for it.
 - Cards that show pictures (album photos and posts) follow the weak-signal rule 3: blurred stand-ins until tapped when pictures aren't loading automatically.
+
+## Phase 3 as built
+
+On `feat/chat-crew`, which starts from Phase 2 (`feat/chat-cards`, PR #245). Merge #244, #243 and #245 first; then this one's diff is only Phase 3.
+
+**Server**
+- Migration `113_chat_crew.sql` adds:
+  - a `notice` message kind;
+  - on `conversations`: `workspace_id`, `hiring_post_id`, `photo_url`, `about` and `add_policy`;
+  - `conversation_participants.is_admin`;
+  - `messages.pinned_at` and `pinned_by`.
+  - It makes every existing group's maker its admin. A group whose maker has left gets its longest-standing member.
+  - It makes a team chat for every workspace that already has a team, opening with a notice.
+- **Team chats** (`api/src/messages/crew/`, ChatCrewModule).
+  - Made the moment a second person joins a workspace. The owner is its admin, and everyone in it except clients is a member.
+  - People join and leave it as they join and leave the workspace (accepting, being removed, leaving, or a client's role changing), and it takes the workspace's name.
+  - Becoming a client doesn't take someone out: that's an admin's call.
+- **Crew chats.** `POST /messages/crews` lets the poster start one once two people are hired. Everyone hired is in it, it opens with a notice, then the job card. Anyone hired later joins, and anyone whose booking is cancelled leaves. A job post now says how many are hired, and its crew chat to anyone in it.
+- **Admins.**
+  - Admins change the name, About, photo, and who can add people, and they remove people and make admins.
+  - A group always keeps an admin. The workspace owner and the job's poster are always admins of their chat.
+- **Notices** say who was added, removed, joined or left. They're never pushed, never unread, can't be reacted to, pinned or unsent, and show as a plain line in apps from before notices.
+- **Pins.**
+  - Up to three per chat, the same for everyone; anyone in the chat can pin. A fourth answers 409 `PINS_FULL` unless it names one to take down.
+  - Unsending a pinned message unpins it.
+  - A small `pins` live frame tells apps to ask again.
+- **Search inside a chat:** `GET /messages/:id/search`, plus `around` on the thread to open it at a match or a pin. The list search now says which message matched.
+
+**Decided while building**
+- A team chat shows a photo an admin sets, not the workspace's cover. The cover comes from an album that some of the team may not be allowed to open.
+- A team chat is named after its workspace, so renaming the workspace is what renames it.
+- Renaming any group is now for its admins. Before, any member could; a crew chat renamed by whoever tapped it is what admins are for.
+- Ordinary groups keep "everyone can add people", as before; team and crew chats start with "admins".
+- The team chat doesn't follow a block. A block only cancels pending workspace invitations, and inside a group two people across a block are already silenced towards each other.
+
+**Found, not fixed (outside this phase):** applying for a job still treats a role as filled after its booking was cancelled. `HiringService.apply` counts accepted applications, not `HOLDS_ROLE`, unlike the board and the job page.

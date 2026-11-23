@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -16,6 +18,7 @@ import { PresenceService } from '../realtime/presence.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { blockedBetween } from '../safety/block-sql';
 import { BlocksService } from '../safety/blocks.service';
+import { StorageService } from '../storage/storage.service';
 import type { CardKind } from './cards/card-kinds';
 import { unreadMessagesCount } from './unread-sql';
 
@@ -99,6 +102,52 @@ export interface ConversationSummary {
   archived: boolean;
   /** Marked unread by hand, to come back to. Cleared when it is read. */
   markedUnread: boolean;
+  /**
+   * The message a search matched, when it matched one: what the list opens
+   * the chat at. Null otherwise.
+   */
+  matchId: string | null;
+  /** Groups only: the one line everyone sees at the top of group info. */
+  about: string | null;
+  /** Whether the caller is one of this group's admins. False on a direct chat. */
+  isAdmin: boolean;
+  /** Who can add people to this group. Direct chats say 'everyone' and take nobody. */
+  addPolicy: AddPolicy;
+  /**
+   * What made this group, if anything did: a workspace's team chat or a job's
+   * crew chat. `originTitle` is the workspace's name or the job's title, as it
+   * is now; `originId` is the workspace's id or the job post's.
+   */
+  origin: GroupOrigin | null;
+  originId: string | null;
+  originTitle: string | null;
+}
+
+/** Who can add people to a group. */
+export type AddPolicy = 'everyone' | 'admins';
+
+/** What a group was made for: a workspace's team, or the people hired on a job. */
+export type GroupOrigin = 'workspace' | 'crew';
+
+/** Pinned messages one chat can hold. Everyone in it sees the same ones. */
+export const MAX_PINNED_MESSAGES = 3;
+
+/** How long a group's About can be. */
+export const GROUP_ABOUT_MAX = 200;
+
+/** Messages either side of the one a search or a pin opens the chat at. */
+export const AROUND_EACH_SIDE = 20;
+
+/** Most matches one search inside a chat lists, newest first. */
+export const MAX_SEARCH_MATCHES = 200;
+
+/** A group's settings an admin can change. Anything left out stays as it is. */
+export interface GroupPatch {
+  title?: string;
+  about?: string | null;
+  /** A public address of an image the admin uploaded, or null to take it off. */
+  photoUrl?: string | null;
+  addPolicy?: AddPolicy;
 }
 
 export interface MessageRow {
@@ -128,7 +177,7 @@ export interface MessageRow {
    * things somebody shared from Virgo (CardKind), filled in the same way by
    * ChatCardsService.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card' | CardKind;
+  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | CardKind;
   /** Whatever the card needs to render. Null on a typed message. */
   context?: Record<string, unknown> | null;
   /**
@@ -147,6 +196,10 @@ export interface MessageRow {
    * already hold.
    */
   reactions?: { userId: string; reaction: Reaction }[];
+  /** When somebody pinned it for the chat. Null when it is not pinned. */
+  pinned_at?: Date | null;
+  /** Who pinned it. Only on the pins list. */
+  pinned_by_name?: string | null;
 }
 
 /**
@@ -188,7 +241,7 @@ export interface ListStatePatch {
  */
 const MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.created_at,
                 m.deleted_at, m.mentions, m.reply_to_id, m.kind, m.context, m.client_id,
-                m.edited_at, m.forwarded,
+                m.edited_at, m.forwarded, m.pinned_at,
                 -- Every reaction on it, as one small array. The primary key
                 -- starts with message_id, so this is an index lookup per row.
                 coalesce((
@@ -251,6 +304,12 @@ export interface Thread {
   blockedByMe: boolean;
   /** That block, when `blockedByMe` — what unblocking takes. */
   blockId: string | null;
+  /**
+   * Only when the thread was asked for around one message: whether there are
+   * messages newer than the newest one returned. False means it reaches the
+   * newest message, and the app can carry on live from it.
+   */
+  hasNewer?: boolean;
 }
 
 export interface ParticipantRow {
@@ -283,6 +342,13 @@ export interface ParticipantRow {
   blocked_by_me: boolean;
   /** The caller's block on them, which is what unblocking takes. */
   block_id: string | null;
+  /** One of the group's admins. Always false in a direct chat. */
+  is_admin: boolean;
+  /** When they joined this chat: "in this group since Nov 12". */
+  joined_at: Date;
+  /** What they do, from their profile: role keys, then their own words. */
+  roles: string[];
+  custom_roles: string[];
 }
 
 /**
@@ -313,7 +379,13 @@ export class MessagesService {
     // as their plain text and cannot be sent.
     @Optional() private readonly payMethods?: MoneyPayMethodsService,
     @Optional() private readonly packages?: MoneyPackagesService,
+    // Optional for the same reason: a group photo is checked against, and
+    // tidied out of, the uploader's own avatars. Without it a photo cannot be
+    // set and nothing is deleted.
+    @Optional() private readonly storage?: StorageService,
   ) {}
+
+  private readonly log = new Logger(MessagesService.name);
 
   private cardFiller: CardFiller | null = null;
 
@@ -329,7 +401,7 @@ export class MessagesService {
    */
   private async withCards<T extends MessageRow>(rows: T[]): Promise<T[]> {
     await this.withPayCards(rows);
-    if (this.cardFiller && rows.some((r) => r.kind && r.kind !== 'text')) {
+    if (this.cardFiller && rows.some((r) => r.kind && r.kind !== 'text' && r.kind !== 'notice')) {
       await this.cardFiller.fill(rows);
     }
     return rows;
@@ -638,10 +710,11 @@ export class MessagesService {
         [name, userId],
       );
       const id = rows[0].id;
+      // Whoever makes a group is its admin.
       await client.query(
-        `insert into conversation_participants (conversation_id, user_id)
-         select $1, unnest($2::uuid[])`,
-        [id, [userId, ...unique]],
+        `insert into conversation_participants (conversation_id, user_id, is_admin)
+         select $1, m, m = $3::uuid from unnest($2::uuid[]) m`,
+        [id, [userId, ...unique], userId],
       );
       return { id };
     });
@@ -649,7 +722,249 @@ export class MessagesService {
     return created;
   }
 
-  /** Adds someone to an existing group. Members can invite their own friends. */
+  /**
+   * Makes a group that belongs to something: a workspace's team chat or a
+   * job's crew chat. For ChatCrewService, never a request.
+   *
+   * No friend check, unlike createGroup. Being in the workspace, or hired on
+   * the job, is what puts somebody here, and a crew is not all friends with
+   * each other. Two members across a block are silenced towards each other,
+   * as in any group they share. The maker is its admin; only admins add
+   * people. One per workspace and one per job: a second call while the first
+   * is still writing finds the first one's chat and returns it.
+   */
+  async createLinkedGroup(input: {
+    createdBy: string;
+    title: string;
+    memberIds: string[];
+    workspaceId?: string;
+    hiringPostId?: string;
+  }): Promise<{ id: string; created: boolean }> {
+    const members = [...new Set([input.createdBy, ...input.memberIds])];
+    const made = await this.db.transaction(async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into conversations (is_group, title, created_by, workspace_id, hiring_post_id, add_policy)
+         values (true, $1, $2, $3, $4, 'admins')
+         on conflict do nothing
+         returning id`,
+        [input.title.trim() || 'Group', input.createdBy, input.workspaceId ?? null, input.hiringPostId ?? null],
+      );
+      if (rows.length === 0) return null;
+      await client.query(
+        `insert into conversation_participants (conversation_id, user_id, is_admin)
+         select $1, m, m = $3::uuid from unnest($2::uuid[]) m`,
+        [rows[0].id, members, input.createdBy],
+      );
+      return rows[0].id;
+    });
+    if (made) {
+      this.announce(members, made);
+      return { id: made, created: true };
+    }
+    const existing = await this.db.queryOne<{ id: string }>(
+      `select id from conversations
+        where ($1::text is not null and workspace_id = $1)
+           or ($2::uuid is not null and hiring_post_id = $2)
+        limit 1`,
+      [input.workspaceId ?? null, input.hiringPostId ?? null],
+    );
+    if (!existing) throw new ConflictException('That chat could not be made');
+    return { id: existing.id, created: false };
+  }
+
+  /**
+   * Puts somebody into a group because of something outside it: they joined
+   * the workspace, or were hired on the job. For ChatCrewService. Writes the
+   * notice when they were not already in it, and tells everyone.
+   */
+  async joinLinked(
+    conversationId: string,
+    userId: string,
+    notice: string,
+    context: Record<string, unknown>,
+  ): Promise<boolean> {
+    const rows = await this.db.query<{ user_id: string }>(
+      `insert into conversation_participants (conversation_id, user_id)
+       values ($1, $2)
+       on conflict (conversation_id, user_id) do nothing
+       returning user_id`,
+      [conversationId, userId],
+    );
+    if (rows.length === 0) return false;
+    await this.notice(conversationId, userId, notice, context);
+    this.announce(await this.participantIds(conversationId), conversationId);
+    return true;
+  }
+
+  /**
+   * Takes somebody out of a group because of something outside it: they left
+   * the workspace, or their booking on the job was cancelled. For
+   * ChatCrewService. Nothing happens when they were not in it.
+   */
+  async departLinked(
+    conversationId: string,
+    userId: string,
+    notice: string,
+    context: Record<string, unknown>,
+  ): Promise<boolean> {
+    return this.depart(conversationId, userId, notice, context);
+  }
+
+  /** A notice from ChatCrewService: "Team chat for Santos Studio…". */
+  async postNotice(
+    conversationId: string,
+    senderId: string,
+    body: string,
+    context: Record<string, unknown>,
+  ): Promise<void> {
+    await this.notice(conversationId, senderId, body, context);
+  }
+
+  /** A team chat takes its workspace's new name. For ChatCrewService. */
+  async renameLinked(conversationId: string, title: string): Promise<void> {
+    const name = title.trim();
+    if (!name) return;
+    await this.db.query('update conversations set title = $2 where id = $1', [
+      conversationId,
+      name.slice(0, 120),
+    ]);
+    this.announce(await this.participantIds(conversationId), conversationId);
+  }
+
+  /**
+   * Writes a notice: the chat saying who joined, left, was added or removed.
+   *
+   * From the person it is about (or who did it), so an app from before
+   * notices shows it as a line from them that still reads right. Never
+   * pushed and never counted as unread; it still bumps the chat in the list,
+   * since something did happen in it, and it does not bring a chat back out
+   * of anybody's archive.
+   */
+  private async notice(
+    conversationId: string,
+    senderId: string,
+    body: string,
+    context: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const inserted = await this.db.queryOne<{ id: string }>(
+        `insert into messages (conversation_id, sender_id, body, kind, context)
+         values ($1, $2, $3, 'notice', $4::jsonb) returning id`,
+        [conversationId, senderId, body.trim().slice(0, 4000), JSON.stringify(context)],
+      );
+      const row = await this.joinedMessage(inserted!.id);
+      // Everyone in it, the way a card the app writes goes: a notice says
+      // nothing a block should keep from anyone.
+      this.realtime.emitToUsers(await this.participantIds(conversationId), {
+        type: 'message',
+        conversationId,
+        message: row,
+      });
+    } catch (err) {
+      // The membership change stands; a missing line about it is the lesser
+      // problem.
+      this.log.warn(`Could not write a notice in ${conversationId}: ${String(err)}`);
+    }
+  }
+
+  /** "Ana Lim", as everywhere else names people. */
+  private async nameOf(userId: string): Promise<string> {
+    const row = await this.db.queryOne<{ name: string }>(
+      `select coalesce(display_name, split_part(email, '@', 1)) as name from users where id = $1`,
+      [userId],
+    );
+    return row?.name ?? 'Someone';
+  }
+
+  /**
+   * A group, and where the caller stands in it. Throws Not Found for a chat
+   * they are not in, and Bad Request for a direct chat.
+   */
+  private async groupFor(
+    userId: string,
+    conversationId: string,
+  ): Promise<{
+    isAdmin: boolean;
+    addPolicy: AddPolicy;
+    workspaceId: string | null;
+    hiringPostId: string | null;
+    /** Who cannot be removed or lose admin here: the workspace's owner, the job's poster. */
+    anchorId: string | null;
+    photoUrl: string | null;
+  }> {
+    const row = await this.db.queryOne<{
+      is_group: boolean;
+      is_admin: boolean;
+      add_policy: AddPolicy;
+      workspace_id: string | null;
+      hiring_post_id: string | null;
+      anchor_id: string | null;
+      photo_url: string | null;
+    }>(
+      `select c.is_group, me.is_admin, c.add_policy, c.workspace_id, c.hiring_post_id, c.photo_url,
+              coalesce((select w.user_id from workspaces w where w.id = c.workspace_id),
+                       (select hp.user_id from hiring_posts hp where hp.id = c.hiring_post_id)) as anchor_id
+         from conversations c
+         join conversation_participants me on me.conversation_id = c.id and me.user_id = $2
+        where c.id = $1`,
+      [conversationId, userId],
+    );
+    if (!row) throw new NotFoundException('Conversation not found');
+    if (!row.is_group) throw new BadRequestException('That only works in a group');
+    return {
+      isAdmin: row.is_admin,
+      addPolicy: row.add_policy,
+      workspaceId: row.workspace_id,
+      hiringPostId: row.hiring_post_id,
+      anchorId: row.anchor_id,
+      photoUrl: row.photo_url,
+    };
+  }
+
+  /**
+   * Takes somebody out of a group, keeping it with an admin: when the last
+   * admin goes, whoever has been in it longest becomes one. Writes the notice
+   * and tells everyone who was in it, the person leaving included, so it
+   * leaves their list.
+   */
+  private async depart(
+    conversationId: string,
+    userId: string,
+    notice: string,
+    context: Record<string, unknown>,
+    /** Who the notice is from: the person leaving, or the admin who removed them. */
+    noticeFrom: string = userId,
+  ): Promise<boolean> {
+    const members = await this.participantIds(conversationId);
+    if (!members.includes(userId)) return false;
+    await this.db.transaction(async (client) => {
+      await client.query(
+        `delete from conversation_participants
+          where conversation_id = $1 and user_id = $2`,
+        [conversationId, userId],
+      );
+      await client.query(
+        `update conversation_participants p
+            set is_admin = true
+          where p.conversation_id = $1
+            and not exists (select 1 from conversation_participants a
+                             where a.conversation_id = $1 and a.is_admin)
+            and p.user_id = (select p2.user_id from conversation_participants p2
+                              where p2.conversation_id = $1
+                              order by p2.joined_at, p2.user_id
+                              limit 1)`,
+        [conversationId],
+      );
+    });
+    if (members.length > 1) await this.notice(conversationId, noticeFrom, notice, context);
+    this.announce(members, conversationId);
+    return true;
+  }
+
+  /**
+   * Adds someone to an existing group. Members can invite their own friends,
+   * unless the group lets only its admins add people.
+   */
   async addMember(
     userId: string,
     conversationId: string,
@@ -663,6 +978,10 @@ export class MessagesService {
     );
     if (!convo?.is_group) {
       throw new BadRequestException('Cannot add people to a direct chat');
+    }
+    const group = await this.groupFor(userId, conversationId);
+    if (group.addPolicy === 'admins' && !group.isAdmin) {
+      throw new ForbiddenException('Only admins can add people to this group');
     }
     await this.assertFriends(userId, [memberId]);
 
@@ -691,8 +1010,197 @@ export class MessagesService {
     );
     // Everyone now in it, the person added included: the group appears in
     // their list, and everyone else's member count and names move.
-    if (rows.length > 0) this.announce(await this.participantIds(conversationId), conversationId);
+    if (rows.length > 0) {
+      const [actor, added] = await Promise.all([this.nameOf(userId), this.nameOf(memberId)]);
+      await this.notice(conversationId, userId, `${actor} added ${added}`, {
+        event: 'added',
+        actorId: userId,
+        subjectId: memberId,
+      });
+      this.announce(await this.participantIds(conversationId), conversationId);
+    }
     return { added: rows.length > 0 };
+  }
+
+  /**
+   * Makes a member an admin, or stops them being one. Admins only.
+   *
+   * A group always keeps at least one admin, and a team chat's workspace
+   * owner and a crew chat's poster are always admins of it.
+   */
+  async setAdmin(
+    userId: string,
+    conversationId: string,
+    memberId: string,
+    admin: boolean,
+  ): Promise<{ isAdmin: boolean }> {
+    const group = await this.groupFor(userId, conversationId);
+    if (!group.isAdmin) throw new ForbiddenException('Only admins can change who is an admin');
+    const target = await this.db.queryOne<{ is_admin: boolean }>(
+      `select is_admin from conversation_participants
+        where conversation_id = $1 and user_id = $2`,
+      [conversationId, memberId],
+    );
+    if (!target) throw new NotFoundException('They are not in this group');
+    if (target.is_admin === admin) return { isAdmin: admin };
+
+    if (!admin) {
+      if (memberId === group.anchorId) {
+        throw new BadRequestException(
+          group.workspaceId
+            ? "The workspace's owner is always an admin of its team chat"
+            : 'Whoever posted the job is always an admin of its crew chat',
+        );
+      }
+      const others = await this.db.queryOne<{ count: string }>(
+        `select count(*)::text as count from conversation_participants
+          where conversation_id = $1 and is_admin and user_id <> $2`,
+        [conversationId, memberId],
+      );
+      if (Number(others?.count ?? 0) === 0) {
+        throw new BadRequestException('Make someone else an admin first');
+      }
+    }
+
+    await this.db.query(
+      `update conversation_participants set is_admin = $3
+        where conversation_id = $1 and user_id = $2`,
+      [conversationId, memberId, admin],
+    );
+    this.announce(await this.participantIds(conversationId), conversationId);
+    return { isAdmin: admin };
+  }
+
+  /**
+   * Takes somebody out of a group. Admins only, and not themselves (that is
+   * leaving). They stop seeing new messages, and the chat says they were
+   * removed. A team chat's workspace owner and a crew chat's poster stay.
+   */
+  async removeMember(
+    userId: string,
+    conversationId: string,
+    memberId: string,
+  ): Promise<{ removed: boolean }> {
+    if (memberId === userId) throw new BadRequestException('Leave the group instead');
+    const group = await this.groupFor(userId, conversationId);
+    if (!group.isAdmin) throw new ForbiddenException('Only admins can remove people');
+    if (memberId === group.anchorId) {
+      throw new BadRequestException(
+        group.workspaceId
+          ? "The workspace's owner can't be removed from its team chat"
+          : "Whoever posted the job can't be removed from its crew chat",
+      );
+    }
+    const [actor, removed] = await Promise.all([this.nameOf(userId), this.nameOf(memberId)]);
+    const gone = await this.depart(
+      conversationId,
+      memberId,
+      `${actor} removed ${removed}`,
+      { event: 'removed', actorId: userId, subjectId: memberId },
+      userId,
+    );
+    if (!gone) throw new NotFoundException('They are not in this group');
+    return { removed: true };
+  }
+
+  /**
+   * Changes a group's name, About, photo, or who can add people. Admins only.
+   *
+   * A team chat is named after its workspace, so renaming the workspace is
+   * what renames it. A photo must be one the admin uploaded to their own
+   * avatars, which is where the apps put it; the one it replaces is deleted,
+   * unless something else still shows it.
+   */
+  async updateGroup(
+    userId: string,
+    conversationId: string,
+    patch: GroupPatch,
+  ): Promise<{ id: string; title: string; about: string | null; photoUrl: string | null; addPolicy: AddPolicy }> {
+    const group = await this.groupFor(userId, conversationId);
+    if (!group.isAdmin) {
+      throw new ForbiddenException("Only admins can change this group's details");
+    }
+
+    const sets: string[] = [];
+    const params: unknown[] = [conversationId];
+    const set = (column: string, value: unknown) => {
+      params.push(value);
+      sets.push(`${column} = $${params.length}`);
+    };
+
+    if (patch.title !== undefined) {
+      const name = patch.title.trim();
+      if (!name) throw new BadRequestException('Give the group a name');
+      if (group.workspaceId) {
+        throw new BadRequestException(
+          'This chat is named after its workspace. Rename the workspace to rename it.',
+        );
+      }
+      set('title', name.slice(0, 120));
+    }
+    if (patch.about !== undefined) {
+      const about = patch.about?.trim() ?? '';
+      if (about.length > GROUP_ABOUT_MAX) {
+        throw new BadRequestException(`Keep it to ${GROUP_ABOUT_MAX} characters`);
+      }
+      set('about', about || null);
+    }
+    if (patch.photoUrl !== undefined) {
+      if (patch.photoUrl !== null) {
+        const key = this.storage?.keyFromPublicUrl(patch.photoUrl);
+        if (!key || !key.startsWith(`users/${userId}/avatars/`)) {
+          throw new BadRequestException('Upload the photo from the app, then set it');
+        }
+      }
+      set('photo_url', patch.photoUrl);
+    }
+    if (patch.addPolicy !== undefined) set('add_policy', patch.addPolicy);
+    if (sets.length === 0) throw new BadRequestException('Nothing to change');
+
+    const row = await this.db.queryOne<{
+      title: string | null;
+      about: string | null;
+      photo_url: string | null;
+      add_policy: AddPolicy;
+    }>(
+      `update conversations set ${sets.join(', ')}
+        where id = $1
+        returning title, about, photo_url, add_policy`,
+      params,
+    );
+    if (patch.photoUrl !== undefined && group.photoUrl && group.photoUrl !== row?.photo_url) {
+      await this.discardGroupPhoto(group.photoUrl);
+    }
+    this.announce(await this.participantIds(conversationId), conversationId);
+    return {
+      id: conversationId,
+      title: row?.title ?? 'Group',
+      about: row?.about ?? null,
+      photoUrl: row?.photo_url ?? null,
+      addPolicy: row?.add_policy ?? 'everyone',
+    };
+  }
+
+  /**
+   * Deletes the object a replaced group photo was, from the avatars of
+   * whoever uploaded it. Not while anything still shows it — another group,
+   * or somebody's profile — and never fatal: the group has its new photo.
+   */
+  private async discardGroupPhoto(url: string): Promise<void> {
+    try {
+      const key = this.storage?.keyFromPublicUrl(url);
+      const owner = key ? /^users\/([^/]+)\/avatars\//.exec(key)?.[1] : null;
+      if (!this.storage || !key || !owner) return;
+      const used = await this.db.queryOne<{ used: boolean }>(
+        `select exists (select 1 from conversations where photo_url = $1)
+             or exists (select 1 from users where avatar_url = $1) as used`,
+        [url],
+      );
+      if (used?.used) return;
+      await this.storage.deleteObject(owner, key);
+    } catch (err) {
+      this.log.warn(`Could not remove a replaced group photo: ${String(err)}`);
+    }
   }
 
   /**
@@ -717,33 +1225,19 @@ export class MessagesService {
     return { muted: !!until && until.getTime() > Date.now(), mutedUntil: until };
   }
 
-  /** Renames a group. Any member may do it, as they all share the thread. */
+  /**
+   * Renames a group. Its admins may, since groups have admins: any member
+   * could before, and a crew chat renamed by whoever happened to tap it is
+   * the kind of thing admins exist to stop. A direct chat is titled from the
+   * other person, so a stored title would never be shown.
+   */
   async rename(
     userId: string,
     conversationId: string,
     title: string,
   ): Promise<{ id: string; title: string }> {
-    await this.assertMember(userId, conversationId);
-
-    const name = title.trim();
-    if (!name) throw new BadRequestException('Give the group a name');
-
-    const convo = await this.db.queryOne<{ is_group: boolean }>(
-      'select is_group from conversations where id = $1',
-      [conversationId],
-    );
-    if (!convo?.is_group) {
-      // A direct chat is titled from the other person, so a stored title would
-      // never be shown and renaming would silently do nothing.
-      throw new BadRequestException('Only a group can be renamed');
-    }
-
-    await this.db.query('update conversations set title = $2 where id = $1', [
-      conversationId,
-      name,
-    ]);
-    this.announce(await this.participantIds(conversationId), conversationId);
-    return { id: conversationId, title: name };
+    const updated = await this.updateGroup(userId, conversationId, { title });
+    return { id: updated.id, title: updated.title };
   }
 
   /**
@@ -766,14 +1260,10 @@ export class MessagesService {
     );
 
     if (convo?.is_group) {
-      // Read before the row goes, so the leaver's other devices hear it too.
-      const members = await this.participantIds(conversationId);
-      await this.db.query(
-        `delete from conversation_participants
-          where conversation_id = $1 and user_id = $2`,
-        [conversationId, userId],
-      );
-      this.announce(members, conversationId);
+      await this.depart(conversationId, userId, `${await this.nameOf(userId)} left`, {
+        event: 'left',
+        subjectId: userId,
+      });
       return { deleted: true, left: true };
     }
 
@@ -788,9 +1278,23 @@ export class MessagesService {
     return { deleted: true, left: false };
   }
 
-  /** Leaving deletes only your membership; the conversation survives. */
+  /**
+   * Leaving deletes only your membership; the conversation survives. A group
+   * says so, and keeps an admin.
+   */
   async leave(userId: string, conversationId: string): Promise<{ left: boolean }> {
     await this.assertMember(userId, conversationId);
+    const convo = await this.db.queryOne<{ is_group: boolean }>(
+      'select is_group from conversations where id = $1',
+      [conversationId],
+    );
+    if (convo?.is_group) {
+      await this.depart(conversationId, userId, `${await this.nameOf(userId)} left`, {
+        event: 'left',
+        subjectId: userId,
+      });
+      return { left: true };
+    }
     const members = await this.participantIds(conversationId);
     await this.db.query(
       `delete from conversation_participants
@@ -833,11 +1337,19 @@ export class MessagesService {
       last_sender: string | null;
       unread: string;
       match_body: string | null;
+      match_id: string | null;
       muted_until: Date | null;
       other_blocked: boolean;
       pinned_at: Date | null;
       archived_at: Date | null;
       marked_unread: boolean;
+      photo_url: string | null;
+      about: string | null;
+      add_policy: AddPolicy;
+      workspace_id: string | null;
+      hiring_post_id: string | null;
+      is_admin: boolean;
+      origin_title: string | null;
     }>(
       `select c.id, c.is_group, c.title,
               -- For a direct chat the title is the other participant.
@@ -869,6 +1381,8 @@ export class MessagesService {
                 where m.conversation_id = c.id
                   and m.sender_id <> $1
                   and m.deleted_at is null
+                  -- "Jo joined" is never something to read.
+                  and m.kind <> 'notice'
                   and (me.cleared_at is null or m.created_at > me.cleared_at)
                   and (me.last_read_at is null or m.created_at > me.last_read_at)
                   and not exists (
@@ -878,10 +1392,22 @@ export class MessagesService {
                   and not ${blockedBetween('$1', 'm.sender_id')}
               ) as unread,
               hit.body as match_body,
+              hit.id as match_id,
               me.muted_until,
               me.pinned_at,
               me.archived_at,
               me.marked_unread,
+              c.photo_url,
+              c.about,
+              c.add_policy,
+              c.workspace_id,
+              c.hiring_post_id,
+              me.is_admin,
+              -- The workspace's name or the job's title as they are now: "From
+              -- your Santos Wedding job".
+              coalesce((select w.name from workspaces w where w.id = c.workspace_id),
+                       (select hp.title from hiring_posts hp where hp.id = c.hiring_post_id))
+                as origin_title,
               -- A direct chat across a block, whichever way round, so its dot
               -- can be darkened rather than showing when they come and go.
               (not c.is_group and exists (
@@ -902,7 +1428,9 @@ export class MessagesService {
                        when m.kind <> 'text' then split_part(m.body, chr(10), 1)
                        else m.body end as body,
                   m.created_at,
-                  coalesce(u.display_name, split_part(u.email, '@', 1)) as sender_name
+                  -- A notice names its people itself: "Jo joined", not "Jo: Jo joined".
+                  case when m.kind = 'notice' then null
+                       else coalesce(u.display_name, split_part(u.email, '@', 1)) end as sender_name
              from messages m
              join users u on u.id = m.sender_id
             where m.conversation_id = c.id
@@ -919,11 +1447,12 @@ export class MessagesService {
          -- Deleted messages are excluded: a search must not resurrect text
          -- that was removed from the thread.
          left join lateral (
-           select m.body
+           select m.id, m.body
              from messages m
             where $2::text is not null
               and m.conversation_id = c.id
               and m.deleted_at is null
+              and m.kind <> 'notice'
               and (me.cleared_at is null or m.created_at > me.cleared_at)
               and m.body ilike $2
               and not exists (
@@ -990,7 +1519,10 @@ export class MessagesService {
       id: r.id,
       isGroup: r.is_group,
       title: r.is_group ? (r.title ?? 'Group') : (r.other_name ?? 'Conversation'),
-      avatarUrl: r.is_group ? null : r.other_avatar,
+      // A group shows the photo an admin set, or nothing (the apps draw its
+      // initial). Not a team chat's workspace cover: that comes from an album
+      // some of the team may not be allowed to open.
+      avatarUrl: r.is_group ? r.photo_url : r.other_avatar,
       participantCount: Number(r.participant_count),
       lastMessage: r.last_body,
       lastAt: r.last_at,
@@ -1011,6 +1543,13 @@ export class MessagesService {
       pinned: !!r.pinned_at,
       archived: !!r.archived_at,
       markedUnread: r.marked_unread === true,
+      matchId: r.match_id,
+      about: r.is_group ? r.about : null,
+      isAdmin: r.is_group && r.is_admin === true,
+      addPolicy: r.is_group ? r.add_policy : 'everyone',
+      origin: r.workspace_id ? 'workspace' : r.hiring_post_id ? 'crew' : null,
+      originId: r.workspace_id ?? r.hiring_post_id ?? null,
+      originTitle: r.workspace_id || r.hiring_post_id ? r.origin_title : null,
     }));
   }
 
@@ -1116,8 +1655,73 @@ export class MessagesService {
      * a gap, and the app fetches the newest page instead.
      */
     after?: string,
+    /**
+     * A message to open the chat at: the one a search matched, or a pin. The
+     * messages around it, AROUND_EACH_SIDE either way, still newest first,
+     * with `hasNewer` saying whether the newest of them is the chat's newest.
+     * Not with `before` or `after`; `limit` does not apply.
+     */
+    around?: string,
   ): Promise<Thread> {
     const state = await this.sendState(conversationId, userId);
+
+    if (around) {
+      const visible = `m.conversation_id = $1
+            and not exists (select 1 from message_deletions d
+                             where d.message_id = m.id and d.user_id = $2)
+            and (me.cleared_at is null or m.created_at > me.cleared_at)`;
+      const anchor = await this.db.queryOne<{ created_at: Date; id: string }>(
+        `select m.created_at, m.id
+           from messages m
+           join conversation_participants me
+             on me.conversation_id = m.conversation_id and me.user_id = $2
+          where m.id = $3 and ${visible}`,
+        [conversationId, userId, around],
+      );
+      if (!anchor) throw new NotFoundException('That message is not in this chat any more');
+      const [older, newer, me] = await Promise.all([
+        this.db.query<MessageRow>(
+          `select ${MESSAGE_COLUMNS}
+             from messages m
+             join conversation_participants me
+               on me.conversation_id = m.conversation_id and me.user_id = $2
+             ${MESSAGE_JOINS}
+            where ${visible}
+              and (m.created_at, m.id) <= (select a.created_at, a.id from messages a where a.id = $3)
+            order by m.created_at desc, m.id desc
+            limit $4`,
+          [conversationId, userId, anchor.id, AROUND_EACH_SIDE + 1],
+        ),
+        this.db.query<MessageRow>(
+          `select ${MESSAGE_COLUMNS}
+             from messages m
+             join conversation_participants me
+               on me.conversation_id = m.conversation_id and me.user_id = $2
+             ${MESSAGE_JOINS}
+            where ${visible}
+              and (m.created_at, m.id) > (select a.created_at, a.id from messages a where a.id = $3)
+            order by m.created_at asc, m.id asc
+            limit $4`,
+          [conversationId, userId, anchor.id, AROUND_EACH_SIDE + 1],
+        ),
+        this.db.queryOne<{ last_read_at: Date | null }>(
+          `select last_read_at from conversation_participants
+            where conversation_id = $1 and user_id = $2`,
+          [conversationId, userId],
+        ),
+      ]);
+      const hasNewer = newer.length > AROUND_EACH_SIDE;
+      const rows = [...newer.slice(0, AROUND_EACH_SIDE).reverse(), ...older];
+      const blockedByMe = !state.isGroup && !!state.myBlockId;
+      return {
+        messages: await this.withCards(rows),
+        lastReadAt: me?.last_read_at ?? null,
+        canSend: !frozen(state),
+        blockedByMe,
+        blockId: blockedByMe ? state.myBlockId : null,
+        hasNewer,
+      };
+    }
 
     const [messages, me] = await Promise.all([
       this.db.query<MessageRow>(
@@ -1206,13 +1810,23 @@ export class MessagesService {
   ): Promise<{ deleted: boolean; scope: 'me' | 'everyone' }> {
     const state = await this.sendState(conversationId, userId);
 
-    const message = await this.db.queryOne<{ sender_id: string; deleted_at: Date | null }>(
-      'select sender_id, deleted_at from messages where id = $1 and conversation_id = $2',
+    const message = await this.db.queryOne<{
+      sender_id: string;
+      deleted_at: Date | null;
+      kind: string;
+      pinned_at: Date | null;
+    }>(
+      'select sender_id, deleted_at, kind, pinned_at from messages where id = $1 and conversation_id = $2',
       [messageId, conversationId],
     );
     if (!message) throw new NotFoundException('Message not found');
 
     if (scope === 'everyone') {
+      // A notice is the chat's own record of who came and went, even though
+      // an older app draws it as the person's own line.
+      if (message.kind === 'notice') {
+        throw new BadRequestException("That can't be deleted for everyone");
+      }
       if (message.sender_id !== userId) {
         throw new ForbiddenException('You can only delete your own messages for everyone');
       }
@@ -1222,8 +1836,9 @@ export class MessagesService {
           "Messages in this conversation can't be deleted for everyone any more.",
         );
       }
+      // Unsent also takes it off the pins.
       await this.db.query(
-        `update messages set body = '', deleted_at = now()
+        `update messages set body = '', deleted_at = now(), pinned_at = null, pinned_by = null
           where id = $1 and deleted_at is null`,
         [messageId],
       );
@@ -1233,12 +1848,14 @@ export class MessagesService {
       await this.db.query('delete from message_reactions where message_id = $1', [messageId]);
       // Every participant, blocked or not. A retraction reveals nothing, and a
       // blocked member with the thread open must still lose the text.
-      this.realtime.emitToUsers(await this.participantIds(conversationId), {
+      const everyone = await this.participantIds(conversationId);
+      this.realtime.emitToUsers(everyone, {
         type: 'message-deleted',
         conversationId,
         messageId,
         scope,
       });
+      if (message.pinned_at) this.announcePins(everyone, conversationId);
       return { deleted: true, scope };
     }
 
@@ -1341,6 +1958,7 @@ export class MessagesService {
     }
     const message = await this.visibleMessage(userId, conversationId, messageId);
     if (message.deleted_at) throw new BadRequestException('That message was unsent');
+    if (message.kind === 'notice') throw new BadRequestException("That can't be reacted to");
 
     if (reaction === null) {
       await this.db.query(
@@ -1483,6 +2101,150 @@ export class MessagesService {
     }
     if (sent === 0) throw new BadRequestException("That couldn't be forwarded");
     return { sent, skipped: targets.length - sent };
+  }
+
+  /**
+   * The chat's pinned messages, newest pin first, filled in like the thread.
+   * Shared by everyone in it; each reader sees the ones still in their own
+   * thread, so a pin from before they cleared the chat does not show.
+   */
+  async pins(userId: string, conversationId: string): Promise<MessageRow[]> {
+    await this.assertMember(userId, conversationId);
+    const rows = await this.db.query<MessageRow>(
+      `select ${MESSAGE_COLUMNS},
+              coalesce(pu.display_name, split_part(pu.email, '@', 1)) as pinned_by_name
+         from messages m
+         join conversation_participants me
+           on me.conversation_id = m.conversation_id and me.user_id = $2
+         ${MESSAGE_JOINS}
+         left join users pu on pu.id = m.pinned_by
+        where m.conversation_id = $1
+          and m.pinned_at is not null
+          and m.deleted_at is null
+          and (me.cleared_at is null or m.created_at > me.cleared_at)
+          and not exists (select 1 from message_deletions d
+                           where d.message_id = m.id and d.user_id = $2)
+        order by m.pinned_at desc
+        limit ${MAX_PINNED_MESSAGES}`,
+      [conversationId, userId],
+    );
+    return this.withCards(rows);
+  }
+
+  /**
+   * Pins a message for everyone in the chat. Anyone in it can, three at most:
+   * a fourth needs `replace`, the pin to take down for it, and without one
+   * the answer is a 409 the apps turn into "which one?". Not a notice, not an
+   * unsent message, and not in a chat a block has frozen. Nobody is pushed.
+   */
+  async pin(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+    replace?: string,
+  ): Promise<{ pins: MessageRow[] }> {
+    const state = await this.sendState(conversationId, userId);
+    if (frozen(state)) throw refusal('CHAT_UNAVAILABLE', "You can't pin in this conversation.");
+    const message = await this.visibleMessage(userId, conversationId, messageId);
+    if (message.deleted_at) throw new BadRequestException('That message was unsent');
+    if (message.kind === 'notice') throw new BadRequestException("That can't be pinned");
+
+    await this.db.transaction(async (client) => {
+      // One pin at a time per chat, so two people pinning a third and a
+      // fourth at once cannot both get in.
+      await client.query('select id from conversations where id = $1 for update', [conversationId]);
+      const { rows } = await client.query<{ id: string }>(
+        `select id from messages
+          where conversation_id = $1 and pinned_at is not null and deleted_at is null`,
+        [conversationId],
+      );
+      const pinned = rows.map((r) => r.id);
+      if (pinned.includes(messageId)) return;
+      if (replace) {
+        if (!pinned.includes(replace)) throw new BadRequestException('That one is not pinned');
+        await client.query(
+          'update messages set pinned_at = null, pinned_by = null where id = $1',
+          [replace],
+        );
+      } else if (pinned.length >= MAX_PINNED_MESSAGES) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          code: 'PINS_FULL',
+          message: `A chat can have ${MAX_PINNED_MESSAGES} pinned messages. Take one down to pin this.`,
+        });
+      }
+      await client.query(
+        'update messages set pinned_at = now(), pinned_by = $2 where id = $1',
+        [messageId, userId],
+      );
+    });
+
+    this.announcePins(await this.participantIds(conversationId), conversationId);
+    return { pins: await this.pins(userId, conversationId) };
+  }
+
+  /** Takes a pin down, for everyone. Anyone in the chat can. */
+  async unpin(
+    userId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<{ pins: MessageRow[] }> {
+    const state = await this.sendState(conversationId, userId);
+    if (frozen(state)) throw refusal('CHAT_UNAVAILABLE', "You can't change pins in this conversation.");
+    const rows = await this.db.query<{ id: string }>(
+      `update messages set pinned_at = null, pinned_by = null
+        where id = $1 and conversation_id = $2 and pinned_at is not null
+        returning id`,
+      [messageId, conversationId],
+    );
+    if (rows.length > 0) this.announcePins(await this.participantIds(conversationId), conversationId);
+    return { pins: await this.pins(userId, conversationId) };
+  }
+
+  /**
+   * Tells people the pins changed. Only the chat's id: each app asks for the
+   * pins it may see, which is one small request. Older apps ignore the frame.
+   */
+  private announcePins(userIds: readonly string[], conversationId: string): void {
+    if (userIds.length === 0) return;
+    this.realtime.emitToUsers([...new Set(userIds)], { type: 'pins', conversationId });
+  }
+
+  /**
+   * Searches one chat: every message whose words contain `q`, newest first,
+   * as ids and times for the app to step through and open the chat at
+   * (`around`). The same messages the reader's thread holds; not notices,
+   * and a card by its line, not the link under it.
+   */
+  async search(
+    userId: string,
+    conversationId: string,
+    q: string,
+  ): Promise<{ matches: { id: string; createdAt: Date }[] }> {
+    await this.assertMember(userId, conversationId);
+    const term = q.trim();
+    if (!term) return { matches: [] };
+    const rows = await this.db.query<{ id: string; created_at: Date }>(
+      `select m.id, m.created_at
+         from messages m
+         join conversation_participants me
+           on me.conversation_id = m.conversation_id and me.user_id = $2
+        where m.conversation_id = $1
+          and m.deleted_at is null
+          and m.kind <> 'notice'
+          and (me.cleared_at is null or m.created_at > me.cleared_at)
+          and not exists (select 1 from message_deletions d
+                           where d.message_id = m.id and d.user_id = $2)
+          -- position(), not ilike: what someone types is words, and a % or
+          -- _ in it should not turn into a pattern.
+          and position(lower($3) in lower(case when m.kind = 'text' then m.body
+                                               else split_part(m.body, chr(10), 1) end)) > 0
+        order by m.created_at desc, m.id desc
+        limit ${MAX_SEARCH_MATCHES}`,
+      [conversationId, userId, term.slice(0, 100)],
+    );
+    return { matches: rows.map((r) => ({ id: r.id, createdAt: r.created_at })) };
   }
 
   /**
@@ -1792,6 +2554,10 @@ export class MessagesService {
                    else least(p.last_delivered_at, blk.at) end as last_delivered_at,
               coalesce(blk.by_me, false) as blocked_by_me,
               blk.my_id as block_id,
+              (c.is_group and p.is_admin) as is_admin,
+              p.joined_at,
+              u.roles,
+              u.custom_roles,
               (blk.at is not null
                 or (c.is_group
                     and p.user_id <> $2
@@ -1814,7 +2580,8 @@ export class MessagesService {
                 or (ub.blocker_id = p.user_id and ub.blocked_id = $2))
          ) blk on true
         where p.conversation_id = $1
-        order by name`,
+        -- Admins first, as the group's info lists them.
+        order by (c.is_group and p.is_admin) desc, name`,
       [conversationId, userId],
     );
 
