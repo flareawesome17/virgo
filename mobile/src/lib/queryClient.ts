@@ -198,7 +198,9 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // were pinned, and people carry admin, joined and roles.
 // v18: messages can carry photos and a file from somebody's device, with
 // their attachments; storage counts what you sent in chats.
-const CACHE_VERSION = 'v18-chat-files'
+// v19: messages can be voice notes, and attachments carry a length and a
+// waveform.
+const CACHE_VERSION = 'v19-chat-voice'
 
 /**
  * Never written to disk, whatever their staleTime says.

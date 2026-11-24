@@ -2,6 +2,7 @@ import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { CameraIcon, type LucideIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { BottomSheet } from '@/components/BottomSheet';
+import { NATIVE_FEATURES } from '@/src/lib/native-features';
 import { CARD_ICON, SAVED_REPLIES_ICON } from './cards/card-icons';
 
 cssInterop(CameraIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -18,7 +19,9 @@ export type ShareChoice =
   | 'saved-replies'
   // From your phone: these use your storage.
   | 'photos'
-  | 'file';
+  | 'file'
+  // Only on a build that has the camera (NATIVE_FEATURES.camera).
+  | 'camera';
 
 const TILES: { key: ShareChoice; label: string; icon: LucideIcon; hint: string }[] = [
   { key: 'album-photos', label: 'Album photos', icon: CARD_ICON['album-photos'], hint: 'Choose photos from an album to send as a link' },
@@ -35,6 +38,8 @@ const FROM_PHONE: { key: ShareChoice; label: string; icon: LucideIcon; hint: str
   { key: 'photos', label: 'Photos', icon: CARD_ICON.photos, hint: 'Choose up to 10 photos from your phone. They use your storage' },
   { key: 'file', label: 'A file', icon: CARD_ICON.file, hint: 'Choose a PDF from your phone. It uses your storage' },
 ];
+
+const CAMERA = { key: 'camera', label: 'Camera', icon: CameraIcon, hint: 'Take a photo to send. It uses your storage' } as const;
 
 const COLUMNS = 4;
 const SIDE = 12;
@@ -107,27 +112,31 @@ export function SharePlusSheet({
       </Text>
       <View className="flex-row flex-wrap pb-2" style={{ paddingHorizontal: SIDE, columnGap: GAP, rowGap: 4 }}>
         {FROM_PHONE.map(tileFor)}
-        {/* The camera is off in the installed apps: it needs a store build. */}
-        <View
-          accessible
-          accessibilityRole="button"
-          accessibilityLabel="Camera, coming in the next app update"
-          accessibilityState={{ disabled: true }}
-          className="items-center rounded-2xl pt-2.5 pb-2 gap-1.5"
-          style={{ width: tile }}
-        >
-          <View className="w-12 h-12 rounded-[14px] items-center justify-center bg-muted opacity-60">
-            <CameraIcon size={22} className="text-foreground" />
-          </View>
-          <Text className="text-muted-foreground text-[13px] leading-4 font-semibold text-center" numberOfLines={1}>
-            Camera
-          </Text>
-          <View className="rounded-full bg-primary/10 px-1.5">
-            <Text className="text-primary text-[10px] leading-[14px] font-bold" numberOfLines={1}>
-              Next app update
+        {/* The camera needs a store build: the installed apps say it's coming. */}
+        {NATIVE_FEATURES.camera ? (
+          tileFor(CAMERA)
+        ) : (
+          <View
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Camera, coming in the next app update"
+            accessibilityState={{ disabled: true }}
+            className="items-center rounded-2xl pt-2.5 pb-2 gap-1.5"
+            style={{ width: tile }}
+          >
+            <View className="w-12 h-12 rounded-[14px] items-center justify-center bg-muted opacity-60">
+              <CameraIcon size={22} className="text-foreground" />
+            </View>
+            <Text className="text-muted-foreground text-[13px] leading-4 font-semibold text-center" numberOfLines={1}>
+              Camera
             </Text>
+            <View className="rounded-full bg-primary/10 px-1.5">
+              <Text className="text-primary text-[10px] leading-[14px] font-bold" numberOfLines={1}>
+                Next app update
+              </Text>
+            </View>
           </View>
-        </View>
+        )}
       </View>
     </BottomSheet>
   );

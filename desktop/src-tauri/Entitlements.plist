@@ -23,5 +23,13 @@
   -->
   <key>com.apple.security.personal-information.location</key>
   <true/>
+
+  <!--
+    For voice notes in chat. The microphone is another resource the hardened
+    runtime makes an app declare before macOS will ask; the prompt's wording
+    is in Info.plist.
+  -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>

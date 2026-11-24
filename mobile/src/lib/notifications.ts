@@ -52,6 +52,8 @@ type LocalApi = {
   dismissNotificationAsync: NotificationsModule['dismissNotificationAsync'];
   addNotificationResponseReceivedListener: NotificationsModule['addNotificationResponseReceivedListener'];
   getLastNotificationResponseAsync: NotificationsModule['getLastNotificationResponseAsync'];
+  // The buttons under a message's notification (chat phase 5).
+  setNotificationCategoryAsync: NotificationsModule['setNotificationCategoryAsync'];
   // Optional: the barrel fallback below may come from a version without it.
   clearLastNotificationResponse?: NotificationsModule['clearLastNotificationResponse'];
   AndroidImportance: NotificationsModule['AndroidImportance'];
@@ -89,6 +91,7 @@ function loadNotifications(): LocalApi | null {
     // Taps only. This module imports the emitter and nothing token-related, so
     // it stays clear of DevicePushTokenAutoRegistration like the rest.
     const emitter = require('expo-notifications/build/NotificationsEmitter');
+    const categories = require('expo-notifications/build/setNotificationCategoryAsync');
 
     cached = {
       setNotificationHandler: handler.setNotificationHandler,
@@ -102,6 +105,7 @@ function loadNotifications(): LocalApi | null {
       addNotificationResponseReceivedListener:
         emitter.addNotificationResponseReceivedListener,
       getLastNotificationResponseAsync: emitter.getLastNotificationResponseAsync,
+      setNotificationCategoryAsync: categories.default,
       clearLastNotificationResponse: emitter.clearLastNotificationResponse,
       AndroidImportance: channelTypes.AndroidImportance,
       AndroidNotificationVisibility: channelTypes.AndroidNotificationVisibility,
@@ -721,6 +725,9 @@ async function requestPushRegistration(): Promise<PushRegistration | null> {
       () => true,
       () => false,
     );
+    // Reply, Mark as read and Mute under a message. Best effort: without
+    // them a message's notification still arrives, just without buttons.
+    await ensureMessageCategory().catch(() => undefined);
     const appVersion = channelsReady ? Constants.expoConfig?.version : undefined;
     return {
       token: data,
@@ -765,6 +772,8 @@ export interface NotificationPayload {
     | 'retention'
     | string;
   conversationId?: string;
+  /** For 'message': the message itself. */
+  messageId?: string;
   albumId?: string;
   reminderId?: string;
   eventId?: string;
@@ -790,6 +799,118 @@ export interface NotificationPayload {
   /** For 'announcement': the broadcast it came from. */
   broadcastId?: string;
   url?: string;
+}
+
+// ─── Buttons under a message (chat phase 5) ─────────────────────────────────
+
+/**
+ * The category the server sends a message's push under. The same string is
+ * MESSAGE_PUSH_CATEGORY in api/src/messages/messages.service.ts. An app that
+ * never registered it shows the notification without buttons.
+ */
+export const MESSAGE_CATEGORY = 'chat-message';
+
+export const MESSAGE_ACTIONS = {
+  reply: 'chat-reply',
+  read: 'chat-read',
+  mute: 'chat-mute-hour',
+} as const;
+
+export type MessageActionKind = keyof typeof MESSAGE_ACTIONS;
+
+/** A button under a message's notification, pressed. */
+export interface MessageAction {
+  kind: MessageActionKind;
+  conversationId: string;
+  messageId: string | null;
+  /** What was typed into Reply. Empty for the other two. */
+  text: string;
+  /** The notification, to take it away once done. */
+  notificationId: string | null;
+}
+
+/**
+ * Registers Reply, Mark as read and Mute for 1 hour.
+ *
+ * Reply sends from the notification without opening the app, as the board
+ * draws it. On iPhone the app is woken in the background to send it. The
+ * Android builds people have cannot run any of the app's code for a button
+ * while the app is closed, so a reply typed there would be lost: on Android,
+ * Reply opens the app to send it, and the chat with it. Mark as read and
+ * Mute stay in the background on both; if the app is closed on Android they
+ * do nothing and the notification stays, which says so.
+ *
+ * Nothing asks to unlock: as with Messages, iOS's own setting decides
+ * whether replies can be typed on the lock screen.
+ */
+export async function ensureMessageCategory(): Promise<void> {
+  const N = loadNotifications();
+  if (!N || Platform.OS === 'web') return;
+  await N.setNotificationCategoryAsync(MESSAGE_CATEGORY, [
+    {
+      identifier: MESSAGE_ACTIONS.reply,
+      buttonTitle: 'Reply',
+      textInput: { submitButtonTitle: 'Send', placeholder: 'Reply' },
+      options: { opensAppToForeground: Platform.OS === 'android' },
+    },
+    {
+      identifier: MESSAGE_ACTIONS.read,
+      buttonTitle: 'Mark as read',
+      options: { opensAppToForeground: false },
+    },
+    {
+      identifier: MESSAGE_ACTIONS.mute,
+      buttonTitle: 'Mute for 1 hour',
+      options: { opensAppToForeground: false },
+    },
+  ]);
+}
+
+/** Takes a notification out of the drawer once its button has been acted on. */
+export async function dismissNotification(id: string | null): Promise<void> {
+  if (!id) return;
+  try {
+    await loadNotifications()?.dismissNotificationAsync(id);
+  } catch {
+    // Already gone.
+  }
+}
+
+/** A button pressed before anyone was listening (a cold start), waiting for them. */
+const pendingActions: MessageAction[] = [];
+let actionHandler: ((action: MessageAction) => void) | null = null;
+
+/**
+ * Calls back for each button pressed under a message's notification,
+ * including ones pressed before this was set up. Returns an unsubscribe.
+ */
+export function onMessageAction(handle: (action: MessageAction) => void): () => void {
+  actionHandler = handle;
+  for (const action of pendingActions.splice(0)) handle(action);
+  return () => {
+    if (actionHandler === handle) actionHandler = null;
+  };
+}
+
+function messageActionOf(response: unknown): MessageAction | null {
+  const r = response as {
+    actionIdentifier?: string;
+    userText?: string;
+    notification?: { request?: { identifier?: string } };
+  };
+  const kind = (Object.keys(MESSAGE_ACTIONS) as MessageActionKind[]).find(
+    (k) => MESSAGE_ACTIONS[k] === r?.actionIdentifier,
+  );
+  if (!kind) return null;
+  const payload = payloadOf(response);
+  if (!payload?.conversationId) return null;
+  return {
+    kind,
+    conversationId: payload.conversationId,
+    messageId: typeof payload.messageId === 'string' ? payload.messageId : null,
+    text: typeof r.userText === 'string' ? r.userText : '',
+    notificationId: r.notification?.request?.identifier ?? null,
+  };
 }
 
 /**
@@ -850,6 +971,14 @@ export function onNotificationTap(
       N.clearLastNotificationResponse?.();
     } catch {
       // Not every platform keeps one.
+    }
+    // A button under a message is not a tap on it: Mark as read must not
+    // open the chat it marked.
+    const action = messageActionOf(response);
+    if (action) {
+      if (actionHandler) actionHandler(action);
+      else pendingActions.push(action);
+      return;
     }
     const payload = payloadOf(response);
     if (payload) handle(payload);

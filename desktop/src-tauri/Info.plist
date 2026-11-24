@@ -15,5 +15,13 @@
   <string>Virgo uses your location to show you creatives nearby, and to let people near you find you while you share it in Nearby.</string>
   <key>NSLocationUsageDescription</key>
   <string>Virgo uses your location to show you creatives nearby, and to let people near you find you while you share it in Nearby.</string>
+
+  <!--
+    Voice notes in chat (chat phase 5) record through the webview's
+    getUserMedia. Without a reason macOS ends the app the moment the
+    microphone is asked for. The wording is the phone app's.
+  -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Virgo uses your microphone to record voice notes you send in chat.</string>
 </dict>
 </plist>

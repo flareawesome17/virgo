@@ -33,6 +33,8 @@ export interface LocalChatFile {
   size: number;
   width: number | null;
   height: number | null;
+  /** A voice note's length as recorded. */
+  durationMs?: number;
 }
 
 const isWeb = Platform.OS === 'web';
@@ -171,11 +173,20 @@ export async function keepChatFile(file: LocalChatFile): Promise<LocalChatFile> 
   if (!KEEP_DIR) return file;
   if (file.uri.startsWith(KEEP_DIR)) return file;
   await FileSystem.makeDirectoryAsync(KEEP_DIR, { intermediates: true }).catch(() => undefined);
-  const ext = file.contentType === 'application/pdf' ? 'pdf' : 'jpg';
+  const ext =
+    file.contentType === 'application/pdf'
+      ? 'pdf'
+      : file.contentType.startsWith('audio/')
+        ? 'm4a'
+        : 'jpg';
   const to = `${KEEP_DIR}${randomStem()}.${ext}`;
   await FileSystem.copyAsync({ from: file.uri, to });
-  // The cache copy is no longer needed; the picker's own may be shared, so only ours goes.
-  if (file.uri.startsWith(FileSystem.cacheDirectory ?? '\0') && file.uri.includes('ImageManipulator')) {
+  // The cache copy is no longer needed; the picker's own may be shared, so
+  // only ours goes. A recording is ours: the recorder writes it to the cache.
+  if (
+    file.uri.startsWith(FileSystem.cacheDirectory ?? '\0') &&
+    (file.uri.includes('ImageManipulator') || file.contentType.startsWith('audio/'))
+  ) {
     await FileSystem.deleteAsync(file.uri, { idempotent: true }).catch(() => undefined);
   }
   return { ...file, uri: to };

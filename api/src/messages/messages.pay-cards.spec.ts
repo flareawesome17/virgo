@@ -109,7 +109,14 @@ describe('MessagesService.sendPayCard', () => {
       [ME, THEM],
       expect.objectContaining({ type: 'message', conversationId: CONVO }),
     );
-    expect(notify).toHaveBeenCalledWith(ME, CONVO, expect.stringContaining('How to pay: GCash'), []);
+    // The message id rides along, for the reply buttons under the notification.
+    expect(notify).toHaveBeenCalledWith(
+      ME,
+      CONVO,
+      expect.stringContaining('How to pay: GCash'),
+      [],
+      expect.any(String),
+    );
   });
 
   it("refuses somebody else's way to pay, and stores nothing", async () => {

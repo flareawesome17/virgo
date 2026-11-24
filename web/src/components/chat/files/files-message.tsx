@@ -13,6 +13,7 @@ import { chatProblem } from '@/components/chat/chat-errors';
 import { attachmentLink } from '@/hooks/useChatFiles';
 import { fileDetailLine, chatFileSize, type ChatAttachment } from '@/api';
 import { retryUpload, useLocalCopies, useLocalUpload, type LocalUpload } from '@/components/chat/files/send-queue';
+import { VoiceNote } from '@/components/chat/voice/voice-note';
 
 /*
  * Photos and a PDF in the thread (board ChatPhotosSent, adapted for a
@@ -28,7 +29,19 @@ import { retryUpload, useLocalCopies, useLocalUpload, type LocalUpload } from '@
 /** One attachment as the thread draws it: the server's, or one still only on this computer. */
 export type TileModel = Pick<
   ChatAttachment,
-  'id' | 'kind' | 'status' | 'name' | 'sizeBytes' | 'width' | 'height' | 'pages' | 'blur' | 'thumbUrl' | 'url'
+  | 'id'
+  | 'kind'
+  | 'status'
+  | 'name'
+  | 'sizeBytes'
+  | 'width'
+  | 'height'
+  | 'pages'
+  | 'blur'
+  | 'thumbUrl'
+  | 'url'
+  | 'durationMs'
+  | 'waveform'
 >;
 
 /** How long a signed link is reused for the same photo before a fresher one is taken. */
@@ -401,9 +414,9 @@ export function FileCard({
 }
 
 /**
- * A photos or file message's content: the photos or the file, and the
+ * A photos, file or voice message's content: the photos or the file, and the
  * caption — in your own bubble under them, or inside their card under the
- * photo (board 142).
+ * photo (board 142) — or the voice note (board ChatVoicePlay).
  */
 export function FilesContent({
   conversationId,
@@ -418,7 +431,7 @@ export function FilesContent({
 }: {
   conversationId: string;
   messageId: string | null;
-  kind: 'photos' | 'file';
+  kind: 'photos' | 'file' | 'voice';
   attachments: TileModel[];
   caption: string | null;
   mine: boolean;
@@ -436,8 +449,26 @@ export function FilesContent({
     return (
       <div className={cn('rounded-2xl px-3.5 py-2.5 text-sm', mine ? 'bg-primary text-primary-foreground' : 'border bg-card')}>
         {above}
-        <p className="italic opacity-80">{kind === 'file' ? 'File' : 'Photos'} not available</p>
+        <p className="italic opacity-80">
+          {kind === 'file' ? 'File' : kind === 'voice' ? 'Voice note' : 'Photos'} not available
+        </p>
         {words && <p className="mt-1 whitespace-pre-wrap wrap-anywhere">{words}</p>}
+      </div>
+    );
+  }
+
+  if (kind === 'voice') {
+    const note = attachments.find((a) => a.kind === 'voice') ?? attachments[0];
+    return (
+      <div className={cn('flex flex-col', mine ? 'items-end' : 'items-start')}>
+        {above}
+        <VoiceNote
+          conversationId={conversationId}
+          messageId={messageId}
+          note={note}
+          mine={mine}
+          className={ring}
+        />
       </div>
     );
   }

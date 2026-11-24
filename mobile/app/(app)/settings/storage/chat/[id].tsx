@@ -3,9 +3,17 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View, useWindowDimensio
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
-import { CheckIcon, ImageIcon, Trash2Icon } from 'lucide-react-native';
+import { CheckIcon, ImageIcon, MicIcon, Trash2Icon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
-import { chatFileSize, fileDetailLine, formatBytes, type ConversationMessage } from '@/src/api';
+import {
+  chatFileSize,
+  fileDetailLine,
+  formatBytes,
+  voiceAttachment,
+  voiceLength,
+  voiceSpokenLength,
+  type ConversationMessage,
+} from '@/src/api';
 import { useTheme } from '@/src/hooks';
 import { useMediaAutoLoad } from '@/src/hooks/useConnectionQuality';
 import { useChatFilesUsage, useSentFiles, useUnsendFiles } from '@/src/hooks/useChatFiles';
@@ -17,7 +25,7 @@ import { useChatToast } from '@/components/chat/ChatToast';
 import { chatPhotoKey } from '@/components/chat/files/FilesMessage';
 import { PALETTES } from '@/theme';
 
-for (const Icon of [CheckIcon, ImageIcon, Trash2Icon]) {
+for (const Icon of [CheckIcon, ImageIcon, MicIcon, Trash2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
@@ -33,8 +41,8 @@ function bytesOf(m: ConversationMessage): number {
 }
 
 /**
- * What you sent in one chat (from the storage screen): your photos as a grid
- * and your files as rows, each with what it uses. Pick some, then Delete for
+ * What you sent in one chat (from the storage screen): your photos as a grid,
+ * your files and voice notes as rows, each with what it uses. Pick some, then Delete for
  * everyone takes them back from the chat and frees the room — in a chat you
  * have left as well, where they still count.
  */
@@ -58,6 +66,7 @@ export default function WhatYouSentScreen() {
   const live = useMemo(() => messages.filter((m) => !m.deleted_at && (m.attachments ?? []).length > 0), [messages]);
   const photos = live.filter((m) => m.kind === 'photos');
   const files = live.filter((m) => m.kind === 'file');
+  const voices = live.filter((m) => m.kind === 'voice');
   const total = live.reduce((sum, m) => sum + bytesOf(m), 0);
   const pickedBytes = live.filter((m) => picked.has(m.id)).reduce((sum, m) => sum + bytesOf(m), 0);
   const tile = Math.floor((Math.min(width, 560) - SIDE * 2 - GAP * (COLUMNS - 1)) / COLUMNS);
@@ -104,7 +113,7 @@ export default function WhatYouSentScreen() {
       <View className="flex-1 items-center justify-center px-10">
         <Text className="text-foreground text-[15px] font-bold text-center">Nothing left here</Text>
         <Text className="text-muted-foreground text-[13px] text-center mt-1.5 leading-5">
-          {"Photos and files you send in this chat from your phone show here, with what they use."}
+          {"Photos, files and voice notes you send in this chat from your phone show here, with what they use."}
         </Text>
       </View>
     );
@@ -194,6 +203,44 @@ export default function WhatYouSentScreen() {
                       </Text>
                       <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
                         {a ? fileDetailLine(a) : ''} · {momentLabel(m.created_at)}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
+        {voices.length > 0 ? (
+          <View>
+            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2 ml-1">Voice notes</Text>
+            <View className="bg-card rounded-2xl overflow-hidden">
+              {voices.map((m, i) => {
+                const a = voiceAttachment(m) ?? m.attachments?.[0];
+                const on = picked.has(m.id);
+                const length = a?.durationMs ? voiceLength(a.durationMs) : null;
+                const uses = chatFileSize(bytesOf(m));
+                const when = momentLabel(m.created_at);
+                return (
+                  <Pressable
+                    key={m.id}
+                    onPress={() => toggle(m.id)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    accessibilityLabel={`Voice note${a?.durationMs ? `, ${voiceSpokenLength(a.durationMs)}` : ''}, ${uses}, ${when}`}
+                    className={`flex-row items-center gap-3 px-4 py-3 ${on ? 'bg-secondary' : ''} ${i < voices.length - 1 ? 'border-b border-border/60' : ''}`}
+                  >
+                    <Tick on={on} />
+                    <View className="w-9 h-11 rounded-lg bg-primary/10 items-center justify-center">
+                      <MicIcon size={18} className="text-primary" />
+                    </View>
+                    <View className="flex-1 min-w-0">
+                      <Text className="text-foreground text-sm font-semibold" numberOfLines={1}>
+                        {length ? `Voice note · ${length}` : 'Voice note'}
+                      </Text>
+                      <Text className="text-muted-foreground text-xs mt-0.5" numberOfLines={1}>
+                        {uses} · {when}
                       </Text>
                     </View>
                   </Pressable>

@@ -16,10 +16,11 @@ import { insertThreadMessage, invalidateConversationRows, patchThreadMessages } 
 import { filesKeys } from '@/hooks/useChatFiles';
 import { usageQueryKey } from '@/hooks/useUsage';
 import { newClientId } from '@/lib/outbox';
-import { releasePreview, type PreparedFile } from '@/components/chat/files/prepare';
+import { prepareVoice, releasePreview, type PreparedFile } from '@/components/chat/files/prepare';
 
 /*
- * Photos and a PDF on their way out of this computer (phase 4).
+ * Photos and a PDF on their way out of this computer (phase 4), and a voice
+ * note recorded here (phase 5), which goes the same way as one photo.
  *
  * Words first, as on the phone: upload links, then the message — which shows
  * for everyone at once with its photos still on their way — then the bytes,
@@ -63,7 +64,8 @@ export interface FilesSend {
   /** Also the message's client id, so a retry after a lost answer stores it once. */
   key: string;
   conversationId: string;
-  kind: 'photos' | 'file';
+  /** A voice note is one recording, with no caption. */
+  kind: 'photos' | 'file' | 'voice';
   caption: string | null;
   replyTo: { id: string; body: string; sender: string | null } | null;
   files: LocalUpload[];
@@ -77,7 +79,7 @@ export interface FilesSend {
 
 /** What is said when the account has no room left (brief, item 8). */
 export const STORAGE_FULL_TEXT =
-  "You're out of storage. Photos and files from this computer won't send, but messages, album photos, cards and dates always will.";
+  "You're out of storage. Photos, files and voice notes from this computer won't send, but messages, album photos, cards and dates always will.";
 
 /** Sends kept for their previews after they finish, newest first, before the oldest are let go. */
 const KEEP_FINISHED = 40;
@@ -340,11 +342,21 @@ async function step(key: string): Promise<void> {
       try {
         const tickets = await chatApi.createUploads(
           send.conversationId,
-          send.files.map((f) => ({
-            contentType: f.file.contentType,
-            contentLength: f.file.sizeBytes,
-            name: f.file.name,
-          })),
+          send.files.map((f) =>
+            f.file.kind === 'voice'
+              ? {
+                  // The server names a voice note itself; its length is
+                  // what the list says before it arrives.
+                  contentType: f.file.contentType,
+                  contentLength: f.file.sizeBytes,
+                  ...(f.file.durationMs != null ? { durationMs: Math.round(f.file.durationMs) } : {}),
+                }
+              : {
+                  contentType: f.file.contentType,
+                  contentLength: f.file.sizeBytes,
+                  name: f.file.name,
+                },
+          ),
         );
         sends = sends.map((s) =>
           s.key === key
@@ -453,7 +465,7 @@ export function startFilesSend(
   client: QueryClient,
   input: {
     conversationId: string;
-    kind: 'photos' | 'file';
+    kind: FilesSend['kind'];
     files: PreparedFile[];
     caption: string | null;
     replyTo: FilesSend['replyTo'];
@@ -489,6 +501,28 @@ export function startFilesSend(
   emit();
   void run(key);
   return key;
+}
+
+/**
+ * Sends a voice note recorded here: in the thread at once, playable from
+ * this computer's copy, then words first — the message, with its note still
+ * arriving — then the bytes. No caption; the reply it answers goes with it.
+ */
+export function startVoiceSend(
+  client: QueryClient,
+  input: {
+    conversationId: string;
+    take: { blob: Blob; mimeType: string; durationMs: number };
+    replyTo: FilesSend['replyTo'];
+  },
+): string {
+  return startFilesSend(client, {
+    conversationId: input.conversationId,
+    kind: 'voice',
+    files: [prepareVoice(input.take)],
+    caption: null,
+    replyTo: input.replyTo,
+  });
 }
 
 /** Tries again now: a send refused before it went, or a file that stopped. */

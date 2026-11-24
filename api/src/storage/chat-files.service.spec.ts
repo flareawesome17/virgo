@@ -9,8 +9,17 @@ import {
   countPdfPages,
   MAX_CHAT_PHOTO_BYTES,
 } from './chat-files.service';
+import { encodeVoiceNote } from './chat-voice';
 import type { StorageService } from './storage.service';
 import type { ThumbnailsService } from './thumbnails.service';
+
+// ffmpeg is the server's, not the test's: the re-encode itself is checked in
+// chat-voice.spec.ts where ffmpeg is installed.
+jest.mock('./chat-voice', () => ({
+  ...jest.requireActual('./chat-voice'),
+  encodeVoiceNote: jest.fn(),
+}));
+const encodeVoice = encodeVoiceNote as jest.MockedFunction<typeof encodeVoiceNote>;
 
 /**
  * The rules around chat photos and files (migration 114). The SQL itself is
@@ -21,7 +30,7 @@ function harness(
   options: {
     configured?: boolean;
     waiting?: number;
-    checkRows?: { kind: 'photo' | 'file'; name: string }[];
+    checkRows?: { kind: 'photo' | 'file' | 'voice'; name: string; duration_ms?: number | null }[];
     row?: Record<string, unknown> | null;
     head?: { size: number } | null;
     bytes?: Buffer;
@@ -38,7 +47,7 @@ function harness(
         return { id: `att-${inserted}` };
       }
       if (sql.startsWith('update message_attachments') && sql.includes("status = 'ready'")) {
-        return { ...options.row, status: 'ready', size_bytes: args?.[1], thumb_key: args?.[2], blur: args?.[3], width_px: args?.[4], height_px: args?.[5], pages: args?.[6], name: args?.[7], content_type: args?.[8] };
+        return { ...options.row, status: 'ready', size_bytes: args?.[1], thumb_key: args?.[2], blur: args?.[3], width_px: args?.[4], height_px: args?.[5], pages: args?.[6], name: args?.[7], content_type: args?.[8], duration_ms: args?.[9] ?? options.row?.duration_ms ?? null, waveform: args?.[10] ?? null };
       }
       if (sql.includes('from message_attachments')) {
         return options.row === undefined ? null : options.row;
@@ -87,7 +96,7 @@ describe('ChatFilesService.createUploads', () => {
     expect(keys[1]).toMatch(/\.png$/);
     expect(quota.assertCanStore).toHaveBeenCalledWith('u1', 800_000);
     const inserts = queries.filter((q) => q.sql.includes('insert into message_attachments'));
-    expect(inserts[0].args).toEqual(['u1', 'c1', 0, 'photo', keys[0], 'IMG_0412.jpg', 'image/jpeg', 400_000]);
+    expect(inserts[0].args).toEqual(['u1', 'c1', 0, 'photo', keys[0], 'IMG_0412.jpg', 'image/jpeg', 400_000, null]);
     expect(inserts[1].args?.[2]).toBe(1);
   });
 
@@ -141,6 +150,33 @@ describe('ChatFilesService.createUploads', () => {
     await expect(files.createUploads('u1', 'c1', [PHOTO])).rejects.toMatchObject({ status: 503 });
   });
 
+  it('signs one voice note under an .m4a key, with the length its recorder measured', async () => {
+    const { files, storage, queries } = harness();
+    await files.createUploads('u1', 'c1', [
+      { contentType: 'audio/webm', contentLength: 90_000, durationMs: 32_400.4, name: 'x.webm' },
+    ]);
+    const [key, type] = storage.signServerUpload.mock.calls[0] as unknown as [string, string];
+    // Signed as what the browser recorded; re-encoded in place on arrival.
+    expect(key).toMatch(/^chat\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.m4a$/);
+    expect(type).toBe('audio/webm');
+    const insert = queries.find((q) => q.sql.includes('insert into message_attachments'))!;
+    expect(insert.args?.slice(3)).toEqual(['voice', key, 'Voice note.m4a', 'audio/webm', 90_000, 32_400]);
+  });
+
+  it('takes one voice note at a time, under 5 MB', async () => {
+    const { files } = harness();
+    const voice = { contentType: 'audio/mp4', contentLength: 200_000 };
+    await expect(files.createUploads('u1', 'c1', [voice, voice])).rejects.toThrow(
+      'one voice note at a time',
+    );
+    await expect(files.createUploads('u1', 'c1', [voice, PHOTO])).rejects.toThrow(
+      'one voice note at a time',
+    );
+    await expect(
+      files.createUploads('u1', 'c1', [{ ...voice, contentLength: 6 * 1024 * 1024 }]),
+    ).rejects.toThrow('up to 2 minutes');
+  });
+
   it('passes on a full storage refusal before anything is signed', async () => {
     const { files, storage, quota } = harness();
     quota.assertCanStore.mockRejectedValueOnce(Object.assign(new Error('full'), { status: 403 }));
@@ -156,6 +192,7 @@ describe('ChatFilesService.check', () => {
       kind: 'photos',
       count: 2,
       fileName: null,
+      durationMs: null,
     });
   });
 
@@ -165,7 +202,30 @@ describe('ChatFilesService.check', () => {
       kind: 'file',
       count: 1,
       fileName: 'Call sheet.pdf',
+      durationMs: null,
     });
+  });
+
+  it('reads one voice note as a voice message with the length its recorder gave', async () => {
+    const { files } = harness({
+      checkRows: [{ kind: 'voice', name: 'Voice note.m4a', duration_ms: 32_400 }],
+    });
+    await expect(files.check('u1', 'c1', ['a1'])).resolves.toEqual({
+      kind: 'voice',
+      count: 1,
+      fileName: null,
+      durationMs: 32_400,
+    });
+  });
+
+  it('refuses a voice note sent with anything else', async () => {
+    const { files } = harness({
+      checkRows: [
+        { kind: 'voice', name: 'Voice note.m4a', duration_ms: 3_000 },
+        { kind: 'photo', name: 'a' },
+      ],
+    });
+    await expect(files.check('u1', 'c1', ['a1', 'a2'])).rejects.toThrow('one voice note at a time');
   });
 
   it("refuses ids that aren't the sender's unsent uploads in this chat", async () => {
@@ -260,6 +320,53 @@ describe('ChatFilesService.finish', () => {
       bytes: Buffer.from('<html>'),
     });
     await expect(files.finish('u1', 'att-1')).rejects.toThrow("isn't a PDF");
+  });
+
+  beforeEach(() => encodeVoice.mockReset());
+
+  const voiceUploading = {
+    ...uploading,
+    kind: 'voice',
+    key: 'chat/2026/11/0b8f0f5e-6a8a-4c55-9d7e-3d3f6c1c9a10.m4a',
+    name: 'Voice note.m4a',
+    content_type: 'audio/webm',
+    size_bytes: 90_000,
+    duration_ms: 32_400,
+    waveform: null,
+  };
+
+  it('re-encodes a voice note over its upload, and keeps what was measured', async () => {
+    const waveform = Array.from({ length: 48 }, (_, i) => (i * 2) % 100);
+    encodeVoice.mockResolvedValueOnce({ audio: Buffer.alloc(96_000), durationMs: 32_120, waveform });
+    const { files, storage } = harness({ row: voiceUploading, bytes: Buffer.from('webm bytes') });
+    const done = await files.finish('u1', 'att-1');
+
+    expect(encodeVoice).toHaveBeenCalledWith(Buffer.from('webm bytes'));
+    expect(storage.putDerived).toHaveBeenCalledWith(voiceUploading.key, expect.any(Buffer), 'audio/mp4');
+    expect(done.attachment).toMatchObject({
+      kind: 'voice',
+      status: 'ready',
+      contentType: 'audio/mp4',
+      name: 'Voice note.m4a',
+      sizeBytes: 96_000,
+      durationMs: 32_120,
+      waveform,
+      thumbUrl: null,
+      url: `https://cdn.test/${voiceUploading.key}`,
+    });
+  });
+
+  it('marks a voice note that will not play, or is too long, failed', async () => {
+    encodeVoice.mockResolvedValueOnce(null);
+    const { files, storage } = harness({ row: voiceUploading, bytes: Buffer.from('?') });
+    await expect(files.finish('u1', 'att-1')).rejects.toThrow("couldn't be played");
+    expect(storage.deleteServerObjects).toHaveBeenCalledWith([voiceUploading.key], 'chat file failed');
+  });
+
+  it('refuses a voice note that arrived larger than 5 MB without reading it', async () => {
+    const { files } = harness({ row: voiceUploading, head: { size: 6 * 1024 * 1024 } });
+    await expect(files.finish('u1', 'att-1')).rejects.toThrow('up to 2 minutes');
+    expect(encodeVoice).not.toHaveBeenCalled();
   });
 
   it('does nothing again for one already ready', async () => {

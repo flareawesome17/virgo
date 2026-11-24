@@ -61,10 +61,13 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
           // geolocation stays open to same-origin because Nearby depends on
-          // it (useNearby.ts). Camera and microphone are used nowhere.
+          // it (useNearby.ts), and the microphone because voice notes in
+          // chat record through it (chat phase 5). Closed, the browser
+          // refuses getUserMedia before it ever asks. The camera is used
+          // nowhere on web.
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(self)',
+            value: 'camera=(), microphone=(self), geolocation=(self)',
           },
         ],
       },

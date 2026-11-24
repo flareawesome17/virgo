@@ -701,4 +701,20 @@ describe('MessagesService message push badge', () => {
     expect(h.push.badgeCounts).not.toHaveBeenCalled();
     expect(h.push.send).not.toHaveBeenCalled();
   });
+
+  it('carries the reply buttons and the message a reply answers', async () => {
+    const h = harness({ answer: recipients, tokens: { [THEM]: ['ExponentPushToken[them]'] } });
+
+    await (h.service as unknown as { notify: (...a: unknown[]) => Promise<void> }).notify(
+      ME,
+      CONVO,
+      'Traffic sa SLEX',
+      [],
+      'msg-1',
+    );
+
+    const [sent] = h.push.send.mock.calls[0][0] as unknown as Record<string, unknown>[];
+    expect(sent.categoryId).toBe('chat-message');
+    expect(sent.data).toEqual({ type: 'message', conversationId: CONVO, messageId: 'msg-1' });
+  });
 });

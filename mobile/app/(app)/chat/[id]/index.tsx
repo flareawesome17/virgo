@@ -104,8 +104,10 @@ import {
   useChatUploads,
   type UploadJob,
 } from '@/src/lib/chat-uploads';
+import { stopVoice } from '@/src/lib/voice-player';
+import { takeChatPhoto } from '@/components/chat/files/camera';
 import { PendingFilesBubble } from '@/components/chat/files/FilesMessage';
-import { alertStorageFull, quoteLine, tell } from '@/components/chat/files/files-words';
+import { alertStorageFull, alertTurnedOff, quoteLine, tell } from '@/components/chat/files/files-words';
 import { handOffPicked } from '@/components/chat/files/picked';
 import { showChatPhoto } from '@/components/chat/files/viewer-handoff';
 import { LoadFailed } from '@/components/LoadFailed';
@@ -697,6 +699,15 @@ export default function ConversationScreen() {
 
   const cancelReply = useCallback(() => setReplyTo(null), []);
 
+  /** A voice note went in from the composer: the reply is answered, and the new one is the one to see. */
+  const voiceSent = useCallback(() => {
+    setReplyTo(null);
+    toLatest();
+  }, [toLatest]);
+
+  // Leaving the chat stops the voice note playing in it, and forgets where it was.
+  useEffect(() => () => stopVoice(), []);
+
   // ── Photos and files from this phone ──────────────────────────────────────
 
   /** A photo tapped in the thread: full screen, at that photo. */
@@ -791,6 +802,26 @@ export default function ConversationScreen() {
       router.push(`/chat/${id}/send-files`);
     } catch {
       showToast("Couldn't open your files. Try again.");
+    }
+  }, [id, replyTo, showToast]);
+
+  /**
+   * A photo from the camera, on a build that has it: to the same check
+   * screen as picked photos, shrunk and turned into a JPEG the same way.
+   */
+  const takePhotoForChat = useCallback(async () => {
+    if (!id) return;
+    try {
+      const taken = await takeChatPhoto();
+      if (!taken) return;
+      if (taken === 'denied') {
+        alertTurnedOff('camera');
+        return;
+      }
+      handOffPicked(id, { kind: 'photos', assets: [taken], replyTo });
+      router.push(`/chat/${id}/send-files`);
+    } catch {
+      showToast("Couldn't open the camera. Try again.");
     }
   }, [id, replyTo, showToast]);
 
@@ -1043,7 +1074,14 @@ export default function ConversationScreen() {
       });
     }
 
-    const what = message.kind === 'photos' ? 'the photos' : message.kind === 'file' ? 'the file' : null;
+    const what =
+      message.kind === 'photos'
+        ? 'the photos'
+        : message.kind === 'file'
+          ? 'the file'
+          : message.kind === 'voice'
+            ? 'the voice note'
+            : null;
     Alert.alert(
       'Delete message',
       mine
@@ -1199,6 +1237,9 @@ export default function ConversationScreen() {
           case 'file':
             void pickFileForChat();
             return;
+          case 'camera':
+            void takePhotoForChat();
+            return;
           case 'pay-card':
             if (payMethods.length > 0 || payMethodsLoading) setPayPicking(true);
             else if (payMethodsFailed) showToast("Couldn't load your ways to pay. Check your connection and try again.");
@@ -1211,7 +1252,10 @@ export default function ConversationScreen() {
       };
       setShareOpen(false);
     },
-    [id, payMethods.length, payMethodsLoading, payMethodsFailed, showToast, pickPhotosForChat, pickFileForChat],
+    [
+      id, payMethods.length, payMethodsLoading, payMethodsFailed, showToast, pickPhotosForChat, pickFileForChat,
+      takePhotoForChat,
+    ],
   );
   const runAfterShare = useCallback(() => {
     const next = afterShare.current;
@@ -1571,6 +1615,7 @@ export default function ConversationScreen() {
             onSaveEdit={saveEdit}
             onEditExpired={editExpired}
             onPlus={openShare}
+            onVoiceSent={voiceSent}
           />
         ) : !threadReady ? null : (
           <View

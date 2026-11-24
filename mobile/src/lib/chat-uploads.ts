@@ -60,7 +60,7 @@ export interface UploadJob {
   /** The message's client id, kept across retries: the server stores it once. */
   clientId: string;
   conversationId: string;
-  kind: 'photos' | 'file';
+  kind: 'photos' | 'file' | 'voice';
   caption: string | null;
   replyToId?: string;
   replyToSender?: string | null;
@@ -329,7 +329,12 @@ async function runJob(queryClient: QueryClient, clientId: string): Promise<boole
     try {
       const made = await chatApi.createUploads(
         job.conversationId,
-        job.files.map((f) => ({ contentType: f.contentType, contentLength: f.size, name: f.name })),
+        job.files.map((f) => ({
+          contentType: f.contentType,
+          contentLength: f.size,
+          name: f.name,
+          ...(f.durationMs ? { durationMs: Math.round(f.durationMs) } : {}),
+        })),
       );
       for (const ticket of made) tickets.set(ticket.id, ticket);
       patchJob(clientId, (j) => ({
@@ -484,7 +489,7 @@ export function queueChatFiles(
   queryClient: QueryClient,
   input: {
     conversationId: string;
-    kind: 'photos' | 'file';
+    kind: 'photos' | 'file' | 'voice';
     files: LocalChatFile[];
     caption: string | null;
     replyToId?: string;

@@ -351,7 +351,7 @@ export interface ConversationMessage {
    * The rest (CardKind) are Virgo things somebody shared: album photos, a
    * booking, a job post, a post, a package, a date.
    */
-  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | 'photos' | 'file' | CardKind;
+  kind?: 'text' | 'job-accepted' | 'pay-card' | 'notice' | 'photos' | 'file' | 'voice' | CardKind;
   /** What the card needs. Null on a typed message. Read it by `kind`. */
   context?:
     | JobAcceptedContext
@@ -382,8 +382,8 @@ export interface ConversationMessage {
   /** Who pinned it. Only on the pins list. */
   pinned_by_name?: string | null;
   /**
-   * Photos or a file from somebody's device, in order: on 'photos' and 'file'
-   * messages only. One can still be uploading (the words go first on a weak
+   * Photos, a file or a voice note from somebody's device, in order: on
+   * 'photos', 'file' and 'voice' messages only. One can still be uploading (the words go first on a weak
    * signal); it turns ready through a `message-edited` frame. Empty once
    * unsent. Absent from an older API.
    */
@@ -434,7 +434,7 @@ export function chatPhotoEdge(quality: ConnectionQuality): number {
   return quality === 'slow' ? CHAT_PHOTO_EDGE_SLOW : CHAT_PHOTO_EDGE;
 }
 
-export type ChatAttachmentKind = 'photo' | 'file';
+export type ChatAttachmentKind = 'photo' | 'file' | 'voice';
 export type ChatAttachmentStatus = 'uploading' | 'ready' | 'failed';
 
 /** A photo or a file on a message. */
@@ -455,6 +455,14 @@ export interface ChatAttachment {
   height: number | null;
   /** A PDF's page count, when it could be read. */
   pages: number | null;
+  /**
+   * A voice note's length: what its recorder said until it arrives, then
+   * what the server measured. Null on photos and files; absent from an
+   * older API.
+   */
+  durationMs?: number | null;
+  /** A voice note's shape: 48 levels from 0 to 100. Null until it arrives. */
+  waveform?: number[] | null;
   /** About 300 bytes: paint it first, and instead of the photo on a slow line. */
   blur: string | null;
   /** The photo's 640 px copy, for the thread. Signed for half a day. */
@@ -469,7 +477,7 @@ export interface FilesContext {
 }
 
 export function isFilesMessage(m: Pick<ConversationMessage, 'kind'>): boolean {
-  return m.kind === 'photos' || m.kind === 'file';
+  return m.kind === 'photos' || m.kind === 'file' || m.kind === 'voice';
 }
 
 /** The caption the sender typed, or null. */
@@ -516,11 +524,13 @@ export interface ChatUploadTicket {
   expiresAt: string;
 }
 
-/** One photo or file about to be sent: what it is, and how big. */
+/** One photo, file or voice note about to be sent: what it is, and how big. */
 export interface NewChatFile {
   contentType: string;
   contentLength: number;
   name?: string;
+  /** A voice note's length as recorded, so the chat list can say it before it arrives. */
+  durationMs?: number;
 }
 
 export interface SendFilesInput {
@@ -552,6 +562,100 @@ export interface ChatFilesUsage {
 export function uploadTicketExpired(ticket: Pick<ChatUploadTicket, 'expiresAt'>, now = Date.now()): boolean {
   const at = Date.parse(ticket.expiresAt);
   return !Number.isFinite(at) || at - now < 60_000;
+}
+
+// ─── Voice notes (phase 5) ──────────────────────────────────────────────────
+
+/** Hold to record, up to two minutes. The recording screen stops and sends there. */
+export const MAX_VOICE_MS = 120_000;
+/**
+ * Shorter than this is a slip of the thumb, not a voice note: nothing is
+ * sent, and the composer says to hold.
+ */
+export const MIN_VOICE_MS = 1_000;
+/**
+ * How a voice note is recorded: one channel, 22.05 kHz, 24 kbps. About
+ * 180 KB a minute, so two minutes is about 360 KB on a weak signal. The
+ * server re-encodes whatever arrives to the same.
+ */
+export const VOICE_SAMPLE_RATE = 22_050;
+export const VOICE_BIT_RATE = 24_000;
+
+/** The speeds a voice note plays at: one tap moves to the next. */
+export const VOICE_RATES = [1, 1.5, 2] as const;
+export type VoiceRate = (typeof VOICE_RATES)[number];
+
+export function nextVoiceRate(rate: VoiceRate): VoiceRate {
+  return VOICE_RATES[(VOICE_RATES.indexOf(rate) + 1) % VOICE_RATES.length];
+}
+
+/** "1×", "1.5×", "2×". */
+export function voiceRateLabel(rate: VoiceRate): string {
+  return `${rate}×`;
+}
+
+/** "0:32", "1:05": a voice note's length, or how far in it is. */
+export function voiceClock(ms: number | null | undefined): string {
+  const seconds = Math.max(0, Math.floor((ms ?? 0) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/** A voice note's length as the bubble says it: rounded, never "0:00". */
+export function voiceLength(ms: number | null | undefined): string {
+  if (!ms || ms <= 0) return '0:00';
+  return voiceClock(Math.max(1000, Math.round(ms / 1000) * 1000));
+}
+
+/** "Voice note, 32 seconds": what a screen reader says for a voice note. */
+export function voiceSpokenLength(ms: number | null | undefined): string {
+  const seconds = Math.max(1, Math.round((ms ?? 0) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  const parts = [
+    minutes ? `${minutes} minute${minutes === 1 ? '' : 's'}` : '',
+    rest ? `${rest} second${rest === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  return parts.join(' ') || '1 second';
+}
+
+export function isVoiceMessage(m: Pick<ConversationMessage, 'kind'>): boolean {
+  return m.kind === 'voice';
+}
+
+/** The voice note on a voice message, or null. */
+export function voiceAttachment(
+  m: Pick<ConversationMessage, 'kind' | 'attachments'>,
+): ChatAttachment | null {
+  if (!isVoiceMessage(m)) return null;
+  return m.attachments?.find((a) => a.kind === 'voice') ?? null;
+}
+
+/**
+ * A waveform merged down to the bars a bubble has room for, each from 0 to
+ * 1. A note with no waveform yet (still arriving) is a low, even line.
+ */
+export function voiceBars(waveform: number[] | null | undefined, count: number): number[] {
+  if (count <= 0) return [];
+  if (!waveform || waveform.length === 0) return new Array<number>(count).fill(0.12);
+  const per = waveform.length / count;
+  const bars: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const start = Math.floor(i * per);
+    const end = Math.max(start + 1, Math.floor((i + 1) * per));
+    let peak = 0;
+    for (let j = start; j < end && j < waveform.length; j++) peak = Math.max(peak, waveform[j]);
+    bars.push(Math.max(0.12, Math.min(1, peak / 100)));
+  }
+  return bars;
+}
+
+/** The type a recording is sent as, from what the recorder or browser made. */
+export function voiceContentType(mimeType: string | null | undefined): string {
+  const base = (mimeType ?? '').split(';')[0].trim().toLowerCase();
+  if (base === 'audio/webm' || base === 'video/webm') return 'audio/webm';
+  if (base === 'audio/ogg') return 'audio/ogg';
+  if (base === 'audio/aac') return 'audio/aac';
+  return 'audio/mp4';
 }
 
 /** One line for a pin in the strip and the Pinned sheet: its words, or what the card is. */
@@ -854,6 +958,10 @@ export function cardSummary(
     case 'file': {
       const file = (message as Pick<ConversationMessage, 'attachments'>).attachments?.[0];
       return { label: 'File', title: file?.name ?? fallback.replace(/^Sent a file: /, '') };
+    }
+    case 'voice': {
+      const note = (message as Pick<ConversationMessage, 'attachments'>).attachments?.[0];
+      return { label: 'Voice note', title: note?.durationMs ? voiceLength(note.durationMs) : '' };
     }
     default:
       return null;

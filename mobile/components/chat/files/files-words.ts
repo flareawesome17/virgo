@@ -1,10 +1,16 @@
-import { Alert, Platform } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 import { router } from 'expo-router';
-import { isFilesMessage, pinLine, type ConversationMessage } from '@/src/api';
+import {
+  isFilesMessage,
+  pinLine,
+  voiceAttachment,
+  voiceLength,
+  type ConversationMessage,
+} from '@/src/api';
 
 /** What running out of storage means for chat: only what comes from your phone stops. */
 export const STORAGE_FULL_WORDS =
-  "You're out of storage. Photos and files from your phone won't send, but messages, album photos, cards and dates always will.";
+  "You're out of storage. Photos, files and voice notes from your phone won't send, but messages, album photos, cards and dates always will.";
 
 /**
  * Says so, with a way to the storage screen. `extra` buttons go between
@@ -41,23 +47,52 @@ export function tell(title: string, words: string): void {
 }
 
 /**
- * One line for a message somebody is answering: its words, or for photos and
- * a file what they are ("4 photos: Reference for…", "File: Call sheet.pdf").
+ * The microphone or the camera is switched off for Virgo: says so, with the
+ * way to the phone's Settings, where it is switched back on.
+ */
+export function alertTurnedOff(what: 'microphone' | 'camera'): void {
+  const title = what === 'microphone' ? 'The microphone is off for Virgo' : 'The camera is off for Virgo';
+  const words =
+    what === 'microphone'
+      ? 'To record a voice note, switch on the microphone for Virgo in Settings.'
+      : 'To take a photo here, switch on the camera for Virgo in Settings.';
+  if (Platform.OS === 'web') {
+    tell(title, words);
+    return;
+  }
+  Alert.alert(title, words, [
+    { text: 'Not now', style: 'cancel' },
+    { text: 'Open Settings', onPress: () => void Linking.openSettings().catch(() => undefined) },
+  ]);
+}
+
+/** "Voice note (0:32)": a voice note quoted, or forwarded. */
+export function voiceQuote(durationMs: number | null | undefined): string {
+  return durationMs ? `Voice note (${voiceLength(durationMs)})` : 'Voice note';
+}
+
+/**
+ * One line for a message somebody is answering: its words, or for photos, a
+ * file or a voice note what they are ("4 photos: Reference for…", "File:
+ * Call sheet.pdf", "Voice note (0:32)").
  */
 export function quoteLine(m: ConversationMessage): string {
+  if (m.kind === 'voice') return voiceQuote(voiceAttachment(m)?.durationMs);
   return isFilesMessage(m) ? pinLine(m) : m.body;
 }
 
 /**
  * The same line from a reply's stored quote, when the message it answers
- * isn't loaded: the server quotes its plain body, "Sent 4 photos\n<caption>"
- * or "Sent a file: Call sheet.pdf\n<caption>".
+ * isn't loaded: the server quotes its plain body, "Sent 4 photos\n<caption>",
+ * "Sent a file: Call sheet.pdf\n<caption>" or "Sent a voice note (0:32)".
  */
 export function quoteFromBody(body: string): string {
   const [first, ...rest] = body.split('\n');
   const caption = rest.join(' ').trim();
   const file = /^Sent a file: (.+)$/.exec(first);
   if (file) return `File: ${file[1]}`;
+  const voice = /^Sent a voice note(?: \((\d+:\d{2})\))?$/.exec(first);
+  if (voice) return voice[1] ? `Voice note (${voice[1]})` : 'Voice note';
   const photos = /^Sent (a photo|\d+ photos)$/.exec(first);
   if (photos) {
     const label = photos[1] === 'a photo' ? 'Photo' : photos[1];
