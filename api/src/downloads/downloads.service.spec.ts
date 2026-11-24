@@ -298,6 +298,29 @@ describe('DownloadsService: finding the phone app among web releases', () => {
     expect((await subject.getAndroid())?.version).toBe('1.3.4');
   });
 
+  /**
+   * A new APK goes up before its iOS twin clears App Review. Announcing it
+   * would send every iPhone on the old version to an App Store that does not
+   * have the new one yet, so it waits as a prerelease: downloadable, unannounced.
+   */
+  it('serves a prerelease APK on the download page without telling installed apps', async () => {
+    const subject = service();
+    pages(subject, [web(9), { ...mobile('1.3.5'), prerelease: true }, web(8), mobile('1.3.4')]);
+
+    const build = await subject.getAndroid();
+    expect(build?.version).toBe('1.3.5');
+    expect(build?.url).toBe('https://api.virgo.ph/downloads/mobile-v1.3.5/Virgo_1.3.5.apk');
+    expect((await subject.getMobileLatest())?.version).toBe('1.3.4');
+  });
+
+  it('never serves a draft APK', async () => {
+    const subject = service();
+    pages(subject, [{ ...mobile('1.3.5'), draft: true }, mobile('1.3.4')]);
+
+    expect((await subject.getAndroid())?.version).toBe('1.3.4');
+    expect((await subject.getMobileLatest())?.version).toBe('1.3.4');
+  });
+
   it('keeps the last good Android build when GitHub fails', async () => {
     const subject = service();
     const now = jest.spyOn(Date, 'now').mockReturnValue(0);
