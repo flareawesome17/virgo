@@ -109,12 +109,17 @@ export async function dismissUpdate(version: string): Promise<void> {
  * so a tester is told where to look rather than sent somewhere that will not
  * work.
  *
- * Android goes to the Play Store listing. It used to go to the page serving
- * the APK, from before there was one — and a Play build that sends people to
- * download an APK is a Play policy violation, besides installing something
- * Play cannot then update. The https link rather than market://, which opens
- * the Play Store app where there is one and a browser where there is not
- * (market:// just fails there).
+ * Android goes to the Android section of virgo.ph/download, which serves the
+ * APK. For a while it went to the Play Store listing instead, before there
+ * was one, so any Android copy told about an update would have landed on
+ * Google's "not found" page. Virgo is not on Google Play, and every Android
+ * copy in use was installed from that APK.
+ *
+ * Once there is a public Play listing this has to tell the two apart. A Play
+ * build that sends people to download an APK breaks Play policy, besides
+ * installing something Play cannot then update. Only native code can tell:
+ * the installer package. The APK and the Play bundle share a runtime, so
+ * nothing JavaScript or the config can see differs between them.
  */
 export function updateDestination(): { url: string; label: string } {
   if (Platform.OS === 'ios') {
@@ -124,9 +129,7 @@ export function updateDestination(): { url: string; label: string } {
     };
   }
   return {
-    url:
-      Constants.expoConfig?.android?.playStoreUrl ??
-      'https://play.google.com/store/apps/details?id=com.virgo.app',
-    label: 'Open the Play Store',
+    url: 'https://virgo.ph/download#android',
+    label: 'Download from virgo.ph',
   };
 }
