@@ -78,6 +78,19 @@ export interface DeletedWorkspace extends Workspace {
  */
 export type DeleteProof = { password: string } | { challengeToken: string; code: string };
 
+/**
+ * Apple asked again on an iPhone, in place of the password of an account that
+ * signs in with Apple: an account Apple made has a password nobody was told.
+ * Deleting sends `authorizationCode` too, which lets the server end the Apple
+ * sign-in along with the account, as Apple requires.
+ */
+export interface AppleConfirmation {
+  identityToken: string;
+  /** The one-time value in the clear. Apple was given only its SHA-256. */
+  nonce: string;
+  authorizationCode?: string;
+}
+
 export type AlbumStatus = 'draft' | 'review' | 'delivered';
 
 export interface Album {
@@ -309,6 +322,12 @@ export interface AuthUser {
   socialHandle: string | null;
   /** Whether sign-in requires an emailed one-time code or recovery code. */
   twoFactorEnabled: boolean;
+  /**
+   * Whether an Apple ID opens this account. On an iPhone, pausing and
+   * deleting it then confirm with Apple rather than a password. Absent from an
+   * older API, and from a session saved before it: read it as false.
+   */
+  signsInWithApple?: boolean;
   createdAt: string;
   /*
    * The three below are optional: an older API leaves them out, and so does a

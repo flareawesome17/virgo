@@ -389,7 +389,7 @@ export class AuthController {
     @CurrentUser('id') userId: string,
     @Body() dto: DisableAccountDto,
   ) {
-    return this.account.disable(userId, dto.password, dto.days);
+    return this.account.disable(userId, { password: dto.password, apple: dto.apple }, dto.days);
   }
 
   /** Lifts a pause early, while a session is still valid. */
@@ -400,7 +400,10 @@ export class AuthController {
     return this.account.enable(userId);
   }
 
-  /** Deletes the account, its rows and its uploaded files. Irreversible. */
+  /**
+   * Deletes the account, its rows and its uploaded files. Irreversible.
+   * Confirmed with Apple, it also ends the account's Sign in with Apple.
+   */
   @AllowUnverified()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(200)
@@ -409,6 +412,6 @@ export class AuthController {
     @CurrentUser('id') userId: string,
     @Body() dto: DeleteAccountDto,
   ) {
-    return this.account.remove(userId, dto.password);
+    return this.account.remove(userId, { password: dto.password, apple: dto.apple });
   }
 }

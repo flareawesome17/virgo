@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { BillingService } from '../billing/billing.service';
@@ -16,9 +17,30 @@ import { ReceiptFilesService } from '../storage/receipt-files.service';
 import { ChatFilesService } from '../storage/chat-files.service';
 import { UsersRepository, type PublicUser, type UserRow } from './users.repository';
 import { toPublicUser } from './users.repository';
+import { AppleIdentityService } from './apple-identity.service';
+import { AppleTokensService } from './apple-tokens.service';
 
 /** The longest pause on offer. */
 export const MAX_DISABLE_DAYS = 365;
+
+/** Apple asked again on the phone, for an account that signs in with Apple. */
+export interface AppleConfirmation {
+  identityToken: string;
+  nonce: string;
+  /** From the same sheet. Deleting uses it to end the Apple sign-in. */
+  authorizationCode?: string;
+}
+
+/** How pausing or deleting proves it is the account holder. */
+export interface ClosingProof {
+  password?: string;
+  /** In place of the password, which an account Apple made never had. */
+  apple?: AppleConfirmation;
+}
+
+function refusal(code: string, message: string): ForbiddenException {
+  return new ForbiddenException({ message, code, statusCode: 403 });
+}
 
 /**
  * Closing an account, temporarily or for good.
@@ -27,6 +49,11 @@ export const MAX_DISABLE_DAYS = 365;
  * cannot be undone by signing in again, so a borrowed unlocked phone should
  * not be enough to perform either — an access token is proof of a session, not
  * of the person.
+ *
+ * An account that signs in with Apple may confirm with Apple instead: Face ID
+ * or the passcode on Apple's sheet stands where the password would. An account
+ * Apple made has a password nobody was ever told, so without this it could be
+ * neither paused nor deleted, which Apple's review rules do not allow.
  */
 @Injectable()
 export class AccountService {
@@ -41,7 +68,45 @@ export class AccountService {
     private readonly supportFiles: SupportFilesService,
     private readonly receipts: ReceiptFilesService,
     private readonly chatFiles: ChatFilesService,
+    private readonly apple: AppleIdentityService,
+    private readonly appleTokens: AppleTokensService,
   ) {}
+
+  /** The password, or Apple's confirmation; the account either way. */
+  private assertProof(userId: string, proof: ClosingProof): Promise<UserRow> {
+    return proof.apple
+      ? this.assertApple(userId, proof.apple)
+      : this.assertPassword(userId, proof.password ?? '');
+  }
+
+  /**
+   * Apple vouches for the Apple ID on this account. Every refusal is a 403:
+   * a 401 reads to the apps as an expired session, which they refresh and
+   * resend with the same spent token.
+   */
+  private async assertApple(userId: string, confirmation: AppleConfirmation): Promise<UserRow> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new NotFoundException('Account not found');
+    if (!user.apple_sub) {
+      throw refusal('NOT_APPLE', 'This account does not sign in with Apple. Enter its password instead.');
+    }
+    let sub: string;
+    try {
+      sub = (await this.apple.verify(confirmation.identityToken, confirmation.nonce)).sub;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw refusal('APPLE_REFUSED', 'Apple could not confirm it was you. Try again.');
+      }
+      throw error;
+    }
+    if (sub !== user.apple_sub) {
+      throw refusal(
+        'WRONG_APPLE_ID',
+        'That Apple ID is not the one this account signs in with.',
+      );
+    }
+    return user;
+  }
 
   private async assertPassword(userId: string, password: string) {
     const user = await this.users.findById(userId);
@@ -71,10 +136,10 @@ export class AccountService {
    */
   async disable(
     userId: string,
-    password: string,
+    proof: ClosingProof,
     days: number,
   ): Promise<{ disabledUntil: string }> {
-    const user = await this.assertPassword(userId, password);
+    const user = await this.assertProof(userId, proof);
 
     if (!Number.isInteger(days) || days < 1 || days > MAX_DISABLE_DAYS) {
       throw new BadRequestException(
@@ -133,9 +198,34 @@ export class AccountService {
    */
   async remove(
     userId: string,
-    password: string,
+    proof: ClosingProof,
   ): Promise<{ deleted: true; filesDeleted: number }> {
-    return this.erase(await this.assertPassword(userId, password));
+    const user = await this.assertProof(userId, proof);
+    await this.endAppleSignIn(user, proof.apple?.authorizationCode);
+    return this.erase(user);
+  }
+
+  /**
+   * Revokes the Apple sign-in of an account about to be deleted, which Apple
+   * requires. Before the erase, because the code from Apple's sheet is good
+   * for five minutes and an erase of many files can take longer. Never in the
+   * way of the delete: if it fails, it is logged and the account goes anyway.
+   * And if the erase fails after a revoke, the account is still there and its
+   * Apple ID only has to say yes to Virgo again at the next sign-in.
+   *
+   * Without a code (the password was used, or the console deleted it) there
+   * is nothing to revoke with; the person can still remove Virgo under Sign in
+   * with Apple in their Apple ID settings.
+   */
+  private async endAppleSignIn(user: UserRow, code: string | undefined): Promise<void> {
+    if (!user.apple_sub) return;
+    if (!code) {
+      this.logger.warn(
+        `Account ${user.id} signs in with Apple and was deleted without Apple's code, so its Apple sign-in was not revoked`,
+      );
+      return;
+    }
+    await this.appleTokens.revokeWithCode(code, user.id);
   }
 
   /**
@@ -147,6 +237,7 @@ export class AccountService {
   async removeByStaff(userId: string): Promise<{ deleted: true; filesDeleted: number }> {
     const user = await this.users.findById(userId);
     if (!user) throw new NotFoundException('Account not found');
+    await this.endAppleSignIn(user, undefined);
     return this.erase(user);
   }
 

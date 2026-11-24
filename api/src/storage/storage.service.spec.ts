@@ -3,6 +3,8 @@ import type { ConfigService } from '@nestjs/config';
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
 import * as bcrypt from 'bcryptjs';
 import { AccountService } from '../auth/account.service';
+import type { AppleIdentityService } from '../auth/apple-identity.service';
+import type { AppleTokensService } from '../auth/apple-tokens.service';
 import type { UsersRepository } from '../auth/users.repository';
 import type { BillingService } from '../billing/billing.service';
 import type { MailConfig } from '../mail/mail.config';
@@ -452,20 +454,22 @@ describe('AccountService.remove and the profile cover', () => {
       supportFiles as unknown as SupportFilesService,
       receipts as unknown as ReceiptFilesService,
       chatFiles as unknown as ChatFilesService,
+      {} as unknown as AppleIdentityService,
+      { revokeWithCode: jest.fn() } as unknown as AppleTokensService,
     );
     return { account, users, wipe, billing, supportFiles, receipts, chatFiles };
   }
 
   it('erases the photos and files they sent in chats along with their library', async () => {
     const { account, chatFiles, users } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });
-    await account.remove(PHOTOGRAPHER, PASSWORD);
+    await account.remove(PHOTOGRAPHER, { password: PASSWORD });
     expect(chatFiles.eraseFor).toHaveBeenCalledWith(PHOTOGRAPHER);
     expect(users.remove).toHaveBeenCalled();
   });
 
   it('erases the receipts on their money entries along with their library', async () => {
     const { account, receipts, users } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });
-    await account.remove(PHOTOGRAPHER, PASSWORD);
+    await account.remove(PHOTOGRAPHER, { password: PASSWORD });
     expect(receipts.eraseFor).toHaveBeenCalledWith(PHOTOGRAPHER);
     expect(users.remove).toHaveBeenCalled();
   });
@@ -475,7 +479,7 @@ describe('AccountService.remove and the profile cover', () => {
       { files: [] },
       { receiptErase: async () => Promise.reject(new Error('1 receipt(s) could not be deleted')) },
     );
-    await expect(account.remove(PHOTOGRAPHER, PASSWORD)).rejects.toThrow(
+    await expect(account.remove(PHOTOGRAPHER, { password: PASSWORD })).rejects.toThrow(
       'Your files could not be deleted, so the account was left untouched.',
     );
     expect(users.remove).not.toHaveBeenCalled();
@@ -483,7 +487,7 @@ describe('AccountService.remove and the profile cover', () => {
 
   it('cancels any paid plan before a single file is touched', async () => {
     const { account, billing, wipe } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });
-    await account.remove(PHOTOGRAPHER, PASSWORD);
+    await account.remove(PHOTOGRAPHER, { password: PASSWORD });
     expect(billing.cancelBeforeDeletion).toHaveBeenCalledWith(PHOTOGRAPHER);
     expect(wipe.askedToDelete().length).toBeGreaterThan(0);
   });
@@ -494,13 +498,13 @@ describe('AccountService.remove and the profile cover', () => {
       files: [upload(PHOTOGRAPHER, 'ceremony')],
       showcaseCopies: [copy],
     });
-    await account.remove(PHOTOGRAPHER, PASSWORD);
+    await account.remove(PHOTOGRAPHER, { password: PASSWORD });
     expect(wipe.askedToDelete()).toContain(copy);
   });
 
   it('erases what they attached to support along with their library', async () => {
     const { account, supportFiles, users } = accountOver({ files: [upload(PHOTOGRAPHER, 'ceremony')] });
-    await account.remove(PHOTOGRAPHER, PASSWORD);
+    await account.remove(PHOTOGRAPHER, { password: PASSWORD });
     expect(supportFiles.eraseFor).toHaveBeenCalledWith(PHOTOGRAPHER);
     expect(users.remove).toHaveBeenCalled();
   });
@@ -510,7 +514,7 @@ describe('AccountService.remove and the profile cover', () => {
       { files: [] },
       { supportErase: async () => Promise.reject(new Error('1 support file(s) could not be deleted')) },
     );
-    await expect(account.remove(PHOTOGRAPHER, PASSWORD)).rejects.toThrow(
+    await expect(account.remove(PHOTOGRAPHER, { password: PASSWORD })).rejects.toThrow(
       'Your files could not be deleted, so the account was left untouched.',
     );
     expect(users.remove).not.toHaveBeenCalled();
@@ -522,7 +526,7 @@ describe('AccountService.remove and the profile cover', () => {
       { planCancel: async () => Promise.reject(new Error('PayMongo is down')) },
     );
 
-    await expect(account.remove(PHOTOGRAPHER, PASSWORD)).rejects.toThrow(
+    await expect(account.remove(PHOTOGRAPHER, { password: PASSWORD })).rejects.toThrow(
       'Your paid plan could not be cancelled, so the account was left untouched.',
     );
     expect(wipe.askedToDelete()).toEqual([]);
@@ -531,7 +535,7 @@ describe('AccountService.remove and the profile cover', () => {
 
   it('refuses a wrong password with a 403 and cancels nothing', async () => {
     const { account, billing, users } = accountOver({ files: [] });
-    await expect(account.remove(PHOTOGRAPHER, 'wrong')).rejects.toMatchObject({ status: 403 });
+    await expect(account.remove(PHOTOGRAPHER, { password: 'wrong' })).rejects.toMatchObject({ status: 403 });
     expect(billing.cancelBeforeDeletion).not.toHaveBeenCalled();
     expect(users.remove).not.toHaveBeenCalled();
   });
@@ -542,7 +546,7 @@ describe('AccountService.remove and the profile cover', () => {
       coverUrl: `${CDN}/${COVER}`,
     });
 
-    await expect(account.remove(PHOTOGRAPHER, PASSWORD)).resolves.toEqual({
+    await expect(account.remove(PHOTOGRAPHER, { password: PASSWORD })).resolves.toEqual({
       deleted: true,
       filesDeleted: 3,
     });
@@ -557,7 +561,7 @@ describe('AccountService.remove and the profile cover', () => {
       refused: [COVER],
     });
 
-    await expect(account.remove(PHOTOGRAPHER, PASSWORD)).rejects.toThrow(
+    await expect(account.remove(PHOTOGRAPHER, { password: PASSWORD })).rejects.toThrow(
       'Your files could not be deleted, so the account was left untouched.',
     );
     expect(users.remove).not.toHaveBeenCalled();

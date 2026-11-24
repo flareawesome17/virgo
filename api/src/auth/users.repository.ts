@@ -140,6 +140,12 @@ export interface PublicUser {
   studioName: string | null;
   socialHandle: string | null;
   twoFactorEnabled: boolean;
+  /**
+   * Whether an Apple ID opens this account. The apps then confirm pausing
+   * and deleting with Apple, since an account Apple made has no password
+   * anybody knows.
+   */
+  signsInWithApple: boolean;
   coverUrl: string | null;
   availableForBookings: boolean;
   showStudio: boolean;
@@ -178,6 +184,8 @@ export function toPublicUser(row: UserRow): PublicUser {
     studioName: row.studio_name ?? null,
     socialHandle: row.social_handle ?? null,
     twoFactorEnabled: !!row.two_factor_enabled_at,
+    // Defaulted for a row read before migration 108.
+    signsInWithApple: !!row.apple_sub,
     // Defaulted for a row read before migration 070, which the previous
     // image's database can still hand back during a rollback window.
     coverUrl: row.cover_url ?? null,
