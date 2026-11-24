@@ -2,7 +2,6 @@ import { api } from '../client';
 import type {
   CollaboratorRole,
   DeletedWorkspace,
-  DeleteProof,
   ListParams,
   ListResponse,
   Workspace,
@@ -142,12 +141,11 @@ export const workspacesApi = {
   },
 
   /**
-   * Moves it to Recently deleted for 30 days. Owner-only, and only with the
-   * password or the emailed code (see DeleteProof); without either the server
-   * answers 403 REAUTH_REQUIRED.
+   * Moves it to Recently deleted for 30 days. Owner-only. Nothing to prove:
+   * it can be restored from there, so a confirmation is the whole of it.
    */
-  remove(id: string, proof: DeleteProof): Promise<void> {
-    return api.delete<void>(`/workspaces/${id}`, { body: proof });
+  remove(id: string): Promise<void> {
+    return api.delete<void>(`/workspaces/${id}`);
   },
 
   /** The owner's Recently deleted, newest first. */

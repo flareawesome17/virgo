@@ -17,7 +17,7 @@ import { ACCENT_COLORS, deleteConsequence } from '@/src/lib/workspaces';
 import { DetailFallback } from '@/components/DetailFallback';
 import { RemoteImage } from '@/components/RemoteImage';
 import { ChoiceSheet } from '@/components/WorkspaceBits';
-import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
+import { ConfirmSheet } from '@/components/ConfirmSheet';
 import { PALETTES } from '@/theme';
 
 cssInterop(ArrowLeftIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -283,12 +283,12 @@ export default function EditWorkspaceScreen() {
         onChoose={setCover}
         onClose={() => setChoosingCover(false)}
       />
-      <DeleteConfirmSheet
+      <ConfirmSheet
         visible={deleting}
         title={`Delete ${workspace.name}?`}
         message={deleteConsequence(workspace)}
         onCancel={() => setDeleting(false)}
-        onConfirm={(proof) => remove.mutateAsync({ id: workspace.id, proof })}
+        onConfirm={() => remove.mutateAsync({ id: workspace.id })}
         onDone={() => {
           setDeleting(false);
           router.dismissTo('/(app)/(tabs)/workspaces');

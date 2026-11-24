@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { MEDIA_LOCAL_ZONE } from '../storage/capture-time';
 import { MAX_RETENTION_DAYS } from './dto/album.dto';
-import { type DeleteProof, ReauthService } from '../auth/reauth.service';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { DatabaseService } from '../database/database.service';
 import { QuotaService } from '../quota/quota.service';
@@ -98,7 +97,6 @@ export class AlbumsService extends OwnedResourceService<AlbumRow> {
     private readonly quota: QuotaService,
     private readonly db: DatabaseService,
     private readonly feed: WorkspaceActivityService,
-    private readonly reauth: ReauthService,
   ) {
     super(albums, 'Album');
   }
@@ -109,12 +107,13 @@ export class AlbumsService extends OwnedResourceService<AlbumRow> {
    * room: an album that went while its files stayed behind and went on
    * counting left them with a full meter and nothing to show where it went.
    *
-   * Asks for the password, or the emailed code with two-factor on, as
-   * deleting a workspace does (ReauthService), before anything is looked up.
+   * The apps ask "Delete it?" and nothing more: it waits in Recently deleted
+   * for 30 days, where one tap brings it back, so a password in front of it
+   * guarded against nothing a restore does not undo. Apps from before this
+   * still send a password or a code, which is ignored.
    * Nothing is deleted for 30 days; WorkspaceTrashService does that.
    */
-  async remove(userId: string, id: string, proof: DeleteProof = {}): Promise<void> {
-    await this.reauth.confirmDelete(userId, proof);
+  async remove(userId: string, id: string): Promise<void> {
     await super.remove(userId, id);
   }
 

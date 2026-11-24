@@ -1,5 +1,4 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import type { ReauthService } from '../auth/reauth.service';
 import type { DatabaseService } from '../database/database.service';
 import type { NotifyService } from '../notifications/notify.service';
 import type { QuotaService } from '../quota/quota.service';
@@ -16,9 +15,10 @@ import { WorkspacesService } from './workspaces.service';
  *
  * On 2026-10-25 someone signed in with an owner's password deleted a
  * workspace with one tap, the owner's phone went on showing it, and which
- * device did it could not be found. A delete now asks for the password again,
- * moves the workspace to Recently deleted for 30 days, records the session
- * that asked, and tells the owner's devices and every member at once.
+ * device did it could not be found. A delete moves the workspace to Recently
+ * deleted for 30 days, records the session that asked, and tells the owner's
+ * devices and every member at once. It asked for the password too until the
+ * owner chose a plain confirmation: a restore undoes all of it.
  *
  * The database is faked, so the statements are read here. Only a real
  * Postgres can prove them, and they were run on one before this was merged.
@@ -29,7 +29,7 @@ const WORKSPACE = 'workspace-1';
 
 function serviceOver(
   gone: DeletedWorkspace | null,
-  options: { refuse?: Error; full?: Error; noRoom?: Error } = {},
+  options: { full?: Error; noRoom?: Error } = {},
 ) {
   const workspaces = {
     trash: jest.fn(async () => gone),
@@ -38,11 +38,6 @@ function serviceOver(
     findOne: jest.fn(async () => ({ id: WORKSPACE, name: 'Corepath Projects' })),
   };
   const realtime = { emitToUsers: jest.fn() };
-  const reauth = {
-    confirmDelete: jest.fn(async () => {
-      if (options.refuse) throw options.refuse;
-    }),
-  };
   const quota = {
     assertCanCreateWorkspace: jest.fn(async () => {
       if (options.full) throw options.full;
@@ -57,26 +52,19 @@ function serviceOver(
     {} as unknown as WorkspaceActivityService,
     {} as unknown as NotifyService,
     realtime as unknown as RealtimeGateway,
-    reauth as unknown as ReauthService,
   );
-  return { service, workspaces, realtime, reauth, quota };
+  return { service, workspaces, realtime, quota };
 }
 
 describe('WorkspacesService.remove', () => {
-  it('asks for the password, moves it to Recently deleted, and tells the owner and every member', async () => {
-    const { service, workspaces, realtime, reauth } = serviceOver({
+  it('moves it to Recently deleted, with no password, and tells the owner and every member', async () => {
+    const { service, workspaces, realtime } = serviceOver({
       name: 'Corepath Projects',
       member_ids: ['member-1', 'member-2'],
     });
 
-    await service.remove(
-      OWNER,
-      WORKSPACE,
-      { password: 'hunter2' },
-      { sessionId: 'family-1', userAgent: 'okhttp/4.12' },
-    );
+    await service.remove(OWNER, WORKSPACE, { sessionId: 'family-1', userAgent: 'okhttp/4.12' });
 
-    expect(reauth.confirmDelete).toHaveBeenCalledWith(OWNER, { password: 'hunter2' });
     expect(workspaces.trash).toHaveBeenCalledWith(OWNER, WORKSPACE, {
       sessionId: 'family-1',
       userAgent: 'okhttp/4.12',
@@ -89,23 +77,11 @@ describe('WorkspacesService.remove', () => {
     });
   });
 
-  it('deletes nothing without the password', async () => {
-    const refusal = new ForbiddenException({ code: 'REAUTH_REQUIRED' });
-    const { service, workspaces, realtime } = serviceOver(
-      { name: 'Corepath Projects', member_ids: [] },
-      { refuse: refusal },
-    );
-
-    await expect(service.remove(OWNER, WORKSPACE)).rejects.toBe(refusal);
-    expect(workspaces.trash).not.toHaveBeenCalled();
-    expect(realtime.emitToUsers).not.toHaveBeenCalled();
-  });
-
   it('tells nobody when there was nothing of theirs to delete', async () => {
     const { service, realtime } = serviceOver(null);
 
     await expect(
-      service.remove('member-1', WORKSPACE, { password: 'hunter2' }),
+      service.remove('member-1', WORKSPACE),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(realtime.emitToUsers).not.toHaveBeenCalled();
   });
@@ -113,7 +89,7 @@ describe('WorkspacesService.remove', () => {
 
 describe('WorkspacesService.restore', () => {
   it('brings it back to everyone who had it, without a password', async () => {
-    const { service, workspaces, realtime, reauth, quota } = serviceOver({
+    const { service, workspaces, realtime, quota } = serviceOver({
       name: 'Corepath Projects',
       member_ids: ['member-1'],
     });
@@ -125,7 +101,6 @@ describe('WorkspacesService.restore', () => {
     expect(workspaces.restorableBytes).toHaveBeenCalledWith(OWNER, WORKSPACE);
     expect(quota.assertCanRestore).toHaveBeenCalledWith(OWNER, 4096, 'workspace');
     expect(workspaces.restore).toHaveBeenCalledWith(OWNER, WORKSPACE, { sessionId: 'family-2' });
-    expect(reauth.confirmDelete).not.toHaveBeenCalled();
     expect(realtime.emitToUsers).toHaveBeenCalledWith(['owner-1', 'member-1'], {
       type: 'workspace-restored',
       workspaceId: WORKSPACE,
@@ -169,18 +144,16 @@ describe('WorkspacesService.restore', () => {
 });
 
 describe('WorkspacesController', () => {
-  it('passes the proof, the session and the User-Agent on a delete', async () => {
+  it('passes the session and the User-Agent on a delete, and no password', async () => {
     const service = { remove: jest.fn(async () => undefined) };
     const controller = new WorkspacesController(service as unknown as WorkspacesService);
 
-    await controller.remove(OWNER, 'family-1', WORKSPACE, { password: 'hunter2' }, 'Mozilla/5.0 Edg/141');
+    await controller.remove(OWNER, 'family-1', WORKSPACE, 'Mozilla/5.0 Edg/141');
 
-    expect(service.remove).toHaveBeenCalledWith(
-      OWNER,
-      WORKSPACE,
-      { password: 'hunter2' },
-      { sessionId: 'family-1', userAgent: 'Mozilla/5.0 Edg/141' },
-    );
+    expect(service.remove).toHaveBeenCalledWith(OWNER, WORKSPACE, {
+      sessionId: 'family-1',
+      userAgent: 'Mozilla/5.0 Edg/141',
+    });
   });
 });
 

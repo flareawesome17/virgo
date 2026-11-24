@@ -12,7 +12,6 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { DeleteProofDto } from '../auth/dto/delete-proof.dto';
 import {
   CreateWorkspaceDto,
   ListWorkspacesDto,
@@ -91,10 +90,9 @@ export class WorkspacesController {
   }
 
   /**
-   * Owner-only, and only with the password or the emailed code in the body.
-   * Moves it to Recently deleted, recorded with the session that asked; see
-   * WorkspacesService.remove. Throttled like the other places a password is
-   * checked, so a stolen session cannot guess its way through.
+   * Owner-only. Moves it to Recently deleted, recorded with the session that
+   * asked; see WorkspacesService.remove. No body: apps from before this send a
+   * password or a code, and without a DTO here it is not even read.
    */
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(204)
@@ -103,10 +101,9 @@ export class WorkspacesController {
     @CurrentUser('id') userId: string,
     @CurrentUser('sessionId') sessionId: string | undefined,
     @Param('id') id: string,
-    @Body() proof: DeleteProofDto,
     @Headers('user-agent') userAgent?: string,
   ): Promise<void> {
-    await this.workspaces.remove(userId, id, { ...proof }, { sessionId, userAgent });
+    await this.workspaces.remove(userId, id, { sessionId, userAgent });
   }
 
   /** Brings one back from Recently deleted, with everything that was in it. */

@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { type DeleteProof, ReauthService } from '../auth/reauth.service';
 import { type ListOptions } from '../common/owned.repository';
 import { OwnedResourceService } from '../common/owned-resource.service';
 import { ChatCrewService } from '../messages/crew/chat-crew.service';
@@ -27,7 +26,6 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
     private readonly feed: WorkspaceActivityService,
     private readonly notifier: NotifyService,
     private readonly realtime: RealtimeGateway,
-    private readonly reauth: ReauthService,
     // Optional so a module without chat still builds; the team chat then
     // keeps the name it had.
     @Optional() private readonly crews?: ChatCrewService,
@@ -95,10 +93,13 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
    * it to `user_id`, so a member's attempt finds nothing and reads as not
    * found.
    *
-   * The password first, or the emailed code with two-factor on (see
-   * ReauthService): on 2026-10-25 a workspace went with one tap from a session
-   * someone else had signed in to. Then it is recorded with the session that
-   * asked (100_workspace_deletions.sql), and the owner's devices and every
+   * The apps ask "Delete it?" and nothing more. From 2026-10-25 they asked
+   * for the password too, after a workspace went with one tap from a session
+   * someone else had signed in to; but it only ever goes to Recently deleted,
+   * where a restore brings everything back, so the owner chose a plain
+   * confirmation. Apps from before this still send a password, which is
+   * ignored. It is recorded with the session that asked
+   * (100_workspace_deletions.sql), and the owner's devices and every
    * member are told at once, so a list or a screen still showing it lets go of
    * it instead of waiting for a refetch. The device that asked is told too,
    * which costs it one more refetch and keeps its other tabs right.
@@ -108,11 +109,8 @@ export class WorkspacesService extends OwnedResourceService<WorkspaceRow> {
   async remove(
     userId: string,
     id: string,
-    proof: DeleteProof = {},
     origin: DeleteOrigin = {},
   ): Promise<void> {
-    await this.reauth.confirmDelete(userId, proof);
-
     const gone = await this.workspaces.trash(userId, id, origin);
     if (!gone) throw new NotFoundException('Workspace not found');
 

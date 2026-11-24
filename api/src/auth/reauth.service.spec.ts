@@ -41,20 +41,24 @@ async function refusalCode(promise: Promise<unknown>): Promise<unknown> {
   throw new Error('expected a refusal');
 }
 
-describe('ReauthService.confirmDelete', () => {
+/** The 'delete' action, which apps from before plain delete confirmations still ask a code for. */
+const confirmDelete = (reauth: ReauthService, userId: string, proof: Parameters<ReauthService['confirm']>[1]) =>
+  reauth.confirm(userId, proof, 'delete');
+
+describe("ReauthService.confirm, 'delete'", () => {
   it('lets the password through when two-factor is off', async () => {
     const { reauth } = reauthFor({});
-    await expect(reauth.confirmDelete('user-1', { password: PASSWORD })).resolves.toBeUndefined();
+    await expect(confirmDelete(reauth, 'user-1', { password: PASSWORD })).resolves.toBeUndefined();
   });
 
   it('refuses a wrong password', async () => {
     const { reauth } = reauthFor({});
-    expect(await refusalCode(reauth.confirmDelete('user-1', { password: 'guess' }))).toBe('WRONG_PASSWORD');
+    expect(await refusalCode(confirmDelete(reauth, 'user-1', { password: 'guess' }))).toBe('WRONG_PASSWORD');
   });
 
   it('tells an app that sends nothing to update, rather than failing for no reason', async () => {
     const { reauth } = reauthFor({});
-    const err = await reauth.confirmDelete('user-1', {}).catch((e: unknown) => e);
+    const err = await confirmDelete(reauth, 'user-1', {}).catch((e: unknown) => e);
     expect((err as { getResponse: () => { code: string; message: string } }).getResponse()).toEqual(
       expect.objectContaining({ code: 'REAUTH_REQUIRED', message: expect.stringMatching(/Update Virgo/) }),
     );
@@ -64,20 +68,20 @@ describe('ReauthService.confirmDelete', () => {
     const { reauth, twoFactor } = reauthFor({ two_factor_enabled_at: new Date() });
 
     // A stolen password is not enough on its own.
-    expect(await refusalCode(reauth.confirmDelete('user-1', { password: PASSWORD }))).toBe(
+    expect(await refusalCode(confirmDelete(reauth, 'user-1', { password: PASSWORD }))).toBe(
       'TWO_FACTOR_REQUIRED',
     );
     expect(twoFactor.confirmAction).not.toHaveBeenCalled();
 
     const token = 'c'.repeat(43);
-    await reauth.confirmDelete('user-1', { challengeToken: token, code: '123456' });
+    await confirmDelete(reauth, 'user-1', { challengeToken: token, code: '123456' });
     expect(twoFactor.confirmAction).toHaveBeenCalledWith('user-1', token, '123456', 'delete');
   });
 
   it('asks for the password when an app sends a code for an account without two-factor', async () => {
     const { reauth, twoFactor } = reauthFor({});
     expect(
-      await refusalCode(reauth.confirmDelete('user-1', { challengeToken: 'c'.repeat(43), code: '123456' })),
+      await refusalCode(confirmDelete(reauth, 'user-1', { challengeToken: 'c'.repeat(43), code: '123456' })),
     ).toBe('PASSWORD_REQUIRED');
     expect(twoFactor.confirmAction).not.toHaveBeenCalled();
   });
