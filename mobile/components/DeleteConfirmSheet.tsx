@@ -29,6 +29,8 @@ export function DeleteConfirmSheet({
   title,
   message,
   confirmLabel = 'Delete',
+  purpose = 'delete',
+  tone = 'destructive',
   onCancel,
   onConfirm,
   onDone,
@@ -38,12 +40,19 @@ export function DeleteConfirmSheet({
   /** What deleting it does, in a sentence or two. */
   message: string;
   confirmLabel?: string;
+  /**
+   * 'pay_details': the same two steps before a way clients pay is added,
+   * changed or removed. The emailed code is asked for that.
+   */
+  purpose?: 'delete' | 'pay_details';
+  /** 'action' for a save, which is not a loss: the app's own button colour. */
+  tone?: 'destructive' | 'action';
   onCancel: () => void;
   onConfirm: (proof: DeleteProof) => Promise<unknown>;
   /** After the delete went through; the card is closed by then. */
   onDone: () => void;
 }) {
-  const form = useDeleteProof();
+  const form = useDeleteProof(purpose);
   const [showPassword, setShowPassword] = useState(false);
   const insets = useWindowInsets();
   const shade = useShade();
@@ -176,13 +185,17 @@ export function DeleteConfirmSheet({
                 disabled={!ready}
                 accessibilityRole="button"
                 className={`flex-[2] rounded-2xl py-3.5 items-center justify-center ${
-                  ready ? 'bg-destructive active:opacity-85' : 'bg-muted'
+                  ready ? `${tone === 'action' ? 'bg-action' : 'bg-destructive'} active:opacity-85` : 'bg-muted'
                 }`}
               >
                 {form.busy ? (
                   <ActivityIndicator color="white" />
                 ) : (
-                  <Text className={`text-base font-bold ${ready ? 'text-white' : 'text-muted-foreground'}`}>
+                  <Text
+                    className={`text-base font-bold ${
+                      ready ? (tone === 'action' ? 'text-action-foreground' : 'text-white') : 'text-muted-foreground'
+                    }`}
+                  >
                     {label}
                   </Text>
                 )}

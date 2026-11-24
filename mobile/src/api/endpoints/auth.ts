@@ -179,10 +179,13 @@ export const authApi = {
     });
   },
 
-  /** 'delete': the code a workspace or album delete asks for with two-factor on. */
+  /**
+   * 'delete': the code a workspace or album delete asks for with two-factor
+   * on. 'pay_details': the one adding, changing or removing a way to pay asks for.
+   */
   beginTwoFactorSecurityAction(
     password: string,
-    action: 'disable' | 'recovery' | 'delete',
+    action: 'disable' | 'recovery' | 'delete' | 'pay_details',
   ): Promise<TwoFactorSetup> {
     return api.post('/auth/2fa/security-code', {
       body: { password, action },

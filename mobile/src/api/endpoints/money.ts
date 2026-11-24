@@ -1,5 +1,6 @@
 import { api } from '../client';
 import { API_BASE_URL } from '../config';
+import type { DeleteProof } from '../types';
 
 /**
  * Money — each person's own ledger of what came in and what went out.
@@ -113,7 +114,10 @@ export type MoneyPackagePatch = Partial<
 
 export type PayMethodKind = 'gcash' | 'maya' | 'bank' | 'other';
 
-/** How clients pay you: shown on the statements you share. */
+/**
+ * How clients pay you: shown full size to scan, sent to a client, and on the
+ * statements you share. The list comes main first.
+ */
 export interface MoneyPayMethod {
   id: string;
   kind: PayMethodKind;
@@ -122,6 +126,11 @@ export interface MoneyPayMethod {
   accountName: string | null;
   accountNumber: string | null;
   qr: MoneyReceipt | null;
+  /**
+   * When what a client pays to last changed. Optional: a list cached on the
+   * device from before the server sent it has none.
+   */
+  detailsChangedAt?: string;
 }
 
 export interface MoneyPayMethodInput {
@@ -695,16 +704,30 @@ export const moneyApi = {
     return api.get('/money/pay-methods');
   },
 
-  createPayMethod(input: MoneyPayMethodInput): Promise<MoneyPayMethod> {
-    return api.post('/money/pay-methods', { body: input });
+  /**
+   * Adding, changing or removing a way to pay carries the password, or with
+   * two-factor on the emailed code (see DeleteProof): these details decide
+   * where a client's money goes.
+   */
+  createPayMethod(input: MoneyPayMethodInput, proof: DeleteProof): Promise<MoneyPayMethod> {
+    return api.post('/money/pay-methods', { body: { ...input, ...proof } });
   },
 
-  updatePayMethod(id: string, patch: Partial<MoneyPayMethodInput>): Promise<MoneyPayMethod> {
-    return api.patch(`/money/pay-methods/${id}`, { body: patch });
+  updatePayMethod(
+    id: string,
+    patch: Partial<MoneyPayMethodInput>,
+    proof: DeleteProof,
+  ): Promise<MoneyPayMethod> {
+    return api.patch(`/money/pay-methods/${id}`, { body: { ...patch, ...proof } });
   },
 
-  deletePayMethod(id: string): Promise<void> {
-    return api.delete(`/money/pay-methods/${id}`);
+  deletePayMethod(id: string, proof: DeleteProof): Promise<void> {
+    return api.delete(`/money/pay-methods/${id}`, { body: proof });
+  },
+
+  /** Makes it the main way to pay; the list comes back in its new order. No password. */
+  makeMainPayMethod(id: string): Promise<MoneyPayMethod[]> {
+    return api.post(`/money/pay-methods/${id}/main`);
   },
 
   /** Every saving, with what it holds; `month` (YYYY-MM) is what "this month" counts. */
