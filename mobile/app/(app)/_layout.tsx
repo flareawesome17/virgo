@@ -17,6 +17,8 @@ import {
   VideoSurface,
 } from '@/components';
 import { useOutboxSender } from '@/src/hooks/useChat';
+import { useChatUploadSender } from '@/src/lib/chat-uploads';
+import { useMessageNotificationActions } from '@/src/lib/message-actions';
 import { useMoneyOutboxSender } from '@/src/lib/money-outbox';
 import { CrashScreen } from '@/components/CrashScreen';
 import { AlbumAudioProvider } from '@/src/providers/AlbumAudioProvider';
@@ -51,6 +53,10 @@ const CREATE_FORMS = [
   'money/savings/new',
   'money/pay-methods/edit',
   'hire/[handle]',
+  // A date planned in a chat, from the composer's +.
+  'chat/[id]/plan-date',
+  // Photos or a file from this phone, checked before they go.
+  'chat/[id]/send-files',
   // Not a form, but held up to a client the same way: it rises over
   // whatever you were doing and closes with an X, back to it.
   'money/pay-methods/show',
@@ -60,6 +66,11 @@ const CREATE_FORM_OPTIONS = {
   presentation: 'fullScreenModal',
   // Android has no modal presentation of its own; this is the same rise.
   animation: 'slide_from_bottom',
+} as const;
+
+const PHOTO_VIEWER_OPTIONS = {
+  presentation: 'fullScreenModal',
+  animation: 'fade',
 } as const;
 
 /**
@@ -194,6 +205,8 @@ export default function AppLayout() {
                 {CREATE_FORMS.map((name) => (
                   <Stack.Screen key={name} name={name} options={CREATE_FORM_OPTIONS} />
                 ))}
+                {/* A chat photo, full screen: it fades up over the thread and back. */}
+                <Stack.Screen name="chat/[id]/photo" options={PHOTO_VIEWER_OPTIONS} />
               </Stack>
               </AudioDock>
             </VideoSurface>
@@ -246,6 +259,12 @@ function NotificationServices() {
   useOutboxSender(user?.id);
   // Money entries logged with no signal, the same way.
   useMoneyOutboxSender(user?.id);
+  // Photos and files sent in chats, whose bytes are still on this phone: they
+  // carry on when the connection is back, and after the app was closed.
+  useChatUploadSender(user?.id);
+  // Reply, Mark as read and Mute under a message's notification: after the
+  // outbox sender, which a reply goes through.
+  useMessageNotificationActions(!!user?.id);
 
   return null;
 }

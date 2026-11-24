@@ -101,6 +101,10 @@ export interface JobPost {
    * tell, so it offered Apply on your own post and only failed on submit.
    */
   isMine: boolean;
+  /** How many people are hired on it. Absent from an older API. */
+  hiredCount?: number;
+  /** Its crew chat, when it has one and you are in it. */
+  crewChatId?: string | null;
 }
 
 export interface JobApplication {

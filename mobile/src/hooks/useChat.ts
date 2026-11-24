@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -14,13 +15,25 @@ import {
   ApiError,
   chatApi,
   chatRefusal,
+  firstPageSize,
+  linkPreviewsApi,
   retryUnlessGone,
+  savedRepliesApi,
+  shouldPollChat,
+  REACTION_EMOJI,
   type Conversation,
+  type ConversationList,
   type ConversationMessage,
+  type LinkPreview,
+  type ListStatePatch,
+  type MessageReaction,
+  type ReactionKey,
+  type SavedReply,
   type SendMessageInput,
   type Thread,
 } from '@/src/api';
 import { seedPresence } from '@/src/lib/presence-store';
+import { getConnectionQuality, useChatSocketLive } from '@/src/hooks/useConnectionQuality';
 import { buzzForMessage } from '@/src/lib/notifications';
 import {
   loadOutbox,
@@ -43,11 +56,26 @@ export const chatKeys = {
   allConversations: ['chat', 'conversations'] as const,
   /** Every conversation fetched by id. */
   anyConversation: ['chat', 'conversation'] as const,
+  /**
+   * The archived chats. Under the conversation lists, so everything that
+   * refreshes the list refreshes these too, and a fourth part no search key
+   * has, so no search term can land on it.
+   */
+  archived: ['chat', 'conversations', '', 'archived'] as const,
+  /** Your saved replies, which follow you to every device. */
+  savedReplies: ['chat', 'saved-replies'] as const,
+  /** What a chat draws under one Virgo link. */
+  linkPreview: (url: string) => ['chat', 'link-preview', url] as const,
 };
 
 /** What the list and the thread are cached as. */
-export type ConversationPages = InfiniteData<{ data: Conversation[]; total: number }, number>;
-export type ThreadPages = InfiniteData<Thread, string | undefined>;
+export type ConversationPages = InfiniteData<ConversationList, number>;
+
+/** Whether a cached list is the archived one rather than the inbox or a search. */
+function isArchivedKey(queryKey: readonly unknown[]): boolean {
+  return queryKey[3] === 'archived';
+}
+export type ThreadPages = InfiniteData<ThreadPage, string | undefined>;
 
 /** How many of a chat's latest messages a report from it may carry. */
 export const REPORTED_MESSAGES = 20;
@@ -85,13 +113,73 @@ export function reportableMessageIds(
  * parameters at all and reads the same on an API that predates them.
  */
 const LIST_PAGE = 100;
-/** The thread's page size, the first page included. */
+/**
+ * How many older messages one scroll back asks for. The first page's size is
+ * firstPageSize(): 30 on a slow line, else 100.
+ */
 const THREAD_PAGE = 50;
+const THREAD_PAGE_SLOW = 30;
+
+/** How long the backup polls wait, and only while the live socket is down. */
+const LIST_POLL_MS = 60_000;
+const THREAD_POLL_MS = 45_000;
+
+/** A thread page, with how many it asked for — which says whether there are more. */
+type ThreadPage = Thread & { requestedLimit?: number };
+
+async function fetchThreadPage(conversationId: string, before: string | undefined): Promise<ThreadPage> {
+  const quality = getConnectionQuality();
+  const limit =
+    before === undefined
+      ? firstPageSize(quality)
+      : quality === 'slow'
+        ? THREAD_PAGE_SLOW
+        : THREAD_PAGE;
+  const page = await chatApi.messages(conversationId, limit, before);
+  return { ...page, requestedLimit: limit };
+}
 
 /** The list rows and the by-id rows, both of which hold a title and mute state. */
 function invalidateConversationRows(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
   queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+}
+
+/**
+ * Changes rows in every cached list, the archived one included, and in the
+ * by-id rows. `patch` answers the row, a changed copy, or null to take it out
+ * of that list; `key` says which list it is looking at.
+ */
+function patchConversationRows(
+  queryClient: QueryClient,
+  patch: (row: Conversation, key: readonly unknown[]) => Conversation | null,
+): void {
+  for (const [key, list] of queryClient.getQueriesData<ConversationPages>({
+    queryKey: chatKeys.allConversations,
+  })) {
+    if (!list || !Array.isArray(list.pages)) continue;
+    let changed = false;
+    const pages = list.pages.map((page) => {
+      const data: Conversation[] = [];
+      let pageChanged = false;
+      for (const row of page?.data ?? []) {
+        const next = patch(row, key);
+        if (next !== row) pageChanged = true;
+        if (next) data.push(next);
+      }
+      if (!pageChanged) return page;
+      changed = true;
+      return { ...page, data };
+    });
+    if (changed) queryClient.setQueryData<ConversationPages>(key, { ...list, pages });
+  }
+  for (const [key, row] of queryClient.getQueriesData<Conversation | null>({
+    queryKey: chatKeys.anyConversation,
+  })) {
+    if (!row || typeof row !== 'object' || !('id' in row)) continue;
+    const next = patch(row, key);
+    if (next && next !== row) queryClient.setQueryData(key, next);
+  }
 }
 
 /** Every conversation row cached anywhere, list pages first. */
@@ -131,16 +219,39 @@ function findConversation(queryClient: QueryClient, id: string): Conversation | 
  */
 export function useConversations(q?: string) {
   const term = q?.trim() || undefined;
+  return useConversationPages(chatKeys.conversations(term), (offset) =>
+    chatApi.conversations(term, offset ? { limit: LIST_PAGE, offset } : {}),
+  );
+}
+
+/**
+ * The chats you archived, a page at a time. Each comes back to the list by
+ * itself when somebody writes in it.
+ */
+export function useArchivedConversations() {
+  return useConversationPages(chatKeys.archived, (offset) =>
+    chatApi.conversations(undefined, {
+      archived: true,
+      ...(offset ? { limit: LIST_PAGE, offset } : {}),
+    }),
+  );
+}
+
+function useConversationPages(
+  queryKey: readonly unknown[],
+  fetchPage: (offset: number) => Promise<ConversationList>,
+) {
+  const live = useChatSocketLive();
   const query = useInfiniteQuery({
-    queryKey: chatKeys.conversations(term),
-    queryFn: ({ pageParam }) =>
-      chatApi.conversations(term, pageParam ? { limit: LIST_PAGE, offset: pageParam } : {}),
+    queryKey,
+    queryFn: ({ pageParam }) => fetchPage(pageParam),
     initialPageParam: 0,
     getNextPageParam: (last, pages) =>
       last.data.length < LIST_PAGE ? undefined : pages.length * LIST_PAGE,
-    // A slow safety net: the WebSocket delivers new messages, so this only
-    // has to catch what a dropped connection missed.
-    refetchInterval: 60_000,
+    // A slow safety net, and only while the socket is down: when it is up it
+    // delivers every new message, and polling on top of it was a whole list
+    // a minute for nothing, which a 2G phone pays for.
+    refetchInterval: shouldPollChat(live) ? LIST_POLL_MS : false,
     placeholderData: (previous) => previous,
   });
 
@@ -181,6 +292,8 @@ export function useConversations(q?: string) {
     /** Nothing has arrived yet, so an empty list says nothing about the inbox. */
     loadingFirst: query.data === undefined && !query.isError && !query.isPaused,
     conversations,
+    /** How many wait in Archived. Zero from an API that predates it. */
+    archivedCount: query.data?.pages[0]?.archivedCount ?? 0,
   };
 }
 
@@ -195,10 +308,12 @@ export function useConversations(q?: string) {
  * the console of the one page most people ever see.
  */
 export function useUnreadCount(enabled = true) {
+  const live = useChatSocketLive();
   const query = useQuery({
     queryKey: chatKeys.unread,
     queryFn: () => chatApi.unread(),
-    refetchInterval: 60_000,
+    // Each live message marks it stale, so it only polls with the socket down.
+    refetchInterval: shouldPollChat(live) ? LIST_POLL_MS : false,
     enabled,
   });
   return query.data?.count ?? 0;
@@ -345,6 +460,73 @@ export function applyMessageDeleted(
   });
 }
 
+/** One message as this device holds it, wherever it is in the thread. */
+export function findThreadMessage(
+  queryClient: QueryClient,
+  conversationId: string,
+  messageId: string,
+): ConversationMessage | undefined {
+  const cached = queryClient.getQueryData<ThreadPages>(chatKeys.thread(conversationId));
+  if (!cached || !Array.isArray(cached.pages)) return undefined;
+  for (const page of cached.pages) {
+    const found = page.data.find((m) => m.id === messageId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * A message whose words changed, from the socket or the edit's own answer.
+ *
+ * Merged over what is held, so anything the payload leaves out — reactions
+ * from an older API — stays. Replies quoting it quote the new words.
+ */
+export function applyMessageEdited(
+  queryClient: QueryClient,
+  conversationId: string,
+  message: ConversationMessage,
+): void {
+  patchThreadMessages(queryClient, conversationId, (m) => {
+    if (m.id === message.id) return { ...m, ...message };
+    if (m.reply_to_id === message.id && !m.reply_to_deleted && m.reply_to_body !== message.body) {
+      return { ...m, reply_to_body: message.body };
+    }
+    return m;
+  });
+}
+
+/**
+ * One person's reaction on one message: set, changed, or taken back (`null`).
+ *
+ * One per person, so theirs is replaced rather than added to. A key this
+ * build does not know is dropped, the same as groupReactions would.
+ */
+export function applyReaction(
+  queryClient: QueryClient,
+  conversationId: string,
+  messageId: string,
+  userId: string,
+  reaction: ReactionKey | null,
+): void {
+  const known = reaction && REACTION_EMOJI[reaction] ? reaction : null;
+  patchThreadMessages(queryClient, conversationId, (m) => {
+    if (m.id !== messageId) return m;
+    const others = (m.reactions ?? []).filter((r) => r.userId !== userId);
+    return { ...m, reactions: known ? [...others, { userId, reaction: known }] : others };
+  });
+}
+
+function setMessageReactions(
+  queryClient: QueryClient,
+  conversationId: string,
+  messageId: string,
+  reactions: MessageReaction[],
+): void {
+  patchThreadMessages(queryClient, conversationId, (m) =>
+    m.id === messageId ? { ...m, reactions } : m,
+  );
+}
+
 /**
  * One conversation's messages, newest first, a page at a time.
  *
@@ -358,18 +540,28 @@ export function applyMessageDeleted(
  */
 export function useThread(conversationId: string | undefined) {
   const queryClient = useQueryClient();
+  const live = useChatSocketLive();
   const query = useInfiniteQuery({
     queryKey: chatKeys.thread(conversationId ?? ''),
-    queryFn: ({ pageParam }) => chatApi.messages(conversationId!, THREAD_PAGE, pageParam),
+    // Opens on fewer messages on a slow line; older ones come on scroll.
+    queryFn: ({ pageParam }) => fetchThreadPage(conversationId!, pageParam),
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) =>
-      last.data.length < THREAD_PAGE ? undefined : last.data[last.data.length - 1]?.id,
+    getNextPageParam: (last: ThreadPage) =>
+      last.data.length < (last.requestedLimit ?? THREAD_PAGE)
+        ? undefined
+        : last.data[last.data.length - 1]?.id,
     enabled: !!conversationId,
     // A deleted conversation, or one you were removed from, is an answer.
     retry: retryUnlessGone,
-    // The socket pushes new messages; this only backstops a dropped one.
-    refetchInterval: 45_000,
+    // The socket pushes new messages; this only backstops it while it is
+    // down. With it up, every page refetched each 45 seconds was a thread's
+    // worth of data spent on nothing.
+    refetchInterval: shouldPollChat(live) ? THREAD_POLL_MS : false,
   });
+
+  // What is waiting to go — an edit, a reaction — drawn over what the server
+  // last said, so a refetch while offline does not undo it on screen.
+  const pending = usePendingChatActions(conversationId);
 
   // Leaving keeps only the newest page, so coming back is one request rather
   // than one per page scrolled through last time.
@@ -386,6 +578,21 @@ export function useThread(conversationId: string | undefined) {
 
   const first = query.data?.pages[0];
   const pages = query.data?.pages;
+
+  /*
+   * Opened on what this phone held from before, with photos or a file still
+   * on their way then: whatever finished meanwhile came as a frame nobody
+   * heard, and a thread read under half a minute ago is not read again. So
+   * once, on opening, it is — only then, and only while one was pending.
+   */
+  const openedAt = useRef(Date.now());
+  const checkedPending = useRef<string | null>(null);
+  const { data: held, dataUpdatedAt, refetch } = query;
+  useEffect(() => {
+    if (!conversationId || !held || checkedPending.current === conversationId) return;
+    checkedPending.current = conversationId;
+    if (dataUpdatedAt < openedAt.current && hasPendingAttachments(held)) void refetch();
+  }, [conversationId, held, dataUpdatedAt, refetch]);
   const messages = useMemo(() => {
     const seen = new Set<string>();
     const rows: ConversationMessage[] = [];
@@ -393,11 +600,11 @@ export function useThread(conversationId: string | undefined) {
       for (const m of page.data) {
         if (seen.has(m.id)) continue;
         seen.add(m.id);
-        rows.push(m);
+        rows.push(pending.length > 0 ? withPendingActions(m, pending) : m);
       }
     }
     return rows;
-  }, [pages]);
+  }, [pages, pending]);
 
   /**
    * Frozen on first sight.
@@ -538,6 +745,9 @@ async function deliver(queryClient: QueryClient, item: OutboxItem): Promise<bool
  * app and the socket reconnecting each start a run straight away.
  */
 export function flushOutbox(queryClient: QueryClient): Promise<void> {
+  // Whatever wakes the message queue — a connection back, the app in front,
+  // the socket up — wakes the reactions and edits waiting beside it too.
+  void flushChatActions(queryClient);
   if (flushing) {
     flushAgain = true;
     return flushing;
@@ -619,9 +829,12 @@ export function useOutboxSender(userId: string | undefined): void {
   useEffect(() => {
     if (!userId) {
       resetOutbox();
+      resetChatActions();
       return undefined;
     }
-    void loadOutbox(userId).then(() => flushOutbox(queryClient));
+    void Promise.all([loadOutbox(userId), loadChatActions(userId)]).then(() =>
+      flushOutbox(queryClient),
+    );
 
     let wasOnline = true;
     const offNet = NetInfo.addEventListener((state) => {
@@ -665,6 +878,503 @@ export function useDeleteMessage(conversationId: string) {
   });
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reactions and edits that wait for a connection
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A reaction or an edit made with no signal, kept until the server has it.
+ *
+ * Like the message outbox and the money one: on the phone, across restarts,
+ * sent the moment there is a connection. One of each kind per message — a
+ * second reaction or a second edit replaces the one waiting. A reaction just
+ * stays drawn as it was given; an edit says "Waiting for a connection" in its
+ * time line until it goes.
+ */
+export type ChatAction =
+  | {
+      kind: 'reaction';
+      conversationId: string;
+      messageId: string;
+      reaction: ReactionKey | null;
+      queuedAt: string;
+      attempts: number;
+    }
+  | {
+      kind: 'edit';
+      conversationId: string;
+      messageId: string;
+      body: string;
+      mentionIds?: string[];
+      queuedAt: string;
+      attempts: number;
+    };
+
+/** What a waiting edit that the server then refused hands back to the screen. */
+export interface EditFailure {
+  conversationId: string;
+  messageId: string;
+  body: string;
+  error: unknown;
+}
+
+const NO_ACTIONS: readonly ChatAction[] = [];
+let actionOwner: string | null = null;
+let actions: readonly ChatAction[] = NO_ACTIONS;
+/** Each conversation's, rebuilt on change so a screen gets a stable array. */
+let actionsByConversation = new Map<string, readonly ChatAction[]>();
+const actionListeners = new Set<() => void>();
+const editFailureListeners = new Set<(failure: EditFailure) => void>();
+
+const actionsKey = (userId: string) => `virgo.chat-actions.v1:${userId}`;
+
+function publishActions(next: readonly ChatAction[]): void {
+  actions = next.length > 0 ? next : NO_ACTIONS;
+  const grouped = new Map<string, ChatAction[]>();
+  for (const a of actions) {
+    const list = grouped.get(a.conversationId) ?? [];
+    list.push(a);
+    grouped.set(a.conversationId, list);
+  }
+  actionsByConversation = grouped;
+  const userId = actionOwner;
+  if (userId) {
+    const write =
+      actions.length > 0
+        ? AsyncStorage.setItem(actionsKey(userId), JSON.stringify(actions))
+        : AsyncStorage.removeItem(actionsKey(userId));
+    write.catch(() => {
+      // Storage full or unavailable. The queue still works for this session.
+    });
+  }
+  for (const listener of actionListeners) listener();
+}
+
+/** Loads the signed-in person's waiting reactions and edits from last time. */
+export async function loadChatActions(userId: string): Promise<void> {
+  if (actionOwner === userId) return;
+  if (actionOwner !== null) actions = NO_ACTIONS;
+  actionOwner = userId;
+  let stored: ChatAction[] = [];
+  try {
+    const raw = await AsyncStorage.getItem(actionsKey(userId));
+    if (raw) stored = JSON.parse(raw) as ChatAction[];
+  } catch {
+    stored = [];
+  }
+  if (actionOwner !== userId) return;
+  const valid = Array.isArray(stored)
+    ? stored.filter(
+        (a) =>
+          a &&
+          (a.kind === 'reaction' || a.kind === 'edit') &&
+          typeof a.conversationId === 'string' &&
+          typeof a.messageId === 'string',
+      )
+    : [];
+  // Anything queued this session before the load wins over the stored copy.
+  const fresh = actions.filter((a) => !valid.some((v) => sameTarget(v, a)));
+  publishActions([...valid.filter((v) => !fresh.some((a) => sameTarget(a, v))), ...fresh]);
+}
+
+/** Signing out takes them with it: they are that account's. */
+export function resetChatActions(): void {
+  const userId = actionOwner;
+  actionOwner = null;
+  publishActions(NO_ACTIONS);
+  if (userId) AsyncStorage.removeItem(actionsKey(userId)).catch(() => undefined);
+}
+
+function sameTarget(a: ChatAction, b: ChatAction): boolean {
+  return a.kind === b.kind && a.messageId === b.messageId && a.conversationId === b.conversationId;
+}
+
+function queueChatAction(action: ChatAction): void {
+  publishActions([...actions.filter((a) => !sameTarget(a, action)), action]);
+}
+
+function hasQueued(kind: ChatAction['kind'], conversationId: string, messageId: string): boolean {
+  return actions.some(
+    (a) => a.kind === kind && a.messageId === messageId && a.conversationId === conversationId,
+  );
+}
+
+function subscribeActions(listener: () => void): () => void {
+  actionListeners.add(listener);
+  return () => actionListeners.delete(listener);
+}
+
+/** What is waiting to go in one conversation. */
+export function usePendingChatActions(conversationId: string | undefined): readonly ChatAction[] {
+  return useSyncExternalStore(
+    subscribeActions,
+    () => (conversationId ? (actionsByConversation.get(conversationId) ?? NO_ACTIONS) : NO_ACTIONS),
+    () => NO_ACTIONS,
+  );
+}
+
+/** The messages in a conversation whose edit is waiting for a connection. */
+export function usePendingEdits(conversationId: string | undefined): ReadonlySet<string> {
+  const pending = usePendingChatActions(conversationId);
+  return useMemo(
+    () => new Set(pending.filter((a) => a.kind === 'edit').map((a) => a.messageId)),
+    [pending],
+  );
+}
+
+/**
+ * Says when an edit that was waiting is turned down once it could be sent —
+ * the window closed while the phone was offline — so the screen can give the
+ * words back. Nothing is lost silently.
+ */
+export function useEditFailures(
+  conversationId: string | undefined,
+  onFailure: (failure: EditFailure) => void,
+): void {
+  const latest = useRef(onFailure);
+  latest.current = onFailure;
+  useEffect(() => {
+    if (!conversationId) return undefined;
+    const listener = (failure: EditFailure) => {
+      if (failure.conversationId === conversationId) latest.current(failure);
+    };
+    editFailureListeners.add(listener);
+    return () => {
+      editFailureListeners.delete(listener);
+    };
+  }, [conversationId]);
+}
+
+/** A message as it will be once what is waiting for it has gone. */
+function withPendingActions(m: ConversationMessage, pending: readonly ChatAction[]): ConversationMessage {
+  if (m.deleted_at) return m;
+  let next = m;
+  for (const a of pending) {
+    if (a.messageId !== m.id) continue;
+    if (a.kind === 'edit') {
+      if (next.body !== a.body) next = { ...next, body: a.body, edited_at: a.queuedAt };
+    } else if (actionOwner) {
+      const owner = actionOwner;
+      const others = (next.reactions ?? []).filter((r) => r.userId !== owner);
+      next = {
+        ...next,
+        reactions: a.reaction ? [...others, { userId: owner, reaction: a.reaction }] : others,
+      };
+    }
+  }
+  return next;
+}
+
+let actionsFlushing: Promise<void> | null = null;
+let actionsRetry: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Sends the waiting reactions and edits, oldest first.
+ *
+ * A connection failure stops the run and tries again on a backoff, as the
+ * message outbox does. A refusal drops the one refused and reads the thread
+ * again; a refused edit's words go back to the screen (useEditFailures).
+ */
+export function flushChatActions(queryClient: QueryClient): Promise<void> {
+  if (actionsFlushing) return actionsFlushing;
+  if (actions.length === 0) return Promise.resolve();
+  clearTimeout(actionsRetry);
+  actionsFlushing = (async () => {
+    for (const action of actions.slice()) {
+      // Replaced by a newer one while an earlier one was going.
+      if (!actions.includes(action)) continue;
+      try {
+        if (action.kind === 'reaction') {
+          const result = await chatApi.react(action.conversationId, action.messageId, action.reaction);
+          publishActions(actions.filter((a) => a !== action));
+          if (Array.isArray(result?.reactions)) {
+            setMessageReactions(queryClient, action.conversationId, action.messageId, result.reactions);
+          }
+        } else {
+          const row = await chatApi.edit(
+            action.conversationId,
+            action.messageId,
+            action.body,
+            action.mentionIds,
+          );
+          publishActions(actions.filter((a) => a !== action));
+          if (row && typeof row === 'object' && 'id' in row) {
+            applyMessageEdited(queryClient, action.conversationId, row);
+          }
+          invalidateConversationRows(queryClient);
+        }
+      } catch (err) {
+        if (isTransient(err)) {
+          const attempts = action.attempts + 1;
+          publishActions(actions.map((a) => (a === action ? { ...a, attempts } : a)));
+          actionsRetry = setTimeout(
+            () => void flushChatActions(queryClient),
+            Math.min(2000 * 2 ** Math.min(attempts, 5), 60_000),
+          );
+          break;
+        }
+        publishActions(actions.filter((a) => a !== action));
+        queryClient.invalidateQueries({ queryKey: chatKeys.thread(action.conversationId) });
+        if (action.kind === 'edit') {
+          const failure: EditFailure = {
+            conversationId: action.conversationId,
+            messageId: action.messageId,
+            body: action.body,
+            error: err,
+          };
+          for (const listener of editFailureListeners) listener(failure);
+        }
+      }
+    }
+  })().finally(() => {
+    actionsFlushing = null;
+  });
+  return actionsFlushing;
+}
+
+/**
+ * Your reaction on a message: set, changed, or `null` to take it back.
+ *
+ * Drawn at once and put back if the server says no. What the server answers
+ * with is everyone's reactions on it, which replaces the guess. With no
+ * connection it waits, still drawn, and goes when there is one — no alert,
+ * since nothing went wrong that needs you.
+ */
+export function useReactToMessage(conversationId: string, myId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // Always tried, rather than paused by React Query while offline: a paused
+    // one is forgotten when the app closes, and the queue above is not.
+    networkMode: 'always',
+    mutationFn: async ({
+      messageId,
+      reaction,
+    }: {
+      messageId: string;
+      reaction: ReactionKey | null;
+    }): Promise<{ queued: boolean; reactions?: MessageReaction[] }> => {
+      const queue = () => {
+        queueChatAction({
+          kind: 'reaction',
+          conversationId,
+          messageId,
+          reaction,
+          queuedAt: new Date().toISOString(),
+          attempts: 0,
+        });
+        return { queued: true };
+      };
+      // Behind one already waiting for this message, or with no connection
+      // at all, there is no point trying first.
+      if (getConnectionQuality() === 'offline' || hasQueued('reaction', conversationId, messageId)) {
+        return queue();
+      }
+      try {
+        const result = await chatApi.react(conversationId, messageId, reaction);
+        return { queued: false, reactions: result?.reactions };
+      } catch (err) {
+        if (isTransient(err)) return queue();
+        throw err;
+      }
+    },
+    onMutate: ({ messageId, reaction }) => {
+      const previous = findThreadMessage(queryClient, conversationId, messageId)?.reactions ?? [];
+      if (myId) applyReaction(queryClient, conversationId, messageId, myId, reaction);
+      return { previous };
+    },
+    onError: (_err, { messageId }, context) => {
+      if (context) setMessageReactions(queryClient, conversationId, messageId, context.previous);
+    },
+    onSuccess: (result, { messageId }) => {
+      if (!result.queued && Array.isArray(result.reactions)) {
+        setMessageReactions(queryClient, conversationId, messageId, result.reactions);
+      }
+    },
+  });
+}
+
+/**
+ * Changes the words of one of your own messages.
+ *
+ * Drawn at once, marked Edited, and put back as it was if the server says no
+ * — the window closing in flight, say. With no connection it waits, drawn as
+ * changed, its time line saying "Waiting for a connection".
+ */
+export function useEditMessage(conversationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    networkMode: 'always',
+    mutationFn: async ({
+      messageId,
+      body,
+      mentionIds,
+    }: {
+      messageId: string;
+      body: string;
+      mentionIds?: string[];
+    }): Promise<{ queued: boolean; message?: ConversationMessage }> => {
+      const queue = () => {
+        queueChatAction({
+          kind: 'edit',
+          conversationId,
+          messageId,
+          body,
+          mentionIds,
+          queuedAt: new Date().toISOString(),
+          attempts: 0,
+        });
+        return { queued: true };
+      };
+      if (getConnectionQuality() === 'offline' || hasQueued('edit', conversationId, messageId)) {
+        return queue();
+      }
+      try {
+        return { queued: false, message: await chatApi.edit(conversationId, messageId, body, mentionIds) };
+      } catch (err) {
+        if (isTransient(err)) return queue();
+        throw err;
+      }
+    },
+    onMutate: ({ messageId, body }) => {
+      const before = findThreadMessage(queryClient, conversationId, messageId);
+      patchThreadMessages(queryClient, conversationId, (m) =>
+        m.id === messageId ? { ...m, body, edited_at: new Date().toISOString() } : m,
+      );
+      return { before };
+    },
+    onError: (_err, { messageId }, context) => {
+      const before = context?.before;
+      if (!before) return;
+      patchThreadMessages(queryClient, conversationId, (m) =>
+        m.id === messageId
+          ? { ...m, body: before.body, edited_at: before.edited_at, mentions: before.mentions }
+          : m,
+      );
+    },
+    onSuccess: (result) => {
+      const message = result.message;
+      if (message && typeof message === 'object' && 'id' in message) {
+        applyMessageEdited(queryClient, conversationId, message);
+      }
+      // The list's preview line, when it was the newest.
+      if (!result.queued) invalidateConversationRows(queryClient);
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catching up after the socket comes back
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * What a reconnect does, in place of refetching every page of every chat.
+ *
+ * The open thread asks only for what is newer than its newest message and
+ * adds it. If that fills a page there may be a gap, so the thread starts
+ * again from the newest page instead. The lists, the badge and the open
+ * chat's receipts are read once; every other thread is only marked stale, to
+ * be read when it is next opened.
+ */
+export function catchUpChats(queryClient: QueryClient, openId: string | null): void {
+  queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+  queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+  queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+  queryClient.invalidateQueries({
+    queryKey: ['chat', 'thread'],
+    refetchType: 'none',
+    predicate: (q) => q.queryKey[2] !== openId,
+  });
+  queryClient.invalidateQueries({
+    queryKey: ['chat', 'participants'],
+    refetchType: 'none',
+    predicate: (q) => q.queryKey[2] !== openId,
+  });
+  if (!openId) return;
+  queryClient.invalidateQueries({ queryKey: chatKeys.participants(openId) });
+  void catchUpThread(queryClient, openId);
+}
+
+/** Whether a held thread has a photo or file still uploading, as last read. */
+function hasPendingAttachments(cached: { pages?: ThreadPage[] } | undefined): boolean {
+  return !!cached?.pages?.some((p) =>
+    p.data.some((m) => !m.deleted_at && m.attachments?.some((a) => a.status === 'uploading')),
+  );
+}
+
+async function catchUpThread(queryClient: QueryClient, conversationId: string): Promise<void> {
+  const key = chatKeys.thread(conversationId);
+  const cached = queryClient.getQueryData<ThreadPages>(key);
+  const newest = cached?.pages?.[0]?.data?.[0];
+  if (!cached || !Array.isArray(cached.pages) || !newest) {
+    await queryClient.invalidateQueries({ queryKey: key });
+    return;
+  }
+  const limit = firstPageSize(getConnectionQuality());
+  let page: Thread;
+  try {
+    page = await chatApi.messages(conversationId, limit, undefined, newest.id);
+  } catch {
+    // An API that cannot answer `after`, or the newest has gone: read the
+    // thread the long way.
+    await queryClient.invalidateQueries({ queryKey: key });
+    return;
+  }
+  if (page.data.length >= limit) {
+    // A gap between what came and what is held: start from the newest page.
+    try {
+      const fresh = await fetchThreadPage(conversationId, undefined);
+      queryClient.setQueryData<ThreadPages>(key, { pages: [fresh], pageParams: [undefined] });
+    } catch {
+      await queryClient.invalidateQueries({ queryKey: key });
+    }
+    return;
+  }
+  // Photos or a file that were still on their way: whatever finished while the
+  // socket was down came as a frame nobody heard. `after` only brings what is
+  // newer, so the thread is read again — rare, and only while one is pending.
+  if (hasPendingAttachments(cached)) {
+    await queryClient.invalidateQueries({ queryKey: key });
+    return;
+  }
+  queryClient.setQueryData<ThreadPages>(key, (old) => {
+    if (!old || !Array.isArray(old.pages) || old.pages.length === 0) return old;
+    const [first, ...rest] = old.pages;
+    const held = new Set(old.pages.flatMap((p) => p.data.map((m) => m.id)));
+    const added = page.data.filter((m) => !held.has(m.id));
+    const data = [...added, ...first.data].sort(newestFirst);
+    return {
+      ...old,
+      pages: [
+        {
+          ...first,
+          data,
+          // The thread's own state as it is now: a block may have come or gone.
+          ...(page.canSend !== undefined ? { canSend: page.canSend } : {}),
+          ...(page.blockedByMe !== undefined ? { blockedByMe: page.blockedByMe } : {}),
+          ...(page.blockId !== undefined ? { blockId: page.blockId } : {}),
+        },
+        ...rest,
+      ],
+    };
+  });
+}
+
+/** Sends a message on to other chats, as your own, marked Forwarded. */
+export function useForwardMessage(conversationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ messageId, targetIds }: { messageId: string; targetIds: string[] }) =>
+      chatApi.forward(conversationId, messageId, targetIds),
+    onSuccess: (_result, { targetIds }) => {
+      invalidateConversationRows(queryClient);
+      for (const id of targetIds) {
+        queryClient.invalidateQueries({ queryKey: chatKeys.thread(id) });
+      }
+    },
+  });
+}
+
 export function useOpenDirectChat() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -692,19 +1402,10 @@ export function useMarkThreadRead() {
     mutationFn: (conversationId: string) => chatApi.markRead(conversationId),
     onSuccess: (_result, conversationId) => {
       // The row's count goes to zero now rather than on the refetch, so going
-      // back to the list does not show it unread for a moment.
-      queryClient.setQueriesData<ConversationPages>(
-        { queryKey: chatKeys.allConversations },
-        (old) =>
-          old && Array.isArray(old.pages)
-            ? {
-                ...old,
-                pages: old.pages.map((page) => ({
-                  ...page,
-                  data: page.data.map((c) => (c.id === conversationId ? { ...c, unread: 0 } : c)),
-                })),
-              }
-            : old,
+      // back to the list does not show it unread for a moment. Reading it
+      // also clears "marked unread", as the server does.
+      patchConversationRows(queryClient, (c) =>
+        c.id === conversationId ? { ...c, unread: 0, markedUnread: false } : c,
       );
       invalidateConversationRows(queryClient);
       queryClient.invalidateQueries({ queryKey: chatKeys.unread });
@@ -801,6 +1502,187 @@ export function useDeleteConversation() {
       invalidateConversationRows(queryClient);
       queryClient.invalidateQueries({ queryKey: chatKeys.unread });
     },
+  });
+}
+
+/**
+ * Pins, archives or marks a chat unread, in your own list only.
+ *
+ * The list moves at once: an archived chat leaves it, a pinned one joins the
+ * pinned group at the top. If the server says no — a sixth pin — every list
+ * goes back as it was. Either way they are fetched again afterwards, since
+ * the server decides the final order.
+ */
+export function useSetListState() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, patch }: { conversationId: string; patch: ListStatePatch }) =>
+      chatApi.setListState(conversationId, patch),
+    onMutate: ({ conversationId, patch }) => {
+      const lists = queryClient.getQueriesData<ConversationPages>({
+        queryKey: chatKeys.allConversations,
+      });
+      const rows = queryClient.getQueriesData<Conversation | null>({
+        queryKey: chatKeys.anyConversation,
+      });
+
+      const flags = (c: Conversation): Conversation => ({
+        ...c,
+        ...(patch.pinned !== undefined
+          ? { pinned: patch.pinned, ...(patch.pinned ? { archived: false } : {}) }
+          : {}),
+        ...(patch.archived !== undefined
+          ? { archived: patch.archived, ...(patch.archived ? { pinned: false } : {}) }
+          : {}),
+        ...(patch.markedUnread !== undefined ? { markedUnread: patch.markedUnread } : {}),
+      });
+      const leavesArchive = patch.archived === false || patch.pinned === true;
+
+      patchConversationRows(queryClient, (c, key) => {
+        if (c.id !== conversationId) return c;
+        if (isArchivedKey(key)) return leavesArchive ? null : flags(c);
+        // Out of the inbox and searches; it waits in Archived.
+        if (patch.archived === true) return null;
+        return flags(c);
+      });
+
+      // Pinned joins the pinned group, and the count of what is archived moves
+      // with whatever went in or came out.
+      for (const [key, list] of queryClient.getQueriesData<ConversationPages>({
+        queryKey: chatKeys.allConversations,
+      })) {
+        if (!list || !Array.isArray(list.pages) || list.pages.length === 0 || isArchivedKey(key)) {
+          continue;
+        }
+        const [first, ...rest] = list.pages;
+        let data = first.data;
+        if (patch.pinned === true) {
+          const row = data.find((c) => c.id === conversationId);
+          if (row) {
+            const without = data.filter((c) => c.id !== conversationId);
+            const lastPinned = without.reduce((at, c, i) => (c.pinned ? i : at), -1);
+            data = [...without.slice(0, lastPinned + 1), row, ...without.slice(lastPinned + 1)];
+          }
+        }
+        const delta = patch.archived === true ? 1 : leavesArchive ? -1 : 0;
+        const archivedCount =
+          first.archivedCount !== undefined && delta !== 0
+            ? Math.max(0, first.archivedCount + delta)
+            : first.archivedCount;
+        if (data === first.data && archivedCount === first.archivedCount) continue;
+        queryClient.setQueryData<ConversationPages>(key, {
+          ...list,
+          pages: [{ ...first, data, archivedCount }, ...rest],
+        });
+      }
+      return { lists, rows };
+    },
+    onError: (_err, _vars, context) => {
+      for (const [key, value] of context?.lists ?? []) queryClient.setQueryData(key, value);
+      for (const [key, value] of context?.rows ?? []) queryClient.setQueryData(key, value);
+    },
+    onSettled: () => {
+      invalidateConversationRows(queryClient);
+      queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+    },
+  });
+}
+
+/** Mutes or unmutes any chat (`minutes: 0`), for a list's menu. */
+export function useMuteChat() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, minutes }: { conversationId: string; minutes: number }) =>
+      chatApi.mute(conversationId, minutes),
+    onSuccess: (result, { conversationId }) => {
+      patchConversationRows(queryClient, (c) =>
+        c.id === conversationId ? { ...c, muted: result.muted, mutedUntil: result.mutedUntil } : c,
+      );
+      invalidateConversationRows(queryClient);
+      queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Saved replies
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Your saved replies, oldest first. Only fetched once the sheet asks. */
+export function useSavedReplies(enabled = true) {
+  const query = useQuery({
+    queryKey: chatKeys.savedReplies,
+    queryFn: () => savedRepliesApi.list(),
+    enabled,
+  });
+  return {
+    ...query,
+    /** Failed *or* paused — an offline device never reaches `isError`. */
+    loadFailed: query.isError || query.isPaused,
+    replies: query.data?.data ?? [],
+  };
+}
+
+type SavedReplyList = { data: SavedReply[]; total: number };
+
+export function useSaveReply() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, title, body }: { id?: string; title: string; body: string }) =>
+      id ? savedRepliesApi.update(id, { title, body }) : savedRepliesApi.create(title, body),
+    onSuccess: (reply) => {
+      queryClient.setQueryData<SavedReplyList>(chatKeys.savedReplies, (old) => {
+        if (!old || !Array.isArray(old.data)) return old;
+        const exists = old.data.some((r) => r.id === reply.id);
+        return exists
+          ? { ...old, data: old.data.map((r) => (r.id === reply.id ? reply : r)) }
+          : { data: [...old.data, reply], total: old.total + 1 };
+      });
+      queryClient.invalidateQueries({ queryKey: chatKeys.savedReplies });
+    },
+  });
+}
+
+export function useDeleteSavedReply() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => savedRepliesApi.remove(id),
+    onSuccess: (_result, id) => {
+      queryClient.setQueryData<SavedReplyList>(chatKeys.savedReplies, (old) =>
+        old && Array.isArray(old.data)
+          ? { data: old.data.filter((r) => r.id !== id), total: Math.max(0, old.total - 1) }
+          : old,
+      );
+      queryClient.invalidateQueries({ queryKey: chatKeys.savedReplies });
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Link previews
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * What a chat draws under a Virgo link, or null when there is nothing to draw.
+ *
+ * A 404 is an answer, not a failure: the link is not one of Virgo's pages, or
+ * no longer works, and it stays a plain link. Not retried — a card that never
+ * comes is fine; a bubble that jumps three times while it tries is not.
+ */
+export function useLinkPreview(url: string | null) {
+  return useQuery({
+    queryKey: chatKeys.linkPreview(url ?? ''),
+    queryFn: async (): Promise<LinkPreview | null> => {
+      try {
+        return await linkPreviewsApi.get(url!);
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 404 || err.status === 403)) return null;
+        throw err;
+      }
+    },
+    enabled: !!url,
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 }
 

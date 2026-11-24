@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -19,11 +19,12 @@ import { useMoneyPackage, useMoneyPayMethods, useUpdateMoneyEntry } from '@/src/
 import { EmptyState } from '@/components';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PayQr } from '@/components/money/PayQr';
+import { PaySendSheet } from '@/components/money/PaySendSheet';
 import {
   CAN_HANDLE_FILES,
   copyPayNumber,
   savePayQr,
-  sendPayMethod,
+  useScreenAwake,
 } from '@/src/lib/pay-method-actions';
 
 for (const Icon of [
@@ -38,33 +39,6 @@ for (const Icon of [
   XIcon,
 ]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
-}
-
-type KeepAwake = {
-  activateKeepAwakeAsync: (tag?: string) => Promise<void>;
-  deactivateKeepAwake: (tag?: string) => Promise<void> | void;
-};
-
-/**
- * The screen stays on while a client scans. expo-keep-awake comes with Expo
- * and is loaded the way Expo loads it itself: optionally, so a build without
- * it shows the code all the same.
- */
-function useScreenAwake() {
-  useEffect(() => {
-    let keepAwake: KeepAwake | null = null;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      keepAwake = require('expo-keep-awake') as KeepAwake;
-    } catch {
-      keepAwake = null;
-    }
-    const tag = 'show-qr';
-    keepAwake?.activateKeepAwakeAsync(tag).catch(() => undefined);
-    return () => {
-      void Promise.resolve(keepAwake?.deactivateKeepAwake(tag)).catch(() => undefined);
-    };
-  }, []);
 }
 
 function message(err: unknown, fallback: string): string {
@@ -85,7 +59,8 @@ export default function ShowPayMethodScreen() {
   const { width } = useWindowDimensions();
   const [picked, setPicked] = useState<string | undefined>(params.id);
   const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState<'save' | 'send' | null>(null);
+  const [busy, setBusy] = useState<'save' | null>(null);
+  const [sending, setSending] = useState(false);
   useScreenAwake();
 
   const method: MoneyPayMethod | undefined = useMemo(
@@ -130,14 +105,8 @@ export default function ShowPayMethodScreen() {
       setBusy(null);
     }
   };
-  const send = async () => {
-    if (!method || busy) return;
-    setBusy('send');
-    try {
-      await sendPayMethod(method);
-    } finally {
-      setBusy(null);
-    }
+  const send = () => {
+    if (method) setSending(true);
   };
 
   const markPaid = () => {
@@ -290,7 +259,7 @@ export default function ShowPayMethodScreen() {
                 onPress={() => void save()}
               />
             ) : null}
-            <ActionButton icon={ShareIcon} label={busy === 'send' ? 'Opening…' : 'Send'} onPress={() => void send()} />
+            <ActionButton icon={ShareIcon} label="Send" onPress={send} />
           </View>
 
           {fromPackage ? (
@@ -325,6 +294,12 @@ export default function ShowPayMethodScreen() {
           )}
         </>
       )}
+      <PaySendSheet
+        visible={sending}
+        method={method ?? null}
+        packageId={params.package}
+        onClose={() => setSending(false)}
+      />
     </SafeAreaView>
   );
 }

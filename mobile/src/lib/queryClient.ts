@@ -189,7 +189,18 @@ export const asyncStoragePersister = createAsyncStoragePersister({
 // placed them; both would show for a moment on the first launch after.
 // v14: Nearby names the town, not only the province, and says how closely it
 // knows where you are. A saved list showed "about 1 km" for a whole province.
-const CACHE_VERSION = 'v14-nearby-towns'
+// v15: messages carry edits, reactions and Forwarded; chats carry pinned,
+// archived and marked unread, and the list a count of what is archived.
+// v16: messages can be cards (album photos, bookings, job posts, posts,
+// packages, dates), and an album link preview carries blurred stand-ins.
+// v17: crew chats. Chats carry About, admins, who can add people and what made
+// them (a workspace or a job), messages can be notices and carry when they
+// were pinned, and people carry admin, joined and roles.
+// v18: messages can carry photos and a file from somebody's device, with
+// their attachments; storage counts what you sent in chats.
+// v19: messages can be voice notes, and attachments carry a length and a
+// waveform.
+const CACHE_VERSION = 'v19-chat-voice'
 
 /**
  * Never written to disk, whatever their staleTime says.

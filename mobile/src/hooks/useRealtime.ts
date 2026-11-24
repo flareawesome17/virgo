@@ -8,9 +8,13 @@ import {
   hydrateTokens,
   queryKeys,
   type ConversationMessage,
+  type ReactionKey,
 } from '@/src/api';
 import {
   applyMessageDeleted,
+  applyMessageEdited,
+  applyReaction,
+  catchUpChats,
   chatKeys,
   flushOutbox,
   getOpenConversation,
@@ -18,7 +22,9 @@ import {
   isConversationMuted,
   noteLiveMessage,
 } from '@/src/hooks/useChat';
+import { crewKeys } from '@/src/hooks/useChatCrew';
 import { removeFromOutbox } from '@/src/lib/outbox';
+import { setChatSocketLive } from '@/src/hooks/useConnectionQuality';
 import { applyWorkspaceDeleted, applyWorkspaceRestored } from '@/src/hooks/useWorkspaces';
 import { useAuth } from '@/src/hooks/useAuth';
 import {
@@ -45,9 +51,21 @@ type ServerEvent =
   | { type: 'ready'; userId: string }
   | { type: 'message'; conversationId: string; message: ConversationMessage }
   | { type: 'message-deleted'; conversationId: string; messageId: string; scope: 'me' | 'everyone' }
+  // The sender changed a message's words; carries the message as you get it.
+  | { type: 'message-edited'; conversationId: string; message: ConversationMessage }
+  // One reaction per person: this replaces theirs, or takes it away on null.
+  | {
+      type: 'reaction';
+      conversationId: string;
+      messageId: string;
+      userId: string;
+      reaction: ReactionKey | null;
+    }
   | { type: 'read'; conversationId: string; userId: string; at: string }
   | { type: 'delivered'; conversationId: string; userId: string; at: string }
   | { type: 'conversation'; conversationId: string }
+  /** A chat's pinned messages changed. Only the id: the pins are asked for. */
+  | { type: 'pins'; conversationId: string }
   // Ambient board change. Not a notification: nothing is addressed to you, so
   // it must not toast or buzz — it only marks the list and the badge stale.
   | { type: 'job-posted'; slug: string; at: string }
@@ -263,6 +281,26 @@ export function useRealtime(enabled: boolean): void {
           queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
           queryClient.invalidateQueries({ queryKey: chatKeys.unread });
           break;
+        case 'message-edited':
+          // In place, wherever it is; no sound and no buzz, as there is no
+          // push for an edit either. The list's preview may be this message.
+          if (event.message && typeof event.message === 'object' && event.message.id) {
+            applyMessageEdited(queryClient, event.conversationId, event.message);
+          }
+          queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+          queryClient.invalidateQueries({ queryKey: chatKeys.anyConversation });
+          break;
+        case 'reaction':
+          // Silent, like its missing push. Your own, from another device or
+          // echoing the one just made here, lands the same way twice.
+          applyReaction(
+            queryClient,
+            event.conversationId,
+            event.messageId,
+            event.userId,
+            event.reaction ?? null,
+          );
+          break;
         case 'read':
         case 'delivered':
           // Ticks are worked out from each member's receipts, which ride on
@@ -286,6 +324,10 @@ export function useRealtime(enabled: boolean): void {
           queryClient.invalidateQueries({ queryKey: chatKeys.participants(event.conversationId) });
           queryClient.invalidateQueries({ queryKey: chatKeys.thread(event.conversationId) });
           queryClient.invalidateQueries({ queryKey: chatKeys.unread });
+          break;
+        case 'pins':
+          // Somebody pinned a message or took one down. One small request.
+          queryClient.invalidateQueries({ queryKey: crewKeys.pins(event.conversationId) });
           break;
         case 'workspace-deleted':
           applyWorkspaceDeleted(queryClient, event.workspaceId);
@@ -355,6 +397,7 @@ export function useRealtime(enabled: boolean): void {
           // Already closed.
         }
         socket = null;
+        setChatSocketLive(false);
       }
 
       try {
@@ -396,11 +439,19 @@ export function useRealtime(enabled: boolean): void {
           // The bell too: a notification sent while the socket was down never
           // reached this frame handler, and its count — and the icon badge
           // built on it — waited for the next poll.
+          //
+          // Not by refetching every page of every chat, which on 2G was the
+          // whole thread again: the open one asks only for what is newer than
+          // its newest message, the lists are read once, and the rest are
+          // marked stale for when they are next opened.
           if (connectedBefore) {
-            queryClient.invalidateQueries({ queryKey: ['chat'] });
+            catchUpChats(queryClient, getOpenConversation());
             queryClient.invalidateQueries({ queryKey: queryKeys.notifications.unread });
           }
           connectedBefore = true;
+          // Live: the backup polls stop, since everything they would bring
+          // now arrives here.
+          setChatSocketLive(true);
           // A live socket is a working connection: whatever is queued goes.
           void flushOutbox(queryClient);
           return;
@@ -411,6 +462,7 @@ export function useRealtime(enabled: boolean): void {
       socket.onclose = (closeEvent) => {
         socketRef.current = null;
         socket = null;
+        setChatSocketLive(false);
         if (stopped.current) return;
         if (closeEvent.code === 4001) {
           /*
@@ -467,6 +519,7 @@ export function useRealtime(enabled: boolean): void {
       previous.onerror = null;
       socket = null;
       socketRef.current = null;
+      setChatSocketLive(false);
       try {
         previous.close();
       } catch {
@@ -491,6 +544,7 @@ export function useRealtime(enabled: boolean): void {
 
     return () => {
       stopped.current = true;
+      setChatSocketLive(false);
       registerTypingSender(null);
       resetPresence();
       subscription.remove();

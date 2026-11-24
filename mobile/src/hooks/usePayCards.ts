@@ -1,0 +1,34 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { chatApi } from '@/src/api';
+import { newClientId } from '@/src/lib/outbox';
+import { chatKeys } from './useChat';
+
+/**
+ * Sends one of your ways to pay as a card in a chat, optionally for one of
+ * your packages. The card arrives in an open thread live, like any message;
+ * the thread and the list are refetched for a chat that is not open.
+ *
+ * One client id per card: pass the same `clientId` when sending the same card
+ * again, and a retry after a lost response stores one card, not two. Left
+ * out, each call makes its own.
+ */
+export function useSendPayCard() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      conversationId,
+      payMethodId,
+      packageId,
+      clientId,
+    }: {
+      conversationId: string;
+      payMethodId: string;
+      packageId?: string;
+      clientId?: string;
+    }) => chatApi.sendPayCard(conversationId, { payMethodId, packageId, clientId: clientId ?? newClientId() }),
+    onSuccess: (_message, { conversationId }) => {
+      void queryClient.invalidateQueries({ queryKey: chatKeys.thread(conversationId) });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.allConversations });
+    },
+  });
+}

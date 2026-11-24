@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Alert, Platform, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -20,6 +21,39 @@ export function payDetailsLine(m: MoneyPayMethod): string {
 
 /** Saving and sending a picture need the phone's own file and share sheets. */
 export const CAN_HANDLE_FILES = Platform.OS !== 'web';
+
+type KeepAwake = {
+  activateKeepAwakeAsync: (tag?: string) => Promise<void>;
+  deactivateKeepAwake: (tag?: string) => Promise<void> | void;
+};
+
+/**
+ * The screen stays on while somebody scans. expo-keep-awake comes with Expo
+ * and is loaded the way Expo loads it itself: optionally, so a build without
+ * it shows the code all the same. `active` false leaves the screen alone.
+ */
+export function useScreenAwake(active = true) {
+  useEffect(() => {
+    if (!active) return;
+    let keepAwake: KeepAwake | null = null;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      keepAwake = require('expo-keep-awake') as KeepAwake;
+    } catch {
+      keepAwake = null;
+    }
+    const tag = `show-qr-${Math.random().toString(36).slice(2)}`;
+    keepAwake?.activateKeepAwakeAsync(tag).catch(() => undefined);
+    return () => {
+      void Promise.resolve(keepAwake?.deactivateKeepAwake(tag)).catch(() => undefined);
+    };
+  }, [active]);
+}
+
+/** The whole line — wallet, name, number — to paste anywhere. */
+export async function copyPayDetails(m: MoneyPayMethod): Promise<void> {
+  await Clipboard.setStringAsync(payDetailsLine(m));
+}
 
 export async function copyPayNumber(m: MoneyPayMethod): Promise<boolean> {
   const value = m.accountNumber ?? payDetailsLine(m);

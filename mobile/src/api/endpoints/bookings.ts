@@ -1,4 +1,5 @@
 import { api } from '../client';
+import type { PayCardMethod } from './money';
 
 export type BookingSide = 'poster' | 'creative';
 
@@ -47,6 +48,12 @@ export interface Booking {
   conversationId: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * How to pay the creative: their main way to pay, for the poster once the
+   * creative has confirmed. Null when they have none yet; absent otherwise,
+   * and from an API too old to send it.
+   */
+  payTo?: PayCardMethod | null;
 }
 
 export interface BookingPatch {
