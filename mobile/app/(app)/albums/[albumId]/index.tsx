@@ -24,7 +24,7 @@ import { RemoteImage, stableCacheKey } from '@/components/RemoteImage';
 import { VideoThumbnail } from '@/components/VideoThumbnail';
 import { BottomSheet, useShade } from '@/components/BottomSheet';
 import { NameSheet } from '@/components/NameSheet';
-import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
+import { ConfirmSheet } from '@/components/ConfirmSheet';
 import { PlayAllBar, RecordingRow } from '@/components/Recordings';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWindowInsets } from '@/src/lib/window-insets';
@@ -1625,7 +1625,7 @@ export default function AlbumScreen() {
         actions={albumActions}
         onClose={() => setMenuOpen(false)}
       />
-      <DeleteConfirmSheet
+      <ConfirmSheet
         visible={deletingAlbum}
         title={`Delete “${album?.name ?? 'this album'}”?`}
         // Say what deleting gives back: room, at once, which is why someone
@@ -1635,7 +1635,7 @@ export default function AlbumScreen() {
           size_bytes: album?.size_bytes,
         })}
         onCancel={() => setDeletingAlbum(false)}
-        onConfirm={(proof) => deleteAlbum.mutateAsync({ id: albumId, proof })}
+        onConfirm={() => deleteAlbum.mutateAsync({ id: albumId })}
         onDone={() => {
           setDeletingAlbum(false);
           // Back where it was opened from — a workspace, usually. It always
