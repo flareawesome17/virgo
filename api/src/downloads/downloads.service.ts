@@ -497,13 +497,17 @@ export class DownloadsService {
   }
 
   /**
-   * Walks published releases newest first (drafts and prereleases skipped)
-   * until `pick` returns something, reading a page at a time (see
-   * RELEASE_PAGES). `failed` is the response of a page GitHub would not give,
-   * so each caller can say what a failure means for it.
+   * Walks published releases newest first until `pick` returns something,
+   * reading a page at a time (see RELEASE_PAGES). `failed` is the response of
+   * a page GitHub would not give, so each caller can say what a failure means
+   * for it.
+   *
+   * Drafts are always skipped. Prereleases are skipped unless `prereleases`
+   * is set, which only the Android download does (see `getAndroid`).
    */
   private async walkReleases<T>(
     pick: (release: GitHubRelease) => T | null,
+    { prereleases = false }: { prereleases?: boolean } = {},
   ): Promise<{ found: T | null; failed?: Response }> {
     for (let page = 1; page <= RELEASE_PAGES; page++) {
       const response = await this.github(
@@ -514,7 +518,7 @@ export class DownloadsService {
 
       const releases = (await response.json()) as GitHubRelease[];
       for (const release of releases) {
-        if (release.draft || release.prerelease) continue;
+        if (release.draft || (release.prerelease && !prereleases)) continue;
         const hit = pick(release);
         if (hit !== null) return { found: hit };
       }
@@ -536,6 +540,12 @@ export class DownloadsService {
    * Only the version is needed. What the app does about it differs per
    * platform — TestFlight or the App Store on iOS, the APK on Android — and
    * that is the app's business, not this endpoint's.
+   *
+   * Prereleases do not count. Every installed copy older than the answer shows
+   * "Virgo X is available" and sends iPhones to the App Store, so a version
+   * must not be announced before the App Store has it. A new APK goes up as a
+   * prerelease first: `getAndroid` serves it, this keeps quiet, and making it
+   * a full release once App Review passes is what announces it.
    */
   async getMobileLatest(): Promise<{ version: string; tag: string } | null> {
     if (this.cachedMobile && Date.now() - this.cachedMobile.at < CACHE_TTL_MS) {
@@ -564,6 +574,10 @@ export class DownloadsService {
    * Null is an ordinary answer, not an error — it is what every deployment
    * says until the first mobile release exists, and the page reads it as "no
    * Android download yet" rather than as a failure.
+   *
+   * Prereleases count here, unlike in `getMobileLatest`: somebody installing
+   * from virgo.ph should get the newest APK even while that version waits for
+   * App Review and is kept from the update banner.
    */
   async getAndroid(): Promise<AndroidBuild | null> {
     if (this.cachedAndroid && Date.now() - this.cachedAndroid.at < CACHE_TTL_MS) {
@@ -582,7 +596,7 @@ export class DownloadsService {
         url: `${this.publicApiUrl}/downloads/${release.tag_name}/${encodeURIComponent(apk.name)}`,
         publishedAt: release.published_at,
       };
-    });
+    }, { prereleases: true });
 
     if (failed) {
       this.logger.error(
