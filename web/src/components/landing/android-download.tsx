@@ -35,8 +35,10 @@ function formatSize(bytes: number): string {
 export function AndroidDownload({ build }: { build: AndroidBuild | null }) {
   if (!build) return null;
 
+  // `id="android"` is where the phone app's update notice sends Android: the
+  // section sits below the desktop installers and out of sight on a phone.
   return (
-    <section className="flex flex-col gap-3 border-t border-[#2A2522] pt-10">
+    <section id="android" className="flex flex-col gap-3 border-t border-[#2A2522] pt-10">
       <div className="flex items-baseline gap-2.5">
         <h2 className="font-mono text-[11px] font-normal uppercase tracking-[0.2em] text-[#A08E84]">
           Android
