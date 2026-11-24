@@ -23,6 +23,7 @@ import {
   ApiError,
   clearTokens,
   authApi,
+  type AppleConfirmation,
   getAccessToken,
   getRefreshToken,
   hydrateTokens,
@@ -33,6 +34,15 @@ import {
   type SignupProfile,
   type UpdateProfileInput,
 } from '@/src/api';
+
+/**
+ * How pausing or deleting proves it is the account holder: the password, or,
+ * for an account that signs in with Apple, Apple asked again on this iPhone.
+ */
+export interface ClosingProof {
+  password?: string;
+  apple?: AppleConfirmation;
+}
 
 export interface User {
   id: string;
@@ -430,8 +440,10 @@ export function useAuth() {
    * its access token expired and every request started failing.
    */
   const disableAccount = useMutation({
-    mutationFn: ({ password, days }: { password: string; days: number }) =>
-      authApi.disableAccount(password, days),
+    mutationFn: ({ password, apple, days }: ClosingProof & { days: number }) =>
+      apple
+        ? authApi.disableAccountWithApple(apple, days)
+        : authApi.disableAccount(password ?? '', days),
     onSuccess: async () => {
       // The server withholds a paused account's pushes anyway; this also
       // means coming back registers the phone afresh.
@@ -443,7 +455,8 @@ export function useAuth() {
 
   /** Deletes the account for good, then signs out. */
   const deleteAccount = useMutation({
-    mutationFn: (password: string) => authApi.deleteAccount(password),
+    mutationFn: ({ password, apple }: ClosingProof) =>
+      apple ? authApi.deleteAccountWithApple(apple) : authApi.deleteAccount(password ?? ''),
     // Push tokens go with the account row. Uploads it left queued would only
     // ever fail, and a queue is kept per account, so it has to be cleared.
     onSuccess: async () => {

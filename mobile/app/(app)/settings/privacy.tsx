@@ -39,6 +39,8 @@ import {
   useTheme,
 } from '@/src/hooks';
 import { api } from '@/src/api/client';
+import type { ClosingProof } from '@/src/hooks/useAuth';
+import { appleSignInAvailable, confirmWithApple } from '@/src/lib/apple-sign-in';
 import {
   ensurePermissions,
   getPushRegistration,
@@ -78,16 +80,63 @@ export default function PrivacyScreen() {
   const [pauseDays, setPauseDays] = useState<number>(30);
   const [typedConfirm, setTypedConfirm] = useState('');
 
+  // An account an Apple ID opens confirms with Apple on an iPhone: one Apple
+  // made has a password nobody was ever told, and Apple's rules want it
+  // deletable from the app. Deleting that way also ends its Apple sign-in.
+  const appleAccount = !!profile?.signsInWithApple;
+  const [appleHere, setAppleHere] = useState(false);
+  const [passwordInstead, setPasswordInstead] = useState(false);
+  const [askingApple, setAskingApple] = useState(false);
+  useEffect(() => {
+    if (!appleAccount) return;
+    let alive = true;
+    appleSignInAvailable().then((yes) => {
+      if (alive) setAppleHere(yes);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [appleAccount]);
+  const withApple = appleAccount && appleHere && !passwordInstead;
+  /** Whether the confirm button has what it needs. Apple is asked on the tap. */
+  const proofReady = withApple || password.length > 0;
+
   const dismissClosing = () => {
     setClosing(null);
     setPassword('');
     setShowPassword(false);
     setTypedConfirm('');
+    setPasswordInstead(false);
   };
 
-  const confirmPause = () => {
+  /** The password, or Apple asked now. Null when Apple's sheet was closed. */
+  const closingProof = async (): Promise<ClosingProof | null> => {
+    if (!withApple) return { password };
+    setAskingApple(true);
+    try {
+      const apple = await confirmWithApple();
+      return apple ? { apple } : null;
+    } catch (err: any) {
+      Alert.alert('Apple did not confirm', err?.message || 'Please try again.');
+      return null;
+    } finally {
+      setAskingApple(false);
+    }
+  };
+
+  const closingFailed = (title: string, err: any) => {
+    // The account does not sign in with Apple after all: ask for the password.
+    if ((err?.body as { code?: unknown } | undefined)?.code === 'NOT_APPLE') {
+      setPasswordInstead(true);
+    }
+    Alert.alert(title, err?.message || 'Please try again.');
+  };
+
+  const confirmPause = async () => {
+    const proof = await closingProof();
+    if (!proof) return;
     disableAccount.mutate(
-      { password, days: pauseDays },
+      { ...proof, days: pauseDays },
       {
         onSuccess: ({ disabledUntil }) => {
           dismissClosing();
@@ -97,14 +146,15 @@ export default function PrivacyScreen() {
             [{ text: 'OK', onPress: () => router.replace('/(auth)/welcome') }],
           );
         },
-        onError: (err: any) =>
-          Alert.alert('Could not pause', err?.message || 'Please try again.'),
+        onError: (err: any) => closingFailed('Could not pause', err),
       },
     );
   };
 
-  const confirmDelete = () => {
-    deleteAccount.mutate(password, {
+  const confirmDelete = async () => {
+    const proof = await closingProof();
+    if (!proof) return;
+    deleteAccount.mutate(proof, {
       onSuccess: ({ filesDeleted }) => {
         dismissClosing();
         Alert.alert(
@@ -113,8 +163,7 @@ export default function PrivacyScreen() {
           [{ text: 'OK', onPress: () => router.replace('/(auth)/welcome') }],
         );
       },
-      onError: (err: any) =>
-        Alert.alert('Could not delete', err?.message || 'Please try again.'),
+      onError: (err: any) => closingFailed('Could not delete', err),
     });
   };
 
@@ -603,32 +652,60 @@ export default function PrivacyScreen() {
             </View>
           )}
 
-          <View className="mt-5">
-            <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2">
-              Your password
-            </Text>
-            <View className="bg-card rounded-2xl flex-row items-center px-4">
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                placeholder="Confirm it is you"
-                placeholderTextColor="#A89489"
-                autoCapitalize="none"
-                className="flex-1 py-3.5 text-foreground text-base"
-              />
-              <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                onPress={() => setShowPassword((s) => !s)}
-                className="pl-3 active:opacity-60"
+          {withApple ? (
+            <View className="mt-5">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2">
+                Confirm it is you
+              </Text>
+              <View className="bg-card rounded-2xl px-4 py-3.5">
+                <Text className="text-foreground text-sm leading-5">
+                  {closing === 'delete'
+                    ? 'This account signs in with Apple. Apple asks you to confirm it is you, and your Apple ID stops signing in to Virgo.'
+                    : 'This account signs in with Apple. Apple asks you to confirm it is you.'}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setPasswordInstead(true)}
+                accessibilityRole="button"
+                className="self-start mt-1 py-2 active:opacity-60"
               >
-                {showPassword ? (
-                  <EyeOffIcon size={17} className="text-muted-foreground" />
-                ) : (
-                  <EyeIcon size={17} className="text-muted-foreground" />
-                )}
+                <Text className="text-primary text-sm font-semibold">Use my password instead</Text>
               </Pressable>
             </View>
-          </View>
+          ) : (
+            <View className="mt-5">
+              <Text className="text-muted-foreground text-[11px] font-bold uppercase tracking-[2px] mb-2">
+                Your password
+              </Text>
+              <View className="bg-card rounded-2xl flex-row items-center px-4">
+                <TextInput
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  placeholder="Confirm it is you"
+                  placeholderTextColor="#A89489"
+                  autoCapitalize="none"
+                  className="flex-1 py-3.5 text-foreground text-base"
+                />
+                <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  onPress={() => setShowPassword((s) => !s)}
+                  className="pl-3 active:opacity-60"
+                >
+                  {showPassword ? (
+                    <EyeOffIcon size={17} className="text-muted-foreground" />
+                  ) : (
+                    <EyeIcon size={17} className="text-muted-foreground" />
+                  )}
+                </Pressable>
+              </View>
+              {appleAccount && (
+                <Text className="text-muted-foreground text-xs mt-2 leading-4">
+                  This account signs in with Apple. If you never set a password for it, choose
+                  Forgot password on the sign-in screen to set one.
+                </Text>
+              )}
+            </View>
+          )}
 
           {closing === 'delete' && (
             <View className="mt-4">
@@ -657,39 +734,50 @@ export default function PrivacyScreen() {
             {closing === 'pause' ? (
               <Pressable
                 onPress={confirmPause}
-                disabled={!password || disableAccount.isPending}
+                disabled={!proofReady || disableAccount.isPending || askingApple}
                 className={`flex-1 rounded-2xl py-3.5 items-center active:scale-[0.97] ${
-                  password ? 'bg-action' : 'bg-muted'
+                  proofReady ? 'bg-action' : 'bg-muted'
                 }`}
               >
                 <Text
                   className={`text-base font-bold ${
-                    password ? 'text-white' : 'text-muted-foreground'
+                    proofReady ? 'text-white' : 'text-muted-foreground'
                   }`}
                 >
-                  {disableAccount.isPending ? 'Pausing…' : `Pause ${pauseDays} days`}
+                  {askingApple
+                    ? 'Confirming…'
+                    : disableAccount.isPending
+                      ? 'Pausing…'
+                      : `Pause ${pauseDays} days`}
                 </Text>
               </Pressable>
             ) : (
               <Pressable
                 onPress={confirmDelete}
                 disabled={
-                  !password || typedConfirm !== 'DELETE' || deleteAccount.isPending
+                  !proofReady ||
+                  typedConfirm !== 'DELETE' ||
+                  deleteAccount.isPending ||
+                  askingApple
                 }
                 className="flex-1 rounded-2xl py-3.5 items-center active:scale-[0.97]"
                 style={{
                   backgroundColor:
-                    password && typedConfirm === 'DELETE' ? '#C4776A' : undefined,
+                    proofReady && typedConfirm === 'DELETE' ? '#C4776A' : undefined,
                 }}
               >
                 <Text
                   className={`text-base font-bold ${
-                    password && typedConfirm === 'DELETE'
+                    proofReady && typedConfirm === 'DELETE'
                       ? 'text-white'
                       : 'text-muted-foreground'
                   }`}
                 >
-                  {deleteAccount.isPending ? 'Deleting…' : 'Delete forever'}
+                  {askingApple
+                    ? 'Confirming…'
+                    : deleteAccount.isPending
+                      ? 'Deleting…'
+                      : 'Delete forever'}
                 </Text>
               </Pressable>
             )}

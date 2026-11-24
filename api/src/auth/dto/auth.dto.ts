@@ -17,6 +17,7 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { CUSTOM_ROLES_MAX, CUSTOM_ROLE_MAX, CUSTOM_ROLE_MIN, USER_ROLES } from '../roles';
 
@@ -244,16 +245,51 @@ export class ForgetDeviceDto {
 }
 
 /**
+ * Apple asked again, in place of a password, by an account that signs in with
+ * Apple. An account Apple made has a password nobody knows, so without this it
+ * could be neither paused nor deleted from the app.
+ */
+export class AppleConfirmationDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(6000)
+  identityToken!: string;
+
+  /** The one-time value this confirmation began with, before hashing. */
+  @IsString()
+  @MinLength(16)
+  @MaxLength(200)
+  nonce!: string;
+
+  /**
+   * The one-time code from the same Apple sheet. Deleting trades it for a
+   * token and revokes that, which ends the Apple sign-in along with the
+   * account.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  authorizationCode?: string;
+}
+
+/**
  * Pausing an account.
  *
  * The password is required rather than relying on the bearer token: an
  * unlocked, borrowed phone is a session, not the account's owner, and this is
- * one of the two actions that cannot be undone by signing in again.
+ * one of the two actions that cannot be undone by signing in again. An account
+ * that signs in with Apple may send Apple's confirmation instead.
  */
 export class DisableAccountDto {
+  @ValidateIf((dto: DisableAccountDto) => dto.apple === undefined)
   @IsString()
   @MaxLength(72)
-  password!: string;
+  password?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AppleConfirmationDto)
+  apple?: AppleConfirmationDto;
 
   @Type(() => Number)
   @IsInt()
@@ -263,9 +299,16 @@ export class DisableAccountDto {
 }
 
 export class DeleteAccountDto {
+  /** Not needed when Apple's confirmation is sent instead. */
+  @ValidateIf((dto: DeleteAccountDto) => dto.apple === undefined)
   @IsString()
   @MaxLength(72)
-  password!: string;
+  password?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AppleConfirmationDto)
+  apple?: AppleConfirmationDto;
 
   /**
    * The word DELETE, typed out.

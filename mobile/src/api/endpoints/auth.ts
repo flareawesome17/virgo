@@ -1,6 +1,7 @@
 import { api, sessionEnded } from '../client';
 import { clearTokens, getRefreshToken, setTokens } from '../tokens';
 import type {
+  AppleConfirmation,
   AppleSignInResult,
   AuthResult,
   AuthUser,
@@ -340,5 +341,26 @@ export const authApi = {
     password: string,
   ): Promise<{ deleted: true; filesDeleted: number }> {
     return api.delete('/auth/me', { body: { password, confirm: 'DELETE' } });
+  },
+
+  /**
+   * Pauses an account that signs in with Apple, confirmed with Apple instead
+   * of a password.
+   */
+  disableAccountWithApple(
+    apple: AppleConfirmation,
+    days: number,
+  ): Promise<{ disabledUntil: string }> {
+    return api.post('/auth/me/disable', { body: { apple, days } });
+  },
+
+  /**
+   * Deletes an account that signs in with Apple, confirmed with Apple. The
+   * server also ends the account's Sign in with Apple.
+   */
+  deleteAccountWithApple(
+    apple: AppleConfirmation,
+  ): Promise<{ deleted: true; filesDeleted: number }> {
+    return api.delete('/auth/me', { body: { apple, confirm: 'DELETE' } });
   },
 };
