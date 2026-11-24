@@ -6,7 +6,6 @@ import {
   type Album,
   type CreateAlbumInput,
   type DeletedAlbum,
-  type DeleteProof,
   type ListAlbumsParams,
   type UpdateAlbumInput,
 } from '@/api';
@@ -108,13 +107,13 @@ export function useUpdateAlbum() {
 }
 
 /**
- * Moves it to Recently deleted. Asks for the password or the emailed code:
- * see useDeleteProof. Its files stop counting at once, so the meter moves.
+ * Moves it to Recently deleted, after a plain "Delete it?". Its files stop
+ * counting at once, so the meter moves.
  */
 export function useDeleteAlbum() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, proof }: { id: string; proof: DeleteProof }) => albumsApi.remove(id, proof),
+    mutationFn: ({ id }: { id: string }) => albumsApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });

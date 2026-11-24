@@ -9,7 +9,6 @@ import {
   workspacesApi,
   type Album,
   type CreateWorkspaceInput,
-  type DeleteProof,
   type UpdateWorkspaceInput,
   type Workspace,
   type WorkspaceListParams,
@@ -114,15 +113,13 @@ export function useUpdateWorkspace() {
 const deleteWorkspaceKey = ['delete-workspace'] as const;
 
 /**
- * Moves a workspace to Recently deleted. Asks for the password or the emailed
- * code: see useDeleteProof.
+ * Moves a workspace to Recently deleted, after a plain "Delete it?".
  */
 export function useDeleteWorkspace() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: deleteWorkspaceKey,
-    mutationFn: ({ id, proof }: { id: string; proof: DeleteProof }) =>
-      workspacesApi.remove(id, proof),
+    mutationFn: ({ id }: { id: string }) => workspacesApi.remove(id),
     onSuccess: (_void, { id }) => {
       // Removed rather than reset: the screen that asked is on its way out,
       // and a reset would show it loading as it went.

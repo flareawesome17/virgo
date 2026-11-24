@@ -47,7 +47,7 @@ import {
   plural,
 } from '@/src/lib/workspaces';
 import { RemoteImage } from '@/components/RemoteImage';
-import { DeleteConfirmSheet } from '@/components/DeleteConfirmSheet';
+import { ConfirmSheet } from '@/components/ConfirmSheet';
 import { LoadFailed } from '@/components/LoadFailed';
 import { PageTabs } from '@/components/PageTabs';
 import { DateTile } from '@/components/DateTile';
@@ -702,12 +702,12 @@ function OwnerView({
           { label: 'Delete workspace…', destructive: true, onPress: confirmDelete },
         ]}
       />
-      <DeleteConfirmSheet
+      <ConfirmSheet
         visible={deleting}
         title={`Delete ${workspace.name}?`}
         message={deleteConsequence(workspace)}
         onCancel={() => setDeleting(false)}
-        onConfirm={(proof) => remove.mutateAsync({ id, proof })}
+        onConfirm={() => remove.mutateAsync({ id })}
         onDone={() => {
           setDeleting(false);
           router.dismissTo('/(app)/(tabs)/workspaces');

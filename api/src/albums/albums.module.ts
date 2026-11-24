@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AuthModule } from '../auth/auth.module';
 import { StorageModule } from '../storage/storage.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { AlbumRetentionService } from './album-retention.service';
@@ -13,8 +12,7 @@ import { AlbumShareService } from './share/album-share.service';
 import { VisitsModule } from '../visits/visits.module';
 
 @Module({
-  // AuthModule for ReauthService: deleting an album asks for the password.
-  imports: [WorkspacesModule, StorageModule, VisitsModule, AuthModule],
+  imports: [WorkspacesModule, StorageModule, VisitsModule],
   controllers: [
     AlbumsController,
     AlbumSectionsController,

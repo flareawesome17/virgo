@@ -3,7 +3,6 @@ import type {
   Album,
   AlbumStatus,
   DeletedAlbum,
-  DeleteProof,
   ListParams,
   ListResponse,
 } from '../types';
@@ -174,11 +173,11 @@ export const albumsApi = {
 
   /**
    * Moves it to Recently deleted for 30 days, with its files, which stop
-   * counting toward storage at once. Only with the password or the emailed
-   * code (see DeleteProof).
+   * counting toward storage at once. Nothing to prove: it can be restored
+   * from there, so a confirmation is the whole of it.
    */
-  remove(id: string, proof: DeleteProof): Promise<void> {
-    return api.delete<void>(`/albums/${id}`, { body: proof });
+  remove(id: string): Promise<void> {
+    return api.delete<void>(`/albums/${id}`);
   },
 
   /** The owner's Recently deleted albums, newest first. */

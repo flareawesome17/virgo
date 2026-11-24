@@ -47,7 +47,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { DeleteConfirmDialog } from '@/components/delete-confirm-dialog';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   UploadDropzone,
   openFilePicker,
@@ -824,7 +824,7 @@ function AlbumWorkspace() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <DeleteConfirmDialog
+      <ConfirmDialog
         open={confirmingAlbumDelete}
         onOpenChange={setConfirmingAlbumDelete}
         title={`Delete ${album?.name ?? 'this album'}?`}
@@ -835,7 +835,7 @@ function AlbumWorkspace() {
           size_bytes: album?.size_bytes,
         })}
         confirmLabel="Delete album"
-        onConfirm={(proof) => removeAlbum.mutateAsync({ id, proof })}
+        onConfirm={() => removeAlbum.mutateAsync({ id })}
         onDone={() => {
           // Back where it was opened from: a workspace, the albums list, the
           // dashboard. It always landed on one workspace. A tab opened

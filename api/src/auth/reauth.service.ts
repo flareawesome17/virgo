@@ -37,16 +37,17 @@ const WORDING: Record<ReauthAction, { update: string; twoFactor: string; passwor
 /**
  * Asks again who is there before something hard to undo.
  *
- * On 2026-10-25 a workspace was deleted by someone who had signed in with the
- * owner's password, with one tap on a confirmation. A session proves only
- * that somebody signed in once; deleting a workspace or an album now asks for
- * the password, or, with two-factor on, a code sent to the account's email —
- * the same two steps as turning two-factor off, so a stolen password alone is
- * not enough there either.
+ * Changing how clients pay you asks for the password, or, with two-factor on,
+ * a code sent to the account's email — the same two steps as turning
+ * two-factor off, so a stolen password alone is not enough. A way to pay
+ * decides where a client's money goes, and the harm there is a swap: someone
+ * in the account putting their own QR code in place of the owner's.
  *
- * Changing how clients pay asks the same. A way to pay decides where a
- * client's money goes, and the harm there is a swap: someone in the account
- * putting their own QR code in place of the owner's.
+ * Deleting a workspace or an album asked the same from 2026-10-25, after one
+ * went with a single tap from a session a stranger had signed in to. It no
+ * longer does: both only go to Recently deleted, where a restore brings
+ * everything back, and the owner chose a plain confirmation. The 'delete'
+ * action stays because apps from before that still ask for its emailed code.
  *
  * Every refusal is a 403 with a `code`, never a 401: the session is fine, the
  * proof is not, and a 401 makes the clients refresh and send the same wrong
@@ -59,10 +60,6 @@ export class ReauthService {
     private readonly users: UsersRepository,
     private readonly twoFactor: TwoFactorService,
   ) {}
-
-  confirmDelete(userId: string, proof: DeleteProof = {}): Promise<void> {
-    return this.confirm(userId, proof, 'delete');
-  }
 
   async confirm(userId: string, proof: DeleteProof, action: ReauthAction): Promise<void> {
     const user = await this.users.findById(userId);

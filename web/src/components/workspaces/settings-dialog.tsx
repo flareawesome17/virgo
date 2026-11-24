@@ -34,7 +34,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useDeleteWorkspace, useRestoreWorkspace, useUpdateWorkspace } from '@/hooks/useWorkspaces';
-import { DeleteConfirmDialog } from '@/components/delete-confirm-dialog';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import type { Album, Workspace } from '@/api';
 import { ACCENT_COLORS, deleteConsequence } from '@/lib/workspaces';
 import {
@@ -288,13 +288,13 @@ function WorkspaceSettingsForm({ workspace, albums, open, onOpenChange }: Worksp
         </AlertDialog>
       </Dialog>
 
-      <DeleteConfirmDialog
+      <ConfirmDialog
         open={confirmingDelete}
         onOpenChange={setConfirmingDelete}
         title={`Delete ${workspace.name}?`}
         description={deleteConsequence(workspace)}
         confirmLabel="Delete workspace"
-        onConfirm={(proof) => remove.mutateAsync({ id: workspace.id, proof })}
+        onConfirm={() => remove.mutateAsync({ id: workspace.id })}
         onDone={() => {
           toast.success(`${workspace.name} is in Recently deleted`, {
             description: 'You can restore it there for 30 days.',
