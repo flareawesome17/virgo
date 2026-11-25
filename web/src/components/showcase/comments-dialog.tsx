@@ -14,14 +14,14 @@ import { CommentThread } from './comment-thread';
 
 export interface CommentsRequest {
   item: FeedItem;
-  /** Opened to write one (the comment button), not to read (View all). */
+  /** Opened to write one (nothing has been said yet), not to read. */
   write: boolean;
 }
 
 /**
- * A post's thread, over the feed: the card's comment button and its "View
- * all N comments" both open it, so reading and adding to a conversation no
- * longer leaves the feed for the post's own page.
+ * A post's thread, over the feed: the card's comment button opens it, so
+ * reading and adding to a conversation does not leave the feed for the
+ * post's own page.
  */
 export function CommentsDialog({
   request,
@@ -67,6 +67,7 @@ function CommentsBody({ request, userId }: { request: CommentsRequest; userId: s
       <CommentThread
         showcaseId={live.id}
         isOwner={mine}
+        makerId={live.userId}
         total={live.commentCount}
         userId={userId}
         layout="panel"

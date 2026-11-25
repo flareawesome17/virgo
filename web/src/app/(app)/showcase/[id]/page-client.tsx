@@ -1,9 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, CloudOff, ImageOff } from 'lucide-react';
-import { Screen } from '@/components/app-shell';
+import { ArrowLeft, ChevronRight, CloudOff, ImageOff } from 'lucide-react';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { CommentThread } from '@/components/showcase/comment-thread';
@@ -14,15 +15,17 @@ import { StatusBanner } from '@/components/showcase/status-banner';
 import { useAuth } from '@/hooks/useAuth';
 import { useShowcase } from '@/hooks/useShowcases';
 import { ApiError, makerOf } from '@/api';
+import { IS_DESKTOP } from '@/lib/desktop';
 
 /**
  * One showcase on its own page.
  *
  * The feed's cards no longer lead here — everything the page offered is on
  * the card — so this is where a notification, a shared link or a new tab
- * lands. It draws the same card, with the caption and the note open, the
- * thread under it rather than in a dialog, and a way to open a photograph
- * as large as the window allows.
+ * lands. It draws the card's parts in two columns: the work large on the
+ * left, with the set's thumbnails under it and a way to open a photograph
+ * as large as the window allows; on the right who made it, the words, the
+ * note open, and the thread written out on the page rather than in a dialog.
  */
 export default function ShowcasePage() {
   const { id } = useParams<{ id: string }>();
@@ -86,33 +89,59 @@ export default function ShowcasePage() {
   }
 
   const mine = !!user && showcase.userId === user.id;
-  const label = showcase.title ?? `${makerOf(showcase).displayName}'s showcase`;
+  const maker = makerOf(showcase);
+  const label = showcase.title ?? `${maker.displayName}'s showcase`;
   // The lightbox steps through photographs only; a film plays where it sits.
   const photos = showcase.pieces.filter((piece) => piece.kind !== 'video');
 
-  // The comment button goes to the box under the post rather than a dialog
-  // over it: the thread is already on the page.
+  // The comment button goes to the box under the thread rather than a dialog
+  // over the post: the thread is already on the page. With comments off
+  // there is no box, and it goes to the thread instead.
   const toComposer = () => {
     const thread = document.getElementById('comments');
-    thread?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    thread?.querySelector('textarea')?.focus({ preventScroll: true });
+    const box = thread?.querySelector('textarea');
+    (box ?? thread)?.scrollIntoView({ block: box ? 'center' : 'start', behavior: 'smooth' });
+    box?.focus({ preventScroll: true });
   };
 
   return (
     <Screen title={showcase.title ?? 'Showcase'}>
-      <ShowcaseHost>
-        <div className="mx-auto w-full max-w-[532px] px-4 py-6">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="-ml-2 mb-4 text-muted-foreground"
-            onClick={goBack}
-          >
-            <ArrowLeft className="size-4" />
-            Back
-          </Button>
+      {/* Where the post sits, in the shell's bar. On a phone-sized window
+          there is room for its title alone, and an arrow back. */}
+      <PageHeader
+        title={
+          <span className="flex min-w-0 items-center gap-2">
+            {/* The desktop title bar already has back and forward. */}
+            {!IS_DESKTOP && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="-ml-2 shrink-0 sm:hidden"
+                aria-label="Back"
+                onClick={goBack}
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
+            )}
+            <Link
+              href="/feed"
+              className="hidden shrink-0 font-medium text-muted-foreground hover:text-foreground sm:inline"
+            >
+              Feed
+            </Link>
+            <ChevronRight
+              className="hidden size-3.5 shrink-0 text-muted-foreground/70 sm:block"
+              aria-hidden
+            />
+            <span className="truncate">{showcase.title ?? 'Showcase'}</span>
+          </span>
+        }
+      />
 
-          {mine && <StatusBanner showcase={showcase} className="mb-4" />}
+      <ShowcaseHost>
+        <div className="mx-auto w-full max-w-[1240px] px-4 pb-12 pt-7 sm:px-6">
+          {mine && <StatusBanner showcase={showcase} className="mb-6" />}
 
           <ShowcaseCard
             item={showcase}
@@ -121,22 +150,23 @@ export default function ShowcasePage() {
             onDeleted={() => router.replace('/profile')}
             onComment={toComposer}
             onOpenPhoto={(piece) => setViewing(photos.indexOf(piece))}
-          />
-
-          <div className="mt-6">
+          >
             <CommentThread
               showcaseId={showcase.id}
               isOwner={mine}
+              makerId={showcase.userId}
               total={showcase.commentCount}
               userId={user?.id}
             />
-          </div>
+          </ShowcaseCard>
         </div>
 
         <PieceLightbox
           pieces={photos}
           index={viewing}
           title={label}
+          makerName={maker.displayName}
+          craftTags={showcase.craftTags}
           onIndexChange={setViewing}
           onClose={() => setViewing(null)}
         />

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import PageClient from './page-client';
 
 /*
- * Posting a showcase, or with ?edit=<id> changing one. The web could do
+ * Posting a piece of work, or with ?edit=<id> changing one. The web could do
  * neither: the feed sent people to their phone to post.
  *
  * A server component so the tab title can be a real metadata export, and
@@ -14,7 +14,7 @@ export async function generateMetadata({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }): Promise<Metadata> {
   const { edit } = await searchParams;
-  return { title: edit ? 'Edit showcase' : 'New showcase' };
+  return { title: edit ? 'Edit post' : 'New post' };
 }
 
 export default function Page() {

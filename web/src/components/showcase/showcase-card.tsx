@@ -9,28 +9,45 @@ import {
   type PointerEvent,
   type ReactNode,
 } from 'react';
-import { Bookmark, ChevronDown, Heart, Lock, Maximize2, MessageCircle, Send, X } from 'lucide-react';
+import {
+  Bookmark,
+  ChevronDown,
+  Heart,
+  Lock,
+  Maximize,
+  MessageCircle,
+  Share,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { CARD } from '@/components/kit';
 import { ShowcaseFilm } from '@/components/media/showcase-film';
 import { useLike } from '@/hooks/useShowcases';
 import { makerOf, showcaseStatus, type FeedItem, type ShowcasePiece } from '@/api';
 import { shareShowcase, shareability } from '@/lib/share-showcase';
 import { cn } from '@/lib/utils';
-import { relativeTime } from '@/lib/workspaces';
+import { postedAgo, shortCount } from './posted-time';
 import { useShowcaseHost } from './showcase-host';
 import { ShowcaseMenu } from './showcase-menu';
 import { PieceCarousel, PieceImage, cardFrame, pieceFit } from './showcase-media';
 
 /**
- * How wide a card's picture is drawn, for the srcset: the 500 px card, or
- * the screen less the feed's 16 px gutters below that. A dialog draws it at
- * the same width.
+ * How wide a card's picture is drawn, for the srcset: the feed's 540 px
+ * column, or the screen less its 16 px gutters below that. A dialog draws it
+ * a little narrower.
  */
-const CARD_SIZES = '(max-width: 532px) calc(100vw - 32px), 500px';
+const CARD_SIZES = '(max-width: 572px) calc(100vw - 32px), 540px';
+/**
+ * The same on a post's own page, where the picture has the wider of two
+ * columns on a wide window and the whole page once they stack.
+ */
+const PAGE_SIZES =
+  '(min-width: 1160px) 680px, (min-width: 1024px) calc(100vw - 288px), calc(100vw - 32px)';
+/** The tallest a piece is drawn on a post's own page. */
+const PAGE_MAX_HEIGHT = 720;
 
 /** Two taps closer together than this, and nearer than DOUBLE_TAP_PX, are one double tap. */
 const DOUBLE_TAP_MS = 300;
@@ -47,11 +64,17 @@ export type CardVariant = 'feed' | 'dialog' | 'page';
  * else one is opened: in a dialog from a shelf or a profile, and on its own
  * page.
  *
- * Laid out as the big feeds have taught everyone to read one: who made it,
- * the work at its own shape, the things you can do with it in one row, and
- * then the words. The card does not link to the post's page any more. The
- * comments open over the feed, and every action the page had is on the card;
- * the page stays for notifications and shared links.
+ * Laid out as the phone lays one out: who made it and when, the work at its
+ * own shape, what you can do about it with how many already have beside each
+ * button, and then the words. How it was made is what this feed has that a
+ * photo app does not, so its tags are on the card and the note is one click
+ * under them.
+ *
+ * The card does not link to the post's page. The comments open over the
+ * feed, and every action the page had is on the card; the page stays for
+ * notifications and shared links, where the same parts sit in two columns:
+ * the work on the left, the words and whatever the page hands in as
+ * `children` (the thread) on the right.
  */
 export function ShowcaseCard({
   item,
@@ -62,6 +85,7 @@ export function ShowcaseCard({
   onOpenPhoto,
   onClose,
   className,
+  children,
 }: {
   item: FeedItem;
   variant?: CardVariant;
@@ -76,6 +100,8 @@ export function ShowcaseCard({
   /** A close button in the header, for a card that is a dialog's whole content. */
   onClose?: () => void;
   className?: string;
+  /** On the post's own page: what follows the words in their column. */
+  children?: ReactNode;
 }) {
   const host = useShowcaseHost();
   // By id, so a fast double click is queued rather than raced, and the
@@ -101,6 +127,20 @@ export function ShowcaseCard({
   const page = variant === 'page';
   const TitleTag = page ? 'h1' : 'h2';
   const when = item.publishedAt ?? item.createdAt;
+  const posted = postedAgo(when);
+  // Who can see it, when that is not everyone. Only ever "Private" for the
+  // owner: nobody else is sent a post that is not out. One Virgo took down
+  // says so on the photograph instead.
+  const audience =
+    mine && (status === 'draft' || status === 'down')
+      ? 'Private'
+      : item.visibility === 'connections'
+        ? 'Connections only'
+        : null;
+  // Who they are, then when. Your own post says "You", which needs no title.
+  const byline = [audience, mine ? null : maker.title].filter(Boolean).join(' · ');
+  // What kind of work it is and where, under the title.
+  const about = [item.category, item.location].filter(Boolean).join(' · ');
 
   const setLiked = (liked: boolean) => like.mutate({ showcaseId: item.id, liked });
   // A double tap only ever likes, as everywhere else it is the gesture: a
@@ -108,214 +148,310 @@ export function ShowcaseCard({
   const likeFromPhoto = () => {
     if (!item.likedByMe) setLiked(true);
   };
-  const comment = (write: boolean) => {
+  // The one way into the thread now that its count sits beside the icon. The
+  // cursor goes to the box only when there is nothing to read first.
+  const comment = () => {
     if (onComment) onComment();
-    else host.openComments(item, { write });
+    else host.openComments(item, { write: item.commentCount === 0 });
   };
   const shareNow = () =>
     void shareShowcase({ id: item.id, title: item.title, makerName: maker.displayName });
 
   const avatar = (
-    <Avatar className="size-9">
+    <Avatar className="size-10">
       {maker.avatarUrl && <AvatarImage src={maker.avatarUrl} alt="" />}
       <AvatarFallback className="bg-primary/15 text-sm font-bold text-primary">
         {maker.displayName.charAt(0).toUpperCase()}
       </AvatarFallback>
     </Avatar>
   );
+  const name = mine ? 'You' : maker.displayName;
+
+  const head = (
+    <header className="flex min-h-14 items-center gap-3">
+      {profileHref ? (
+        <Link
+          href={profileHref}
+          aria-label={mine ? 'Your profile' : `${maker.displayName}'s profile`}
+          className="shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {avatar}
+        </Link>
+      ) : (
+        avatar
+      )}
+      <div className="flex min-w-0 flex-1 flex-col items-start">
+        {profileHref ? (
+          <Link
+            href={profileHref}
+            className="max-w-full truncate text-[15px] font-semibold leading-5 hover:underline"
+          >
+            {name}
+          </Link>
+        ) : (
+          <p className="max-w-full truncate text-[15px] font-semibold leading-5">{name}</p>
+        )}
+        {(byline || posted.short) && (
+          <p className="flex max-w-full items-center gap-[5px] text-[13px] leading-[18px] text-muted-foreground">
+            {audience && <Lock aria-hidden className="size-3 shrink-0" />}
+            <span className="min-w-0 truncate">
+              {byline}
+              {byline && posted.short ? ' · ' : null}
+              {posted.short && (
+                <time dateTime={when} suppressHydrationWarning>
+                  <span aria-hidden>{posted.short}</span>
+                  <span className="sr-only">{posted.label}</span>
+                </time>
+              )}
+            </span>
+          </p>
+        )}
+      </div>
+      {item.showHire && maker.handle && !mine && (
+        <Button asChild className="h-[34px] rounded-[10px] px-3.5 text-sm font-semibold">
+          <Link href={`/hire/${maker.handle}`}>Hire</Link>
+        </Button>
+      )}
+      <ShowcaseMenu
+        item={item}
+        mine={mine}
+        onReport={() => host.report(item.id)}
+        onDeleted={onDeleted}
+      />
+      {onClose && (
+        <Button
+          variant="ghost"
+          size="icon-lg"
+          className="rounded-[10px]"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <X className="size-5" />
+        </Button>
+      )}
+    </header>
+  );
+
+  const media = item.pieces.length > 0 && (
+    <PieceCarousel
+      pieces={item.pieces}
+      aspect={frame.aspect}
+      label={label}
+      maxHeight={page ? PAGE_MAX_HEIGHT : undefined}
+      thumbnails={page}
+      overlay={mine && status !== 'live' ? <StatusBadge removed={status === 'removed'} /> : null}
+      renderPage={(piece, i) => {
+        const alt =
+          item.pieces.length > 1 ? `${label}, ${i + 1} of ${item.pieces.length}` : label;
+        if (piece.kind === 'video') {
+          // A film is its own control: a click plays it, so it is not also
+          // the picture a double click likes.
+          const film = (
+            <ShowcaseFilm piece={piece} alt={alt} aspect={frame.aspect} fit={pieceFit(frame, i)} />
+          );
+          // The film draws its own frame from its width. Where the page
+          // stops the frame growing, the film is held to the width that
+          // gives it that height, so nothing of it is cut.
+          return page ? (
+            <div className="mx-auto w-full" style={{ maxWidth: PAGE_MAX_HEIGHT * frame.aspect }}>
+              {film}
+            </div>
+          ) : (
+            film
+          );
+        }
+        return (
+          <PhotoPage
+            piece={piece}
+            alt={alt}
+            sizes={page ? PAGE_SIZES : CARD_SIZES}
+            // Whole inside the page's frame, which may have stopped growing
+            // before it reached the photograph's shape.
+            fit={page ? 'contain' : pieceFit(frame, i)}
+            priority={priority && i === 0}
+            onDoubleTap={likeFromPhoto}
+            onOpen={onOpenPhoto ? () => onOpenPhoto(piece) : undefined}
+          />
+        );
+      }}
+    />
+  );
+
+  const actions = (
+    <div className="-mx-2 flex items-center">
+      <CountButton
+        label={
+          item.likeCount > 0
+            ? `Like. ${item.likeCount} ${item.likeCount === 1 ? 'like' : 'likes'}.`
+            : 'Like'
+        }
+        pressed={item.likedByMe}
+        count={item.likeCount}
+        onClick={() => setLiked(!item.likedByMe)}
+      >
+        <Heart
+          className={cn(
+            'size-[22px] transition-transform motion-safe:active:scale-90',
+            item.likedByMe && 'fill-current text-destructive',
+          )}
+        />
+      </CountButton>
+      {commentable && (
+        <CountButton
+          label={item.commentCount > 0 ? `Comments, ${item.commentCount}` : 'Comment'}
+          count={item.commentCount}
+          onClick={comment}
+        >
+          <MessageCircle className="size-[22px]" />
+        </CountButton>
+      )}
+      {share.ok ? (
+        <CountButton label="Share" onClick={shareNow}>
+          <Share className="size-[22px]" />
+        </CountButton>
+      ) : (
+        share.offer && (
+          <CountButton label="Share" blocked={share.reason} onClick={() => toast(share.reason)}>
+            <Share className="size-[22px] opacity-40" />
+          </CountButton>
+        )
+      )}
+
+      <span className="flex-1" />
+      <span className="pr-2">
+        {!mine ? (
+          <button
+            type="button"
+            onClick={() => host.keep(item)}
+            aria-pressed={item.keptByMe}
+            aria-label={item.keptByMe ? 'Kept. Change where.' : 'Keep'}
+            className={cn(
+              'flex h-9 items-center gap-1.5 rounded-xl pl-3 pr-3.5 text-sm font-semibold outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
+              // Dark once it is yours, and it says so: an outline that means
+              // "kept" and an outline that means "keep" are the same picture.
+              item.keptByMe
+                ? 'bg-foreground text-background'
+                : 'bg-muted text-foreground hover:bg-muted/70',
+            )}
+          >
+            <Bookmark className={cn('size-4', item.keptByMe && 'fill-current')} />
+            {item.keptByMe ? 'Kept' : 'Keep'}
+          </button>
+        ) : (
+          // The page says how many under the row, in a line of its own.
+          !page &&
+          item.keptCount > 0 && (
+            <span className="text-[13px] font-semibold text-muted-foreground">
+              {item.keptCount.toLocaleString()} kept
+            </span>
+          )
+        )}
+      </span>
+    </div>
+  );
+
+  const title = item.title && (
+    <TitleTag
+      className={cn(
+        'break-words font-bold',
+        page ? 'text-[22px] leading-7 tracking-[-0.02em]' : 'text-[17px] leading-6 tracking-[-0.01em]',
+      )}
+    >
+      {item.title}
+    </TitleTag>
+  );
+  const aboutLine = about && (
+    <p className="text-[13px] leading-[18px] text-muted-foreground">{about}</p>
+  );
+  const caption = item.caption && (
+    <Caption text={item.caption} open={page} ground={variant === 'dialog' ? 'popover' : 'page'} />
+  );
+  const craft = (item.craftNote || item.craftTags.length > 0) && (
+    <HowItWasMade note={item.craftNote} tags={item.craftTags} open={page} />
+  );
+  const aria = `${label}, by ${maker.displayName}`;
+
+  if (page) {
+    return (
+      <article aria-label={aria} className={cn('flex w-full flex-wrap items-start gap-7', className)}>
+        {media && <div className="min-w-0 flex-[3_1_480px]">{media}</div>}
+        <div className="flex min-w-0 flex-[2_1_360px] flex-col gap-4">
+          {head}
+          {(title || aboutLine || caption) && (
+            <div className="flex flex-col gap-1">
+              {title}
+              {aboutLine}
+              {caption}
+            </div>
+          )}
+          {craft}
+          {actions}
+          {item.keptCount > 0 && (
+            <p className="-mt-2 text-[13px] leading-[18px] text-muted-foreground">
+              Kept by {item.keptCount.toLocaleString()} {item.keptCount === 1 ? 'person' : 'people'}
+            </p>
+          )}
+          {children}
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article
-      aria-label={`${label}, by ${maker.displayName}`}
+      aria-label={aria}
       className={cn(
-        'w-full overflow-hidden bg-card text-card-foreground',
-        variant !== 'dialog' && 'rounded-xl border',
+        'flex w-full flex-col gap-2',
+        // A dialog has no gutters of its own; the feed's column does.
+        variant === 'dialog' && 'px-3 pb-3 pt-1',
         className,
       )}
     >
-      <header className="flex items-center gap-3 py-2.5 pl-3 pr-2">
-        {profileHref ? (
-          <Link href={profileHref} aria-label={`${maker.displayName}'s profile`} className="rounded-full">
-            {avatar}
-          </Link>
-        ) : (
-          avatar
-        )}
-        <div className="min-w-0 flex-1 leading-tight">
-          <div className="flex min-w-0 items-center gap-2">
-            {profileHref ? (
-              <Link href={profileHref} className="truncate text-sm font-bold hover:underline">
-                {maker.displayName}
-              </Link>
-            ) : (
-              <p className="truncate text-sm font-bold">{maker.displayName}</p>
-            )}
-            {mine && status !== 'live' && <StatusBadge removed={status === 'removed'} />}
-          </div>
-          {(maker.title || item.location) && (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {[maker.title, item.location].filter(Boolean).join(' · ')}
-            </p>
-          )}
+      {head}
+      {media}
+      {actions}
+      {(title || aboutLine || caption || craft) && (
+        <div className="flex flex-col gap-1">
+          {title}
+          {aboutLine}
+          {caption}
+          {craft}
         </div>
-        {item.showHire && maker.handle && !mine && (
-          <Button asChild size="sm" className="rounded-full px-3.5">
-            <Link href={`/hire/${maker.handle}`}>Hire</Link>
-          </Button>
-        )}
-        <ShowcaseMenu
-          item={item}
-          mine={mine}
-          onReport={() => host.report(item.id)}
-          onDeleted={onDeleted}
-        />
-        {onClose && (
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-            <X className="size-5" />
-          </Button>
-        )}
-      </header>
-
-      {item.pieces.length > 0 && (
-        <PieceCarousel
-          pieces={item.pieces}
-          aspect={frame.aspect}
-          label={label}
-          renderPage={(piece, i) => {
-            const alt =
-              item.pieces.length > 1 ? `${label}, ${i + 1} of ${item.pieces.length}` : label;
-            return piece.kind === 'video' ? (
-              // A film is its own control: a click plays it, so it is not
-              // also the picture a double click likes.
-              <ShowcaseFilm piece={piece} alt={alt} aspect={frame.aspect} fit={pieceFit(frame, i)} />
-            ) : (
-              <PhotoPage
-                piece={piece}
-                alt={alt}
-                fit={pieceFit(frame, i)}
-                priority={priority && i === 0}
-                onDoubleTap={likeFromPhoto}
-                onOpen={onOpenPhoto ? () => onOpenPhoto(piece) : undefined}
-              />
-            );
-          }}
-        />
       )}
-
-      <div className="flex items-center px-1.5 pt-1">
-        <ActionButton
-          label="Like"
-          pressed={item.likedByMe}
-          onClick={() => setLiked(!item.likedByMe)}
-        >
-          <Heart
-            className={cn(
-              'size-6 transition-transform motion-safe:active:scale-90',
-              item.likedByMe && 'fill-current text-destructive',
-            )}
-          />
-        </ActionButton>
-        {commentable && (
-          <ActionButton label="Comment" onClick={() => comment(true)}>
-            <MessageCircle className="size-6" />
-          </ActionButton>
-        )}
-        {share.ok ? (
-          <ActionButton label="Share" onClick={shareNow}>
-            <Send className="size-6" />
-          </ActionButton>
-        ) : (
-          share.offer && (
-            <ActionButton
-              label="Share"
-              blocked={share.reason}
-              onClick={() => toast(share.reason)}
-            >
-              <Send className="size-6 opacity-40" />
-            </ActionButton>
-          )
-        )}
-
-        <div className="ml-auto flex items-center">
-          {mine ? (
-            item.keptCount > 0 && (
-              <span className="flex items-center gap-1.5 px-1.5 text-sm text-muted-foreground">
-                <Bookmark className="size-4" />
-                {item.keptCount.toLocaleString()} kept
-              </span>
-            )
-          ) : (
-            <ActionButton
-              // Filled once it is yours: an outline that means "kept" and an
-              // outline that means "keep" are the same picture.
-              label={item.keptByMe ? 'Kept. Change where.' : 'Keep'}
-              pressed={item.keptByMe}
-              onClick={() => host.keep(item)}
-            >
-              <Bookmark className={cn('size-6', item.keptByMe && 'fill-current')} />
-            </ActionButton>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-1 px-3 pb-3 pt-0.5">
-        {item.likeCount > 0 && (
-          <p className="text-sm font-bold">
-            {item.likeCount === 1 ? '1 like' : `${item.likeCount.toLocaleString()} likes`}
-          </p>
-        )}
-        {item.title && (
-          <TitleTag className={cn('font-bold', page ? 'text-base' : 'text-sm')}>{item.title}</TitleTag>
-        )}
-        {item.caption && <Caption name={maker.displayName} text={item.caption} open={page} />}
-        {(item.craftNote || item.craftTags.length > 0) && (
-          <HowItWasMade note={item.craftNote} tags={item.craftTags} open={page} />
-        )}
-        {commentable && item.commentCount > 0 && !page && (
-          <button
-            type="button"
-            onClick={() => comment(false)}
-            className="justify-self-start rounded text-left text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {item.commentCount === 1
-              ? 'View 1 comment'
-              : `View all ${item.commentCount.toLocaleString()} comments`}
-          </button>
-        )}
-        <time
-          dateTime={when}
-          suppressHydrationWarning
-          className="text-[11px] uppercase tracking-wide text-muted-foreground"
-        >
-          {relativeTime(when)}
-        </time>
-      </div>
     </article>
   );
 }
 
-/** Your own post, said to be out of sight: nobody else ever sees one. */
+/**
+ * Your own post, said to be out of sight, on the photograph: nobody else
+ * ever sees one. Still while the set moves under it.
+ */
 function StatusBadge({ removed }: { removed: boolean }) {
-  return removed ? (
-    <Badge variant="destructive">Removed by Virgo</Badge>
-  ) : (
-    <Badge variant="secondary">
-      <Lock />
-      Private
-    </Badge>
+  return (
+    <span
+      className={cn(
+        'pointer-events-none absolute left-3 top-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold',
+        removed ? 'bg-destructive text-destructive-foreground' : 'bg-black/55 text-white',
+      )}
+    >
+      <Lock aria-hidden className="size-3" />
+      {removed ? 'Removed by Virgo' : 'Private'}
+    </span>
   );
 }
 
 /**
- * One of the row's icons. Icons alone, as every feed draws them, so each
+ * One of the row's buttons: an icon, and beside it how many times it has
+ * been done, which used to be a line of its own under the row. The icon
  * carries its name for a screen reader. A control that cannot be used here
  * (Share on a private post) says why on hover and on a click, rather than
  * sitting there greyed out with no reason given.
  */
-function ActionButton({
+function CountButton({
   label,
   pressed,
   blocked,
+  count = 0,
   onClick,
   children,
 }: {
@@ -323,6 +459,7 @@ function ActionButton({
   pressed?: boolean;
   /** Why it cannot be used, when it cannot. */
   blocked?: string;
+  count?: number;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -333,9 +470,12 @@ function ActionButton({
       aria-label={blocked ? `${label}. ${blocked}` : label}
       aria-pressed={pressed}
       aria-disabled={blocked ? true : undefined}
-      className="grid size-10 place-items-center rounded-full text-foreground transition-opacity hover:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex h-10 items-center gap-1.5 rounded-xl px-2 text-foreground outline-none transition-opacity hover:opacity-60 focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
+      {count > 0 && (
+        <span className="text-sm font-semibold tabular-nums">{shortCount(count)}</span>
+      )}
     </button>
   );
   if (!blocked) return button;
@@ -357,6 +497,7 @@ function ActionButton({
 function PhotoPage({
   piece,
   alt,
+  sizes,
   fit,
   priority,
   onDoubleTap,
@@ -364,6 +505,7 @@ function PhotoPage({
 }: {
   piece: ShowcasePiece;
   alt: string;
+  sizes: string;
   fit: 'cover' | 'contain';
   priority: boolean;
   onDoubleTap: () => void;
@@ -436,7 +578,7 @@ function PhotoPage({
         if (lastPointer.current === 'mouse') liked();
       }}
     >
-      <PieceImage piece={piece} alt={alt} sizes={CARD_SIZES} fit={fit} priority={priority} />
+      <PieceImage piece={piece} alt={alt} sizes={sizes} fit={fit} priority={priority} />
 
       {pop && (
         <span
@@ -458,16 +600,18 @@ function PhotoPage({
       )}
 
       {onOpen && (
+        // On the photograph a click is half of a double click, which likes
+        // it, so looking closely is a button of its own.
         <button
           type="button"
           onClick={onOpen}
           onDoubleClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
           onPointerUp={(event) => event.stopPropagation()}
-          aria-label={`${alt}. View it larger.`}
-          className="absolute bottom-3 right-3 grid size-9 place-items-center rounded-full bg-black/55 text-white transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="absolute bottom-3 left-3 flex h-9 items-center gap-1.5 rounded-[10px] bg-background/90 pl-2.5 pr-3 text-[13px] font-semibold text-foreground outline-none transition-colors hover:bg-background focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <Maximize2 className="size-4" />
+          <Maximize aria-hidden className="size-[15px]" />
+          View full screen
         </button>
       )}
     </div>
@@ -475,11 +619,23 @@ function PhotoPage({
 }
 
 /**
- * The caption, after the maker's name, cut to two lines with "more" at the
- * end of the second. Measured rather than guessed from its length: two lines
- * is a different number of characters on a phone and on a laptop.
+ * The caption, cut to two lines with "more" at the end of the second.
+ * Measured rather than guessed from its length: two lines is a different
+ * number of characters on a phone and on a laptop.
+ *
+ * It began with the maker's name in bold, as photo apps do. The name is in
+ * the byline directly above.
  */
-function Caption({ name, text, open: startOpen }: { name: string; text: string; open: boolean }) {
+function Caption({
+  text,
+  open: startOpen,
+  ground,
+}: {
+  text: string;
+  open: boolean;
+  /** What the card sits on, which "more" fades the end of the line into. */
+  ground: 'page' | 'popover';
+}) {
   const ref = useRef<HTMLParagraphElement>(null);
   const [open, setOpen] = useState(startOpen);
   const [cut, setCut] = useState(false);
@@ -494,18 +650,31 @@ function Caption({ name, text, open: startOpen }: { name: string; text: string; 
   }, [open, text]);
 
   return (
-    <div className="relative text-sm leading-5">
+    <div
+      className={cn(
+        'relative text-[15px] leading-[22px] text-secondary-foreground',
+        startOpen ? 'mt-1' : 'mt-0.5',
+      )}
+    >
       <p ref={ref} className={cn('whitespace-pre-line break-words', !open && 'line-clamp-2')}>
-        <span className="font-bold">{name}</span> {text}
+        {text}
       </p>
       {!open && cut && (
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="absolute bottom-0 right-0 bg-gradient-to-r from-card/0 via-card to-card pl-8 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            'absolute bottom-0 right-0 bg-gradient-to-r pl-8 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+            ground === 'popover'
+              ? 'from-popover/0 via-popover to-popover'
+              : 'from-background/0 via-background to-background',
+          )}
           aria-label="Show the whole caption"
         >
-          … more
+          <span aria-hidden className="text-secondary-foreground">
+            …{' '}
+          </span>
+          more
         </button>
       )}
     </div>
@@ -513,54 +682,76 @@ function Caption({ name, text, open: startOpen }: { name: string; text: string; 
 }
 
 /**
- * The note the feed exists for, folded under its heading so a long one does
- * not push the next post a screen away. Open from the start on the post's
- * own page, which is where somebody went to read it.
+ * The note the feed exists for, as a small card of its own.
+ *
+ * In the feed its tags show and the note is folded under them, so a long one
+ * does not push the next post a screen away. With no tags there is nothing
+ * to show closed, so the note is. On the post's own page, which is where
+ * somebody went to read it, all of it is there from the start.
  */
 function HowItWasMade({
   note,
   tags,
-  open: startOpen,
+  open: alwaysOpen,
 }: {
   note: string | null;
   tags: string[];
   open: boolean;
 }) {
-  const [open, setOpen] = useState(startOpen);
+  const [open, setOpen] = useState(false);
   const id = useId();
+  const folds = !alwaysOpen && Boolean(note) && tags.length > 0;
+  const Heading = alwaysOpen ? 'h2' : 'h3';
+  const heading = 'text-[13px] font-semibold leading-[18px] text-muted-foreground';
 
   return (
-    <div className="mt-1">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 rounded text-[11px] font-bold uppercase tracking-wide text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        How it was made
-        <ChevronDown
-          className={cn('size-3.5 transition-transform motion-reduce:transition-none', open && 'rotate-180')}
-        />
-      </button>
-      <div id={id} hidden={!open} className="pt-1.5">
-        {note && <p className="whitespace-pre-line break-words text-sm leading-6">{note}</p>}
-        {tags.length > 0 && (
-          <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Tags">
-            {tags.map((tag) => (
-              <li
-                key={tag}
-                className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
-              >
-                {tag}
-              </li>
-            ))}
-          </ul>
+    <section
+      aria-label="How it was made"
+      className={cn(CARD, 'flex flex-col gap-2.5 px-3.5 py-3', !alwaysOpen && 'mt-1.5')}
+    >
+      <Heading className={heading}>
+        {folds ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={id}
+            onClick={() => setOpen((o) => !o)}
+            className="flex w-full items-center justify-between rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            How it was made
+            <ChevronDown
+              aria-hidden
+              className={cn(
+                'size-4 transition-transform motion-reduce:transition-none',
+                open && 'rotate-180',
+              )}
+            />
+          </button>
+        ) : (
+          'How it was made'
         )}
-        <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
-          Written by the photographer. Virgo never reads this from the file.
+      </Heading>
+      {note && (
+        <p
+          id={id}
+          hidden={folds && !open}
+          className="whitespace-pre-line break-words text-sm leading-5 text-secondary-foreground"
+        >
+          {note}
         </p>
-      </div>
-    </div>
+      )}
+      {tags.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5" aria-label="Tags">
+          {tags.map((tag) => (
+            <li
+              key={tag}
+              className="rounded-full bg-muted px-2.5 py-1 text-[13px] font-medium leading-[18px] text-secondary-foreground"
+            >
+              {tag}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

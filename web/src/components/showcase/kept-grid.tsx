@@ -19,6 +19,10 @@ export function shelfCoverUrls(shelf: Pick<ShelfSummary, 'coverUrl' | 'coverUrls
   return shelf.coverUrl ? [shelf.coverUrl] : [];
 }
 
+/**
+ * A shelf's cover, at whatever size its `className` gives it: 52px in a row
+ * of the Keep dialog, the width of a tile on Taste.
+ */
 export function ShelfMosaic({ urls, className }: { urls: string[]; className?: string }) {
   const shown = urls.slice(0, 4);
   return (
@@ -56,11 +60,14 @@ export function ShelfMosaic({ urls, className }: { urls: string[]; className?: s
 }
 
 /**
- * What is kept, as a contact sheet: square stills, three across. A click
- * opens the post over the grid (`onOpen`); a click for a new tab goes to the
- * post's own page. Who made each one is said on hover and to a screen
- * reader, and in full once it is opened — credit is why keeping somebody's
- * work is something they gain from.
+ * What is kept, as a contact sheet: upright stills, three across, as the
+ * phone lays a shelf out. Upright because most of what is kept is a portrait
+ * photograph, which a square cut to its middle.
+ *
+ * A click opens the post over the grid (`onOpen`); a click for a new tab
+ * goes to the post's own page. Who made each one is said on hover and to a
+ * screen reader, and in full once it is opened — credit is why keeping
+ * somebody's work is something they gain from.
  */
 export function KeptGrid({
   entries,
@@ -70,7 +77,7 @@ export function KeptGrid({
   onOpen: (entry: ShelfEntry) => void;
 }) {
   return (
-    <ul className="grid grid-cols-3 gap-0.5 overflow-hidden rounded-xl sm:gap-1">
+    <ul className="grid grid-cols-3 gap-0.5 overflow-hidden rounded-2xl sm:gap-1">
       {entries.map((entry) => {
         const maker = makerOf(entry);
         const name = entry.title ?? `${maker.displayName}'s showcase`;
@@ -82,7 +89,7 @@ export function KeptGrid({
                 if (opensInPlace(event)) onOpen(entry);
               }}
               aria-label={`${name}, by ${maker.displayName}`}
-              className="group relative block aspect-square overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="group relative block aspect-[4/5] overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
               <img
                 src={entry.url}

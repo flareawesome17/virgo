@@ -45,21 +45,27 @@ export function useKeepFlow(userId: string | undefined) {
         setDialogItem(item);
         return;
       }
-      const toastId = toast(`Kept to ${last.name}`, {
-        icon: <Bookmark className="size-4" />,
-        duration: TOAST_MS,
-        action: {
-          label: 'Change',
-          // Marked kept, so the dialog opens on where it is rather than
-          // offering to keep it for the first time.
-          onClick: () => setDialogItem({ ...item, keptByMe: true }),
-        },
-        // Where it went. A keep led nowhere: shelves could not be opened.
-        cancel: {
-          label: 'View shelf',
-          onClick: () => router.push(`/shelf/${last.id}`),
-        },
-      });
+      const toastId = toast.custom(
+        (id) => (
+          <KeptBar
+            shelf={last.name}
+            onChange={() => {
+              toast.dismiss(id);
+              // Marked kept, so the dialog opens on where it is rather than
+              // offering to keep it for the first time.
+              setDialogItem({ ...item, keptByMe: true });
+            }}
+            // Where it went. A keep led nowhere: shelves could not be opened.
+            onView={() => {
+              toast.dismiss(id);
+              router.push(`/shelf/${last.id}`);
+            }}
+          />
+        ),
+        // In the middle, under the post it is about, not in the corner with
+        // the messages about everything else.
+        { duration: TOAST_MS, position: 'bottom-center' },
+      );
       keepMutate(
         { shelfId: last.id, showcaseId: item.id },
         {
@@ -90,4 +96,48 @@ export function useKeepFlow(userId: string | undefined) {
   );
 
   return { onKeep, element };
+}
+
+/**
+ * "Kept to Light I like": where a one-click Keep went, on the dark bar the
+ * selection bar and the upload dock use, with the two things to do about it.
+ *
+ * The outer box is as wide as the toaster's own column, which is what the
+ * toaster centres; the bar sits in the middle of that at its own width.
+ */
+function KeptBar({
+  shelf,
+  onChange,
+  onView,
+}: {
+  shelf: string;
+  onChange: () => void;
+  onView: () => void;
+}) {
+  return (
+    <div className="flex w-(--width) max-w-[calc(100vw-2rem)] justify-center">
+      <div className="flex min-h-12 max-w-full items-center gap-3 rounded-[14px] bg-foreground pl-4 pr-2 text-sm text-background shadow-[0_12px_32px_rgb(0_0_0/0.3)]">
+        <Bookmark aria-hidden className="size-4 shrink-0" fill="currentColor" />
+        <span className="min-w-0 truncate">
+          Kept to <span className="font-semibold">{shelf}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onChange}
+          className="h-8 shrink-0 rounded-lg bg-background/10 px-2.5 text-[13px] font-semibold outline-none transition-colors hover:bg-background/20 focus-visible:ring-3 focus-visible:ring-background/40"
+        >
+          Change
+        </button>
+        {/* The brand accent, not `primary`: on this inverted bar primary is
+            the wrong way round in both themes, dark on dark and pale on pale. */}
+        <button
+          type="button"
+          onClick={onView}
+          className="h-8 shrink-0 rounded-lg px-2.5 text-[13px] font-semibold text-brand-accent outline-none transition-colors hover:bg-background/10 focus-visible:ring-3 focus-visible:ring-background/40"
+        >
+          View shelf
+        </button>
+      </div>
+    </div>
+  );
 }

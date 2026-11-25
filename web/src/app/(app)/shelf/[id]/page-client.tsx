@@ -3,7 +3,18 @@
 import Link from 'next/link';
 import { Suspense, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Bookmark, BookmarkX, CloudOff, Ellipsis, Eye, EyeOff, Loader2, Pencil, Trash2 } from 'lucide-react';
+import {
+  Bookmark,
+  BookmarkX,
+  CloudOff,
+  Ellipsis,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
 import { BackButton } from '@/components/back-button';
@@ -38,7 +49,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { showcaseActionMessage } from '@/components/showcase/action-message';
 import { KeptGrid } from '@/components/showcase/kept-grid';
-import { ShowcaseDialog } from '@/components/showcase/showcase-dialog';
+import { KeptPostDialog } from '@/components/showcase/kept-post-dialog';
 import { ShowcaseHost } from '@/components/showcase/showcase-host';
 import { useShelfActions, useShelfEntries, useShelves } from '@/hooks/useShowcases';
 import { ApiError, type ShelfEntry } from '@/api';
@@ -51,13 +62,18 @@ const isGone = (error: unknown) =>
 const NAME_MAX = 60;
 
 /**
- * One shelf: what is kept on it, as a contact sheet of square stills. A click
+ * One shelf: what is kept on it, as a contact sheet of upright stills. A click
  * opens the post over the shelf, drawn as the feed draws it, crediting
  * whoever made it; the keeper's note on why they kept it goes with it.
  *
+ * The bar carries the shelf's name and its menu. The page says it again,
+ * large, with how much is kept, who sees it and whose it is, as the phone's
+ * shelf does.
+ *
  * Your own shelf can be renamed, made private or public, and deleted here,
  * and anything on it taken off. Somebody else's (?own=0) is read through the
- * public route, which only ever returns public shelves.
+ * public route, which only ever returns public shelves; whoever opened it
+ * says whose it is (?by=), because the shelf itself does not.
  */
 function Shelf() {
   const { id } = useParams<{ id: string }>();
@@ -65,14 +81,29 @@ function Shelf() {
   const router = useRouter();
   const mine = params.get('own') !== '0';
   const nameParam = params.get('name');
+  const byParam = params.get('by');
 
   const { entries, isLoading, loadFailed, error, refetch } = useShelfEntries(id, { own: mine });
   // Your shelves are usually cached already (Taste lists them), and this is
   // what keeps the name and privacy current after a change here.
   const { shelves } = useShelves({ enabled: mine });
   const shelf = mine ? shelves.find((s) => s.id === id) : undefined;
-  const title = shelf?.name ?? nameParam ?? 'Shelf';
+  const named = shelf?.name ?? nameParam;
+  const title = named ?? 'Shelf';
   const { updateShelf, removeShelf, unkeep } = useShelfActions();
+
+  const loaded = !isLoading && !loadFailed;
+  const count = entries.length > 0 ? entries.length : loaded ? 0 : (shelf?.count ?? 0);
+  // Somebody else's shelf is public or it would not have loaded; until it
+  // has, nothing is claimed about it.
+  const isPublic = mine ? shelf?.isPublic : loaded ? true : undefined;
+  const meta = [
+    count > 0 ? `${count} kept` : null,
+    isPublic === undefined ? null : isPublic ? 'Public' : 'Private',
+    mine ? (shelf ? 'by you' : null) : byParam ? `by ${byParam}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -119,16 +150,8 @@ function Shelf() {
   return (
     <Screen title={title}>
       <ShowcaseHost>
-        <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6">
-          <BackButton fallback="/kept" />
-        </div>
         <PageHeader
           title={title}
-          description={
-            shelf
-              ? `${shelf.count} kept${shelf.isPublic ? '' : ' · Private, only you see it'}`
-              : undefined
-          }
           actions={
             shelf ? (
               <DropdownMenu>
@@ -157,7 +180,23 @@ function Shelf() {
           }
         />
 
-        <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-12 pt-4 sm:px-6">
+          <BackButton fallback="/kept" className="self-start" />
+
+          <header className="flex flex-col gap-0.5">
+            {/* Only over a name: with none known the heading itself says Shelf. */}
+            {named && <p className="text-[13px] font-semibold text-muted-foreground">Shelf</p>}
+            <h2 className="text-2xl font-bold leading-[30px] tracking-tight [overflow-wrap:anywhere] sm:text-[26px] sm:leading-8">
+              {title}
+            </h2>
+            {meta && (
+              <p className="flex items-center gap-1.5 text-[13px] leading-[18px] text-muted-foreground">
+                {isPublic === false && <Lock aria-hidden className="size-3 shrink-0" />}
+                {meta}
+              </p>
+            )}
+          </header>
+
           {isLoading ? (
             <CenteredSpinner />
           ) : loadFailed && entries.length === 0 && isGone(error) ? (
@@ -193,10 +232,12 @@ function Shelf() {
           )}
         </div>
 
-        <ShowcaseDialog
+        <KeptPostDialog
           showcaseId={open?.showcaseId ?? null}
           onClose={() => setOpen(null)}
           note={open?.note}
+          // Yours is called yours; anybody else's is whoever kept it.
+          noteLabel={mine ? 'Why you kept it' : 'Why it was kept'}
           // Your own shelf only: somebody else's is theirs to tidy.
           removal={
             mine && shelf && open

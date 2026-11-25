@@ -9,26 +9,32 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
-  Check,
   CloudOff,
-  Globe,
   ImagePlus,
   Loader2,
-  Lock,
+  MapPin,
   Play,
   Plus,
   Star,
   Trash2,
-  Users,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
+import {
+  ChoiceChip,
+  FORM_INPUT,
+  FORM_TEXTAREA,
+  FilterChip,
+  FormCard,
+  FormField,
+  FormSection,
+  FormSwitchRow,
+} from '@/components/kit';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
@@ -40,6 +46,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { VideoThumbnail } from '@/components/media/video-thumbnail';
 import { faultyPiece, showcaseActionMessage } from '@/components/showcase/action-message';
+import { RadioRow } from '@/components/showcase/radio-row';
 import { useAlbums } from '@/hooks/useAlbums';
 import { useShowcase, useShowcaseActions } from '@/hooks/useShowcases';
 import { leaveIfDiscarded, useDiscardGuard } from '@/lib/discard-guard';
@@ -70,10 +77,29 @@ const TAG_SUGGESTIONS = [
 const FILM_TAG_SUGGESTIONS = ['Gimbal', 'Handheld', 'Drone', 'Slow motion', '24fps', 'Log', 'Same-day edit'];
 /** The server's own limit on one tag. */
 const MAX_TAG_LENGTH = 32;
-/** The API's limits on the three texts. */
+/** The API's limits on the texts. */
 const TITLE_MAX = 120;
 const CAPTION_MAX = 2200;
 const NOTE_MAX = 600;
+const LOCATION_MAX = 120;
+
+/**
+ * What kind of work it is. One at most, and none is fine. The API keeps it as
+ * the words themselves, which is what a card prints, so this is the phone's
+ * list: a kind chosen here has to be one the phone can show chosen too.
+ */
+const CATEGORIES = ['Wedding', 'Prenup', 'Debut', 'Portrait', 'Event', 'Commercial'];
+
+/**
+ * White on the page's colour, so a field reads as a field. A text area grows
+ * with what is typed in it, so it has no corner to drag.
+ */
+const FIELD = cn(FORM_INPUT, 'bg-card');
+const AREA = cn(FORM_TEXTAREA, 'resize-none bg-card');
+
+/** "Cover", on the first of what is chosen. */
+const COVER_PILL =
+  'rounded-full bg-background px-2 py-0.5 text-[11px] font-bold leading-4 text-foreground';
 
 /** "1:05" for a film's length. */
 function clock(ms: number): string {
@@ -93,7 +119,8 @@ function stillOf(file: StoredFile): string | null {
  * Posting a showcase, or with `?edit=<id>` changing one.
  *
  * The phone's form (mobile/app/(app)/showcase/new.tsx), laid out for a wide
- * screen: the work on the left, what you say about it on the right.
+ * screen: the work on the left, what you say about it on the right. The
+ * phone's two steps are one page here, because there is room for both.
  */
 function NewShowcase() {
   const params = useSearchParams();
@@ -103,13 +130,13 @@ function NewShowcase() {
   if (!edit) return <ShowcaseForm />;
   if (!showcase) {
     return (
-      <Screen title="Edit showcase">
+      <Screen title="Edit post">
         {isLoading ? (
           <CenteredSpinner />
         ) : (
           <EmptyState
             icon={CloudOff}
-            title={loadFailed ? 'Could not load this showcase' : 'This showcase has gone'}
+            title={loadFailed ? 'Could not load this post' : 'This post has gone'}
             description={loadFailed ? 'Check your connection and try again.' : 'It has been deleted.'}
             action={loadFailed ? <Button onClick={() => void refetch()}>Try again</Button> : undefined}
           />
@@ -140,9 +167,12 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   );
   const [title, setTitle] = useState(existing?.title ?? '');
   const [caption, setCaption] = useState(existing?.caption ?? '');
+  const [category, setCategory] = useState(existing?.category ?? '');
+  const [location, setLocation] = useState(existing?.location ?? '');
   const [craftNote, setCraftNote] = useState(existing?.craftNote ?? '');
   const [tags, setTags] = useState<string[]>(existing?.craftTags ?? []);
   const [tagDraft, setTagDraft] = useState('');
+  const [typingTag, setTypingTag] = useState(false);
   const [allowComments, setAllowComments] = useState(existing?.allowComments ?? true);
   const [showHire, setShowHire] = useState(existing?.showHire ?? true);
   /** The piece the server turned down, and why, until it is dealt with. */
@@ -160,9 +190,9 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   const [albumId, setAlbumId] = useState<string | undefined>(undefined);
 
   /*
-   * Who sees it. Private is a post saved and not put out, or taken back in;
-   * a post shown only to connections keeps that unless its author picks
-   * something else here — the form never changes it on their behalf.
+   * Who sees it. Everyone for a new post. An existing one starts where it
+   * is: only you if it is not out, and otherwise whoever it is out to, so
+   * saving an edit never quietly widens or narrows who sees it.
    */
   const status = existing ? showcaseStatus(existing) : null;
   const [audience, setAudience] = useState<Audience>(() =>
@@ -180,6 +210,8 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     picked,
     title,
     caption,
+    category,
+    location,
     craftNote,
     tags,
     allowComments,
@@ -298,6 +330,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
   // (SHOWCASE_FILM_ALONE), checked here so Post is never a button that fails.
   const pickedKinds = picked.map(kindAt);
   const postable = canPostTogether(pickedKinds);
+  const filmAlone = picked.length === 1 && pickedKinds[0] === 'video';
   const filmWithOthers = picked.length > 1 && pickedKinds.includes('video');
   const isPrivate = audience === 'private';
 
@@ -309,13 +342,17 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         fileKeys: picked,
         title: title.trim() || undefined,
         caption: caption.trim() || undefined,
+        category: category || undefined,
+        location: location.trim() || undefined,
         craftNote: craftNote.trim() || undefined,
         craftTags: tags.length > 0 ? tags : undefined,
         allowComments,
         showHire,
-        visibility: 'public',
+        // Only you is not an audience the API knows: that one is a post
+        // saved and not put out, below.
+        visibility: audience === 'connections' ? 'connections' : 'public',
         // Private is saved and not put out: it stays on your profile, where
-        // only you see it, until you make it public.
+        // only you see it, until you choose who sees it.
         publish: !isPrivate,
       },
       {
@@ -327,8 +364,10 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           router.replace(isPrivate ? '/profile' : '/feed');
           toast.success(isPrivate ? 'Saved privately' : 'Posted', {
             description: isPrivate
-              ? 'Only you can see it. Make it public from its menu when it is ready.'
-              : 'It is on your profile and in the feed.',
+              ? 'Only you can see it. Choose who sees it from its menu when it is ready.'
+              : audience === 'connections'
+                ? 'It is on your profile and in the feed, for your connections only.'
+                : 'It is on your profile and in the feed.',
           });
         },
         onError: (error) => failed(error, 'post'),
@@ -353,14 +392,18 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           // Only when they changed: sending them rewrites every piece and
           // queues its renditions again.
           ...(piecesChanged ? { fileKeys: picked } : {}),
-          // Only when somebody chose Public for a post shown to connections.
-          ...(audience === 'public' && existing.visibility !== 'public'
-            ? { visibility: 'public' as const }
+          // Only when the audience chosen is not the one the post has: an
+          // untouched choice sends nothing. Only you is the request after
+          // this one.
+          ...(audience !== 'private' && existing.visibility !== audience
+            ? { visibility: audience }
             : {}),
           // Empty strings rather than undefined: that is how the API is told
           // to clear a field.
           title: title.trim(),
           caption: caption.trim(),
+          category,
+          location: location.trim(),
           craftNote: craftNote.trim(),
           craftTags: tags,
           allowComments,
@@ -374,10 +417,9 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
               await setPublished.mutateAsync({ id: existing.id, published: wantLive });
             } catch (error) {
               // The words are saved either way; say which half did not happen.
-              toast.error(
-                wantLive ? "Saved, but couldn't make it public" : "Saved, but couldn't make it private",
-                { description: showcaseActionMessage(error, 'takedown') },
-              );
+              toast.error("Saved, but who sees it didn't change", {
+                description: showcaseActionMessage(error, 'takedown'),
+              });
             }
           }
           allowLeave();
@@ -399,19 +441,25 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
     });
 
   const full = picked.length >= MAX_SHOWCASE_ITEMS;
-  // Tags typed by hand are not among the suggestions; they are shown too, so
-  // they can be taken off.
-  const suggestions = [...TAG_SUGGESTIONS, ...FILM_TAG_SUGGESTIONS];
-  const tagChoices = [...tags.filter((tag) => !suggestions.includes(tag)), ...suggestions];
+  const tagsFull = tags.length >= MAX_CRAFT_TAGS;
+  // Offered until chosen. A tag once chosen moves up among the chosen, where
+  // it can be taken off again, whether it was offered or typed.
+  const tagOffers = [...TAG_SUGGESTIONS, ...FILM_TAG_SUGGESTIONS].filter(
+    (tag) => !tags.includes(tag),
+  );
+  // A kind chosen somewhere that offers others is shown too, so it can be
+  // taken off.
+  const categoryChoices =
+    category && !CATEGORIES.includes(category) ? [category, ...CATEGORIES] : CATEGORIES;
 
   return (
-    <Screen title={editing ? 'Edit showcase' : 'New showcase'}>
+    <Screen title={editing ? 'Edit post' : 'New post'}>
       <PageHeader
-        title={editing ? 'Edit showcase' : 'New showcase'}
-        description="A piece of work, and how you made it"
+        title={editing ? 'Edit post' : 'New post'}
+        description="A piece of work, and how you made it. It goes into the feed and onto your profile."
         actions={
           <>
-            <Button variant="ghost" onClick={cancel} disabled={busy}>
+            <Button variant="secondary" onClick={cancel} disabled={busy}>
               Cancel
             </Button>
             <Button onClick={editing ? save : post} disabled={!postable || busy}>
@@ -428,19 +476,20 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
         }
       />
 
-      <div className="mx-auto grid w-full max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <section aria-label="The work" className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary">The work</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {picked.length === 1 && pickedKinds[0] === 'video'
-              ? 'A film · a film is posted on its own'
-              : `${picked.length}/${MAX_SHOWCASE_ITEMS} photos chosen`}
-            {picked.length > 1 ? ' · the first is the cover. Click one to move it.' : ''}
-          </p>
+      <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-start gap-8 px-4 pb-12 pt-6 sm:px-6">
+        <section aria-label="The work" className="flex min-w-0 flex-[3_1_480px] flex-col gap-3.5">
+          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+            <h2 className="text-base font-bold leading-6 tracking-tight">The work</h2>
+            <p className="text-[13px] text-muted-foreground">
+              {filmAlone
+                ? 'A film · a film is posted on its own'
+                : `${picked.length} of ${MAX_SHOWCASE_ITEMS} photographs chosen`}
+            </p>
+          </div>
           {filmWithOthers && (
             // Only an older post can arrive like this: the grid below never
             // lets the two be chosen together.
-            <p role="alert" className="mt-2 flex items-start gap-2 text-xs text-destructive">
+            <p role="alert" className="flex items-start gap-2 text-xs text-destructive">
               <AlertCircle className="mt-px size-3.5 shrink-0" />A film is posted on its own. Take
               out the photos, or the film, to save this.
             </p>
@@ -449,8 +498,8 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           {/* What is chosen, in order, including anything picked in another
               album, which the grid below no longer shows. Click one to make it
               the cover, move it, or take it out. */}
-          {picked.length > 0 && (
-            <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1">
+          {picked.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
               {picked.map((key, i) => {
                 const bad = faulty?.key === key;
                 return (
@@ -460,7 +509,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                         type="button"
                         aria-label={`Chosen, number ${i + 1}${i === 0 ? ', the cover' : ''}${bad ? ', cannot be posted' : ''}. Arrange.`}
                         className={cn(
-                          'relative size-[72px] shrink-0 overflow-hidden rounded-lg bg-muted outline-offset-2',
+                          'relative h-[90px] w-[72px] shrink-0 overflow-hidden rounded-[10px] bg-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
                           bad && 'ring-2 ring-destructive',
                         )}
                       >
@@ -471,12 +520,17 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                             <VideoThumbnail className="w-3/5" />
                           </span>
                         ) : null}
-                        <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                        <span className="absolute left-[5px] top-[5px] grid size-5 place-items-center rounded-full bg-foreground text-[11px] font-bold text-background">
                           {i + 1}
                         </span>
                         {bad && (
-                          <span className="absolute left-1 top-1 grid size-5 place-items-center rounded-full bg-destructive text-white">
+                          <span className="absolute right-[5px] top-[5px] grid size-5 place-items-center rounded-full bg-destructive text-white">
                             <AlertCircle className="size-3" />
+                          </span>
+                        )}
+                        {i === 0 && !filmAlone && (
+                          <span className={cn(COVER_PILL, 'absolute bottom-[5px] left-[5px]')}>
+                            Cover
                           </span>
                         )}
                       </button>
@@ -512,11 +566,19 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                   </DropdownMenu>
                 );
               })}
+              {picked.length > 1 && (
+                <p className="ml-2 text-[13px] text-muted-foreground">The first is the cover.</p>
+              )}
             </div>
+          ) : (
+            <p className="text-[13px] text-muted-foreground">
+              Choose up to {MAX_SHOWCASE_ITEMS} photos, or one film, to{' '}
+              {editing || isPrivate ? 'save' : 'post'}.
+            </p>
           )}
 
           {faulty && (
-            <div role="alert" className="mt-3 flex items-start gap-2.5 rounded-lg bg-destructive/10 p-3">
+            <div role="alert" className="flex items-start gap-2.5 rounded-xl bg-destructive/10 p-3">
               <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
               <p className="flex-1 text-sm">{faulty.message}</p>
               <Button size="sm" variant="destructive" onClick={() => toggle(faulty.key)}>
@@ -525,38 +587,31 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
             </div>
           )}
 
-          {/* Where to look. What is chosen stays chosen across albums. */}
+          {/* Where to look. What is chosen stays chosen across albums. In one
+              line that scrolls, because there can be a hundred albums; the
+              padding is room for a chip's focus ring inside the scroller. */}
           {albums.length > 0 && (
-            <div className="no-scrollbar mt-4 flex gap-1.5 overflow-x-auto pb-1">
-              {[{ id: undefined, name: 'All uploads' }, ...albums].map((album) => {
-                const on = album.id === albumId;
-                return (
-                  <button
-                    key={album.id ?? 'all'}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => setAlbumId(album.id)}
-                    className={cn(
-                      'max-w-48 shrink-0 truncate rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                      on
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'bg-card text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {album.name}
-                  </button>
-                );
-              })}
+            <div className="no-scrollbar -m-1 flex gap-2 overflow-x-auto p-1">
+              {[{ id: undefined, name: 'All uploads' }, ...albums].map((album) => (
+                <FilterChip
+                  key={album.id ?? 'all'}
+                  on={album.id === albumId}
+                  onClick={() => setAlbumId(album.id)}
+                  className="max-w-48"
+                >
+                  <span className="truncate">{album.name}</span>
+                </FilterChip>
+              ))}
             </div>
           )}
 
           {full && (
-            <p className="mt-2 text-xs text-warning">
+            <p className="text-xs text-warning">
               That is all {MAX_SHOWCASE_ITEMS} photos. Take one out to swap it.
             </p>
           )}
 
-          <div className="mt-3">
+          <div>
             {files.isLoading ? (
               <div className="grid place-items-center py-14 text-muted-foreground">
                 <Loader2 className="size-5 animate-spin" />
@@ -590,7 +645,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                 />
               </Card>
             ) : (
-              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 xl:grid-cols-5">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-1.5">
                 {available.map((file) => {
                   const at = picked.indexOf(file.key);
                   const on = at >= 0;
@@ -611,10 +666,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                       }
                       // A film is never "one too many": it replaces the set.
                       disabled={!on && full && !film}
-                      className={cn(
-                        'group relative aspect-square overflow-hidden rounded-lg bg-muted outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
-                        on && 'ring-3 ring-primary ring-offset-2 ring-offset-background',
-                      )}
+                      className="group relative aspect-square overflow-hidden rounded-lg bg-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {still ? (
                         <img
@@ -624,7 +676,7 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                           decoding="async"
                           className={cn(
                             'size-full object-cover transition-transform duration-300',
-                            on ? 'scale-[0.94]' : 'group-hover:scale-[1.03]',
+                            !on && 'group-hover:scale-[1.03]',
                           )}
                         />
                       ) : film ? (
@@ -650,14 +702,20 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
                         </>
                       )}
                       {on && (
-                        <span className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
-                          {at + 1}
-                        </span>
+                        <>
+                          {/* Over the picture, which would cover a border of
+                              the tile's own. */}
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute inset-0 rounded-lg ring-3 ring-inset ring-foreground"
+                          />
+                          <span className="absolute right-1.5 top-1.5 grid size-[22px] place-items-center rounded-full bg-foreground text-xs font-bold text-background">
+                            {at + 1}
+                          </span>
+                        </>
                       )}
-                      {at === 0 && (
-                        <span className="absolute bottom-1.5 left-1.5 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">
-                          Cover
-                        </span>
+                      {at === 0 && !filmAlone && (
+                        <span className={cn(COVER_PILL, 'absolute bottom-1.5 left-1.5')}>Cover</span>
                       )}
                     </button>
                   );
@@ -679,159 +737,233 @@ function ShowcaseForm({ existing }: { existing?: Showcase }) {
           </div>
         </section>
 
-        <aside className="flex flex-col gap-5 lg:sticky lg:top-6 lg:self-start">
-          <div className="grid gap-2">
-            <Label htmlFor="showcase-title">Title</Label>
-            <Input
-              id="showcase-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ten minutes before the rain"
-              maxLength={TITLE_MAX}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="showcase-caption">Caption</Label>
-            <Textarea
-              id="showcase-caption"
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              placeholder="Where it was, who it was for"
-              maxLength={CAPTION_MAX}
-              rows={3}
-            />
-          </div>
+        <aside className="flex min-w-0 flex-[2_1_360px] flex-col gap-5 lg:sticky lg:top-6">
+          <FormSection title="The words">
+            <div className="flex flex-col gap-4">
+              <FormField label="Title" htmlFor="showcase-title">
+                <Input
+                  id="showcase-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Ten minutes before the rain"
+                  maxLength={TITLE_MAX}
+                  className={FIELD}
+                />
+              </FormField>
+              <FormField
+                label="Caption"
+                htmlFor="showcase-caption"
+                right={`${caption.length.toLocaleString('en-US')} of ${CAPTION_MAX.toLocaleString('en-US')}`}
+              >
+                <Textarea
+                  id="showcase-caption"
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  placeholder="Where it was, who it was for"
+                  maxLength={CAPTION_MAX}
+                  rows={3}
+                  className={AREA}
+                />
+              </FormField>
+              <div className="flex flex-col gap-2">
+                <p id="showcase-kind" className="text-sm font-semibold">
+                  What kind of work
+                </p>
+                <div role="group" aria-labelledby="showcase-kind" className="flex flex-wrap gap-2">
+                  {categoryChoices.map((kind) => (
+                    <ChoiceChip
+                      key={kind}
+                      on={category === kind}
+                      // The chosen one again takes it off: it is optional.
+                      onClick={() => setCategory(category === kind ? '' : kind)}
+                    >
+                      {kind}
+                    </ChoiceChip>
+                  ))}
+                </div>
+              </div>
+              <FormField label="Where" htmlFor="showcase-where">
+                <div className="relative">
+                  <MapPin
+                    aria-hidden
+                    className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    id="showcase-where"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Sirao Garden, Cebu"
+                    maxLength={LOCATION_MAX}
+                    className={cn(FIELD, 'pl-10')}
+                  />
+                </div>
+              </FormField>
+            </div>
+          </FormSection>
 
           {/* The field the whole feed is for: a caption says what this is,
               and the note says what somebody else could do with it. */}
-          <Card className="gap-0 border-primary/40 bg-primary/5 py-0">
-            <CardContent className="grid gap-3 py-4">
-              <div>
-                <Label htmlFor="showcase-note" className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary">
-                  How it was made
-                </Label>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  One thing another photographer could use. This is what turns a scroll
-                  into something worth keeping.
+          <FormSection title="How it was made">
+            <div className="flex flex-col gap-4">
+              <FormField
+                label="A note"
+                htmlFor="showcase-note"
+                hint="One thing another photographer could use. This is what turns a scroll into something worth keeping."
+              >
+                <Textarea
+                  id="showcase-note"
+                  value={craftNote}
+                  onChange={(e) => setCraftNote(e.target.value)}
+                  placeholder="Backlit into the storm front so the rain read as light, not weather."
+                  maxLength={NOTE_MAX}
+                  rows={2}
+                  className={AREA}
+                />
+              </FormField>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p id="showcase-tags" className="text-sm font-semibold">
+                    Tags
+                  </p>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {tags.length} of {MAX_CRAFT_TAGS}
+                  </span>
+                </div>
+                <div
+                  role="group"
+                  aria-labelledby="showcase-tags"
+                  className="flex flex-wrap items-center gap-1.5"
+                >
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 rounded-full bg-muted py-[5px] pl-3 pr-1.5 text-[13px] font-medium text-secondary-foreground"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => toggleTag(tag)}
+                        aria-label={`Take off ${tag}`}
+                        className="grid size-4 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                  {typingTag && !tagsFull ? (
+                    <form
+                      className="flex items-center gap-1.5"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        addTypedTag();
+                      }}
+                    >
+                      <Input
+                        value={tagDraft}
+                        onChange={(e) => setTagDraft(e.target.value)}
+                        // Left empty, it goes back to being the link it was.
+                        onBlur={() => {
+                          if (!tagDraft.trim()) setTypingTag(false);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Escape') return;
+                          setTagDraft('');
+                          setTypingTag(false);
+                        }}
+                        placeholder="Add your own tag"
+                        aria-label="Add your own tag"
+                        maxLength={MAX_TAG_LENGTH}
+                        autoFocus
+                        className="h-8 w-40 rounded-full bg-card px-3 text-[13px] md:text-[13px]"
+                      />
+                      <Button
+                        type="submit"
+                        size="icon"
+                        variant="secondary"
+                        aria-label="Add this tag"
+                        disabled={!tagDraft.trim()}
+                        className="rounded-full"
+                      >
+                        <Plus className="size-4" />
+                      </Button>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setTypingTag(true)}
+                      disabled={tagsFull}
+                      className="rounded-md px-2 py-[5px] text-[13px] font-semibold text-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 disabled:text-muted-foreground disabled:no-underline"
+                    >
+                      Add your own tag
+                    </button>
+                  )}
+                </div>
+                {tagOffers.length > 0 && (
+                  <div role="group" aria-label="Suggested tags" className="flex flex-wrap gap-1.5">
+                    {tagOffers.map((tag) => (
+                      // Outlined, so what is offered does not read as what
+                      // is chosen, which is filled.
+                      <ChoiceChip
+                        key={tag}
+                        onClick={() => toggleTag(tag)}
+                        disabled={tagsFull}
+                        className="h-7 gap-1 border border-border bg-transparent px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground [&_svg]:size-3"
+                      >
+                        <Plus aria-hidden />
+                        {tag}
+                      </ChoiceChip>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Typed by you, never read off the file: what your camera recorded about where
+                  you were stays private.
                 </p>
               </div>
-              <Textarea
-                id="showcase-note"
-                value={craftNote}
-                onChange={(e) => setCraftNote(e.target.value)}
-                placeholder="Backlit into the storm front so the rain read as light, not weather."
-                maxLength={NOTE_MAX}
-                rows={3}
-                className="bg-card"
-              />
+            </div>
+          </FormSection>
 
-              <p className="text-xs text-muted-foreground">
-                Tags · {tags.length}/{MAX_CRAFT_TAGS}
+          <FormSection title="Who sees it">
+            {status === 'removed' ? (
+              // Taken down by Virgo: only Virgo can put it back, so there is
+              // no choice to make.
+              <p className="text-[13px] leading-[18px] text-muted-foreground">
+                Virgo took this post down, so only you see it. Your changes are still saved.
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {tagChoices.map((tag) => {
-                  const on = tags.includes(tag);
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => toggleTag(tag)}
-                      disabled={!on && tags.length >= MAX_CRAFT_TAGS}
-                      className={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-45',
-                        on
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'bg-card text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {on && <Check className="size-3" />}
-                      {tag}
-                    </button>
-                  );
-                })}
+            ) : (
+              <div role="radiogroup" aria-label="Who sees it">
+                <FormCard>
+                  {AUDIENCES.map((option) => (
+                    <RadioRow
+                      key={option.value}
+                      name="showcase-audience"
+                      checked={audience === option.value}
+                      onSelect={() => setAudience(option.value)}
+                      label={option.label}
+                      detail={option.detail}
+                    />
+                  ))}
+                </FormCard>
               </div>
-              <form
-                className="flex items-center gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  addTypedTag();
-                }}
-              >
-                <Input
-                  value={tagDraft}
-                  onChange={(e) => setTagDraft(e.target.value)}
-                  placeholder="Add your own tag"
-                  maxLength={MAX_TAG_LENGTH}
-                  disabled={tags.length >= MAX_CRAFT_TAGS}
-                  aria-label="Add your own tag"
-                  className="bg-card"
-                />
-                <Button
-                  type="submit"
-                  size="icon"
-                  aria-label="Add this tag"
-                  disabled={!tagDraft.trim() || tags.length >= MAX_CRAFT_TAGS}
-                >
-                  <Plus className="size-4" />
-                </Button>
-              </form>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Typed by you, never read off the file: what your camera recorded about where
-                you were stays private.
-              </p>
-            </CardContent>
-          </Card>
+            )}
+          </FormSection>
 
-          <AudiencePicker
-            value={audience}
-            onChange={setAudience}
-            // Offered only to a post that already is shown to connections,
-            // so choosing it is never how a new post ends up narrower.
-            offerConnections={existing?.visibility === 'connections'}
-            removed={status === 'removed'}
-          />
-
-          <Card className="gap-0 py-0">
-            <CardContent className="p-0">
-              <label className="flex items-start gap-3 border-b px-4 py-3">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">Comments</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                    You can turn them off later. Nothing said is deleted: it stops being
-                    shown, and comes back if you turn them on again.
-                  </span>
-                </span>
-                <Switch
-                  checked={allowComments}
-                  onCheckedChange={setAllowComments}
-                  aria-label="Allow comments on this showcase"
-                  className="mt-0.5"
-                />
-              </label>
-              <label className="flex items-start gap-3 px-4 py-3">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">Show Hire</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                    A Hire button on this post, for people who want to book you.
-                  </span>
-                </span>
-                <Switch
-                  checked={showHire}
-                  onCheckedChange={setShowHire}
-                  aria-label="Show a Hire button on this showcase"
-                  className="mt-0.5"
-                />
-              </label>
-            </CardContent>
-          </Card>
-
-          {picked.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Choose up to {MAX_SHOWCASE_ITEMS} photos, or one film, to{' '}
-              {editing || isPrivate ? 'save' : 'post'}.
+          <FormSection title="On the post">
+            <FormCard>
+              <FormSwitchRow
+                label="Comments"
+                checked={allowComments}
+                onCheckedChange={setAllowComments}
+              />
+              <FormSwitchRow label="Show Hire" checked={showHire} onCheckedChange={setShowHire} />
+            </FormCard>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              You can turn comments off later. Nothing said is deleted: it stops being shown, and
+              comes back if you turn them on again. The Hire button is for people who want to
+              book you.
             </p>
-          )}
+          </FormSection>
         </aside>
       </div>
     </Screen>
@@ -849,90 +981,17 @@ function describePieces(kinds: ('image' | 'video')[]): string {
   return `The ${kinds.length} pieces`;
 }
 
-const AUDIENCES: { value: Audience; label: string; detail: string; icon: typeof Globe }[] = [
-  {
-    value: 'public',
-    label: 'Public',
-    detail: 'In the feed and on your profile, with a link you can share.',
-    icon: Globe,
-  },
+/**
+ * Who sees a post, as the phone always offers it. Everyone is the feed, the
+ * profile and the link; your connections is their feed alone; only you is
+ * the author alone, which to the API is a post saved and not put out.
+ */
+const AUDIENCES: { value: Audience; label: string; detail: string }[] = [
+  { value: 'public', label: 'Everyone', detail: 'In the feed, on your profile, and by link' },
   {
     value: 'connections',
-    label: 'Connections',
-    detail: 'Only people you are connected to. It has no link to share.',
-    icon: Users,
+    label: 'Your connections',
+    detail: 'Only people you are connected with',
   },
-  {
-    value: 'private',
-    label: 'Private',
-    detail: 'Only you. Saved on your profile, out of the feed, until you make it public.',
-    icon: Lock,
-  },
+  { value: 'private', label: 'Only you', detail: 'Kept private until you change it' },
 ];
-
-/**
- * Who sees it: Public or Private, and Connections for a post that already
- * is. Radios rather than a switch, because the three are not on and off.
- */
-function AudiencePicker({
-  value,
-  onChange,
-  offerConnections,
-  removed,
-}: {
-  value: Audience;
-  onChange: (value: Audience) => void;
-  offerConnections: boolean;
-  /** Taken down by Virgo: only Virgo can put it back, so there is no choice. */
-  removed: boolean;
-}) {
-  const options = AUDIENCES.filter((a) => a.value !== 'connections' || offerConnections);
-  return (
-    <Card className="gap-0 py-0">
-      <CardContent className="p-0">
-        <p id="audience-label" className="px-4 pb-1 pt-3 text-sm font-semibold">
-          Who sees it
-        </p>
-        {removed ? (
-          <p className="px-4 pb-3 text-xs leading-relaxed text-muted-foreground">
-            Virgo took this post down, so only you see it. Your changes are still saved.
-          </p>
-        ) : (
-          <div role="radiogroup" aria-labelledby="audience-label" className="grid pb-1.5">
-            {options.map((option) => {
-              const checked = value === option.value;
-              const Icon = option.icon;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={checked}
-                  onClick={() => onChange(option.value)}
-                  className="flex items-start gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">{option.label}</span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                      {option.detail}
-                    </span>
-                  </span>
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border-2',
-                      checked ? 'border-primary' : 'border-muted-foreground/40',
-                    )}
-                  >
-                    {checked && <span className="size-2 rounded-full bg-primary" />}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}

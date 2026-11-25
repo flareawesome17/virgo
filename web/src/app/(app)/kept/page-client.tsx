@@ -11,7 +11,7 @@ import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { showcaseActionMessage } from '@/components/showcase/action-message';
 import { KeptGrid } from '@/components/showcase/kept-grid';
-import { ShowcaseDialog } from '@/components/showcase/showcase-dialog';
+import { KeptPostDialog } from '@/components/showcase/kept-post-dialog';
 import { ShowcaseHost } from '@/components/showcase/showcase-host';
 import { useAllKept, useShelfActions } from '@/hooks/useShowcases';
 import { queryKeys, shelvesApi, type ShelfEntry } from '@/api';
@@ -20,8 +20,9 @@ import { queryKeys, shelvesApi, type ShelfEntry } from '@/api';
  * Everything you have kept, on any shelf, newest first and once each.
  *
  * Only ever yours: it is the sum of your shelves, private ones included, so
- * nobody else is shown it. A click opens the post over the grid; one that has
- * gone since it was kept says so and offers to take it off.
+ * nobody else is shown it. A click opens the post over the grid, with why you
+ * kept it under it; one that has gone since it was kept says so and offers to
+ * take it off.
  */
 export default function AllKeptPage() {
   const queryClient = useQueryClient();
@@ -101,10 +102,11 @@ export default function AllKeptPage() {
           )}
         </div>
 
-        <ShowcaseDialog
+        <KeptPostDialog
           showcaseId={open?.showcaseId ?? null}
           onClose={() => setOpen(null)}
           note={open?.note}
+          noteLabel="Why you kept it"
           // Only once it has gone: while it is there, its bookmark says
           // which shelves it is on and moves or takes it off them.
           removal={
