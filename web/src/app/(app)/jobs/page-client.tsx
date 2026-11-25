@@ -11,14 +11,12 @@ import {
   Loader2,
   MessageCircle,
   Pencil,
-  Search,
   Star,
   Trash2,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { track } from '@/lib/analytics';
-import { ApplicationBadge } from '@/components/jobs/application-state';
 import { BookingsList } from '@/components/jobs/bookings-list';
 import { BookingCard } from '@/components/jobs/booking-card';
 import { useBookings } from '@/hooks/useBookings';
@@ -32,9 +30,7 @@ import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,8 +43,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   budgetLabel,
-  distanceLabel,
-  headlineApplication,
   isRoleFilled,
   roleBudgetLabel,
   type JobPost,
@@ -57,7 +51,6 @@ import { cn } from '@/lib/utils';
 import {
   useApplicants,
   useDeleteJob,
-  useJobs,
   useMarkJobsSeen,
   useMyApplications,
   useMyJobs,
@@ -67,8 +60,9 @@ import {
   useUnseenJobs,
   useWithdrawApplication,
 } from '@/hooks/useJobs';
-import { useRoles } from '@/hooks/useRoles';
 import { PersonSafetyMenu, usePersonSafety } from '@/components/people/person-safety';
+import { BrowseJobs } from '@/components/jobs/browse-jobs';
+import { PageTabs } from '@/components/kit';
 
 const STATUS_LABEL: Record<JobPost['status'], string> = {
   open: 'Open',
@@ -733,281 +727,6 @@ function Applicants({ job }: { job: JobPost }) {
   );
 }
 
-/**
- * The open board, inside the app shell.
- *
- * Not a link out to virgo.ph/jobs: that is the same list, but it renders in
- * the marketing layout, so clicking "browse" from the app dropped you out of
- * the sidebar and into what looks like a different product. The public page
- * exists for strangers and for search; signed-in people get it here.
- *
- * Cards link to the apply screen rather than the public post, because that is
- * the app's own full view of a job — title, budget, date, the whole brief, and
- * the form — and it does not leave the shell either.
- */
-function BrowseJobs() {
-  const [role, setRole] = useState<string | null>(null);
-  /*
-   * A place to look in, which the phone's board has had and this one did
-   * not: the API filters by location, and the only filter here was the role,
-   * so somebody in Davao read every post in Manila to find the two near them.
-   */
-  const [place, setPlace] = useState('');
-  const [searchedPlace, setSearchedPlace] = useState('');
-  const { roles: allRoles } = useRoles();
-
-  // One request per settled word, not per keystroke.
-  useEffect(() => {
-    const timer = setTimeout(() => setSearchedPlace(place.trim()), 350);
-    return () => clearTimeout(timer);
-  }, [place]);
-
-  const {
-    jobs,
-    total,
-    isLoading,
-    loadFailed,
-    refetch,
-    isRefiltering,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-  } = useJobs({
-    roles: role ? [role] : [],
-    location: searchedPlace || undefined,
-  });
-
-  const filtered = Boolean(place.trim() || role);
-  const clearPlace = () => {
-    setPlace('');
-    setSearchedPlace('');
-  };
-  const clearFilters = () => {
-    clearPlace();
-    setRole(null);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="relative sm:max-w-sm">
-        <Search
-          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          value={place}
-          onChange={(e) => setPlace(e.target.value)}
-          placeholder="Anywhere — try Cebu, Manila, Davao"
-          aria-label="Search by place"
-          className="pr-16 pl-9"
-        />
-        <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
-          {/* In the field, not over the list: the previous results stay on
-              screen while the next ones load, so this is the only thing that
-              should change. */}
-          {isRefiltering && (
-            <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
-          )}
-          {/* There was no way to empty it but to backspace it out. */}
-          {place && (
-            <button
-              type="button"
-              onClick={clearPlace}
-              aria-label="Clear the place"
-              className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground"
-            >
-              <X className="size-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        <button type="button" onClick={() => setRole(null)}>
-          <Badge variant={role ? 'outline' : 'default'} className="cursor-pointer px-3 py-1.5">
-            All roles
-          </Badge>
-        </button>
-        {allRoles.map((r) => (
-          <button key={r} type="button" onClick={() => setRole(role === r ? null : r)}>
-            <Badge
-              variant={role === r ? 'default' : 'outline'}
-              className="cursor-pointer px-3 py-1.5"
-            >
-              {r}
-            </Badge>
-          </button>
-        ))}
-      </div>
-
-      {isLoading && jobs.length === 0 ? (
-        <ListSkeleton rows={3} />
-      ) : loadFailed && jobs.length === 0 ? (
-        // An error is not an empty board. Saying "no open jobs" here would be
-        // a confident claim about the world made from a failed request.
-        <ErrorState message="Could not load the job board." onRetry={() => refetch()} />
-      ) : jobs.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={BriefcaseBusiness}
-            title={
-              searchedPlace
-                ? `Nothing in “${searchedPlace}”`
-                : role
-                  ? `Nothing open for a ${role.toLowerCase()}`
-                  : 'No open jobs right now'
-            }
-            description={
-              filtered
-                ? 'Try a wider search, or post the job you need doing.'
-                : 'Posts expire when the job does, so this list is always current. Check back, or post the job you need doing.'
-            }
-            action={
-              // A filtered board that comes back empty is usually the filter,
-              // and the way out of it should be on the card, not up the page.
-              filtered ? (
-                <div className="flex flex-wrap justify-center gap-2">
-                  <Button onClick={clearFilters}>Clear filters</Button>
-                  <Button asChild variant="outline">
-                    <Link href="/jobs/new">Post a job instead</Link>
-                  </Button>
-                </div>
-              ) : (
-                <Button asChild>
-                  <Link href="/jobs/new">Post a job</Link>
-                </Button>
-              )
-            }
-          />
-        </Card>
-      ) : (
-        <>
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {total} open {total === 1 ? 'job' : 'jobs'}
-            </p>
-            {filtered && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                Clear filters
-              </button>
-            )}
-          </div>
-          <div className="grid gap-3">
-            {jobs.map((job) => (
-              <Link key={job.id} href={`/jobs/${job.slug}`}>
-                <Card className="transition-colors hover:border-primary/40">
-                  <CardContent className="space-y-2.5">
-                    <div className="flex items-start gap-3">
-                      <Avatar className="size-8">
-                        <AvatarImage src={job.postedBy.avatarUrl ?? undefined} alt="" />
-                        <AvatarFallback className="text-[11px]">
-                          {job.postedBy.displayName.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="flex items-center gap-2 text-[15px] font-bold leading-snug">
-                          {job.title}
-                          {job.isMine && (
-                            <Badge variant="outline" className="shrink-0 text-[10px]">
-                              Your post
-                            </Badge>
-                          )}
-                        </p>
-                        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                          <span>
-                            {job.postedBy.displayName}
-                            {job.applicantCount > 0
-                              ? ` · ${job.applicantCount} applied`
-                              : ''}
-                          </span>
-                          {/* What makes a job feel takeable. Only when we
-                              actually know — no filler when we do not. */}
-                          {distanceLabel(job.distanceKm, job.location) && (
-                            <span className="text-primary">
-                              {distanceLabel(job.distanceKm, job.location)}
-                            </span>
-                          )}
-                          {/* So a job you already applied to is obvious from
-                              the list, not two taps away. */}
-                          {/* One badge, showing the furthest any of them got:
-                              accepted for the HMUA slot is what you want to
-                              see even if the videographer one was declined. */}
-                          {headlineApplication(job) && (
-                            <ApplicationBadge
-                              status={headlineApplication(job)!.status}
-                            />
-                          )}
-                        </p>
-                      </div>
-                    </div>
-
-                    <p className="line-clamp-2 whitespace-pre-line text-sm text-muted-foreground">
-                      {job.description}
-                    </p>
-
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                      {/* A filled role reads as struck through rather than
-                          disappearing: a post that wanted three people and
-                          has two left is a different thing from a post that
-                          only ever wanted one, and the card should not make
-                          those look identical. */}
-                      {job.rolesWanted.map((r) => {
-                        const filled = isRoleFilled(job, r);
-                        return (
-                          <Badge
-                            key={r}
-                            variant="secondary"
-                            className={cn(
-                              'text-[11px]',
-                              filled && 'opacity-50 line-through decoration-1',
-                            )}
-                          >
-                            {r}
-                          </Badge>
-                        );
-                      })}
-                      {job.location && (
-                        <span className="text-xs text-muted-foreground">{job.location}</span>
-                      )}
-                      {budgetLabel(job.budgetMin, job.budgetMax) && (
-                        <span className="text-xs font-semibold">
-                          {budgetLabel(job.budgetMin, job.budgetMax)}
-                        </span>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-          {/* The board comes a page at a time, and the header counted every
-              post while only the first thirty could be reached — the
-              farthest away, since it is nearest first. Not while a new
-              filter is loading: the old one's next page is not this one's. */}
-          {hasNextPage && !isRefiltering && (
-            <Button
-              variant="secondary"
-              className="w-full"
-              disabled={isFetchingNextPage}
-              onClick={() => void fetchNextPage()}
-            >
-              {isFetchingNextPage ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                `Show more (${jobs.length} of ${total})`
-              )}
-            </Button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
 /** What the caller has applied to. */
 function MyApplications({ onBrowse }: { onBrowse: () => void }) {
   const { bookings } = useBookings();
@@ -1235,62 +954,84 @@ function MyJobs() {
         // Posting is the bar's Create, as on the phone.
       />
 
-      {/*
-        Browse first, deliberately.
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 pb-12 pt-2 sm:px-6">
+        {/*
+          Browse first, deliberately.
 
-        This screen is what the Jobs nav item opens, and it used to land on
-        "Posted" — which for anyone who has never posted is an empty card and
-        nothing to do. The board always has something in it, so it is the
-        honest default and it matches where the phone's Jobs entry goes.
-      */}
-      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
-        <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="browse">Browse</TabsTrigger>
-          <TabsTrigger value="posted">Posted ({jobs.length})</TabsTrigger>
-          <TabsTrigger value="applied" aria-label="Your applications">Applied</TabsTrigger>
-          <TabsTrigger value="bookings">Bookings</TabsTrigger>
-        </TabsList>
+          This screen is what the Jobs nav item opens, and it used to land on
+          "Posted" — which for anyone who has never posted is an empty card and
+          nothing to do. The board always has something in it, so it is the
+          honest default and it matches where the phone's Jobs entry goes.
+        */}
+        <PageTabs<JobsTab>
+          label="Jobs pages"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { key: 'browse', label: 'Browse' },
+            { key: 'posted', label: 'Posted', count: jobs.length },
+            {
+              key: 'applied',
+              // Read out as "Your applications", as this tab always was.
+              label: (
+                <>
+                  <span aria-hidden>Applied</span>
+                  <span className="sr-only">Your applications</span>
+                </>
+              ),
+            },
+            { key: 'bookings', label: 'Bookings' },
+          ]}
+        />
 
-        <TabsContent value="browse" className="mt-4">
-          <BrowseJobs />
-        </TabsContent>
+        {tab === 'browse' && (
+          <div role="tabpanel" aria-label="Browse">
+            <BrowseJobs />
+          </div>
+        )}
 
-        <TabsContent value="posted" className="mt-4">
-          {isLoading && jobs.length === 0 ? (
-            <ListSkeleton rows={2} />
-          ) : loadFailed && jobs.length === 0 ? (
-            <ErrorState message="Could not load your posts." onRetry={() => refetch()} />
-          ) : jobs.length === 0 ? (
-            <Card>
-              <EmptyState
-                icon={BriefcaseBusiness}
-                title="You have not posted a job yet"
-                description="Say what you need doing, when, and roughly what you are paying. It goes on the public board and the people who do that work can find it."
-                action={
-                  <Button asChild>
-                    <Link href="/jobs/new">Post a job</Link>
-                  </Button>
-                }
-              />
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {jobs.map((job) => (
-                <JobRow key={job.id} job={job} focused={job.id === focusPostId} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
+        {/* The three below are lists of rows, which read badly stretched to
+            the width the board's grid fills. */}
+        {tab === 'posted' && (
+          <div role="tabpanel" aria-label="Posted" className="w-full max-w-4xl">
+            {isLoading && jobs.length === 0 ? (
+              <ListSkeleton rows={2} />
+            ) : loadFailed && jobs.length === 0 ? (
+              <ErrorState message="Could not load your posts." onRetry={() => refetch()} />
+            ) : jobs.length === 0 ? (
+              <Card>
+                <EmptyState
+                  icon={BriefcaseBusiness}
+                  title="You have not posted a job yet"
+                  description="Say what you need doing, when, and roughly what you are paying. It goes on the public board and the people who do that work can find it."
+                  action={
+                    <Button asChild>
+                      <Link href="/jobs/new">Post a job</Link>
+                    </Button>
+                  }
+                />
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {jobs.map((job) => (
+                  <JobRow key={job.id} job={job} focused={job.id === focusPostId} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
-        <TabsContent value="applied" className="mt-4">
-          <MyApplications onBrowse={() => setTab('browse')} />
-        </TabsContent>
+        {tab === 'applied' && (
+          <div role="tabpanel" aria-label="Your applications" className="w-full max-w-4xl">
+            <MyApplications onBrowse={() => setTab('browse')} />
+          </div>
+        )}
 
-        <TabsContent value="bookings" className="mt-4">
-          <BookingsList />
-        </TabsContent>
-        </Tabs>
+        {tab === 'bookings' && (
+          <div role="tabpanel" aria-label="Bookings" className="w-full max-w-4xl">
+            <BookingsList />
+          </div>
+        )}
       </div>
     </Screen>
   );

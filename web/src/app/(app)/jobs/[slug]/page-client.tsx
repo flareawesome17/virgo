@@ -5,22 +5,17 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
-  Banknote,
   BriefcaseBusiness,
-  CalendarDays,
+  ChevronRight,
   Ellipsis,
   Flag,
   MapPin,
-  Send,
-  Share2,
-  Users,
+  Share,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Screen } from '@/components/app-shell';
+import { PageHeader, Screen } from '@/components/app-shell';
 import { CenteredSpinner, EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -30,43 +25,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { CARD, DateTile, SectionTitle } from '@/components/kit';
 import {
   applicationFor,
   budgetLabel,
   isRoleFilled,
   openRolesOf,
   roleBudgetLabel,
-  rolesLeftFor,
   type ReportReason,
 } from '@/api';
+import { IS_DESKTOP } from '@/lib/desktop';
 import { cn } from '@/lib/utils';
 import { useJob, useMyApplications, useReportJob } from '@/hooks/useJobs';
 import { PersonSafetyItems, usePersonSafety } from '@/components/people/person-safety';
-import {
-  ApplicationBadge,
-  ApplicationState,
-} from '@/components/jobs/application-state';
+import { ApplicationBadge } from '@/components/jobs/application-state';
+import { ApplyCard } from '@/components/jobs/apply-card';
 import { copyJobLink } from '@/components/jobs/copy-job-link';
 import { CrewChatCard } from '@/components/jobs/crew-chat-card';
-
-/** "Photographer and HMUA", "a, b and c" — a list a sentence can contain. */
-function listOf(items: readonly string[]): string {
-  if (items.length <= 1) return items[0] ?? '';
-  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
-}
-
-/** "Sat 19 Dec". */
-function jobDate(value: string): string {
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  const thisYear = date.getFullYear() === new Date().getFullYear();
-  return date.toLocaleDateString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    ...(thisYear ? {} : { year: 'numeric' }),
-  });
-}
+import { jobDay, jobDistance, jobWeekday, postedAgo } from '@/components/jobs/job-format';
 
 const REPORT_REASONS: { value: ReportReason; label: string }[] = [
   { value: 'spam', label: 'Spam' },
@@ -74,6 +50,9 @@ const REPORT_REASONS: { value: ReportReason; label: string }[] = [
   { value: 'offensive', label: 'Offensive' },
   { value: 'not-a-job', label: 'Not a real job' },
 ];
+
+/** One row of a card: the place, a role. */
+const ROW = 'flex min-h-[52px] items-center gap-3 px-4';
 
 /**
  * A job post, inside the app.
@@ -83,6 +62,10 @@ const REPORT_REASONS: { value: ReportReason; label: string }[] = [
  * address is both the link you share with a stranger and the screen a
  * signed-in reader gets natively — rather than the app throwing its own users
  * onto a marketing page in a new tab.
+ *
+ * Two columns: the post on the left, read in the order a decision is made
+ * (when and what it pays, where, who they need, the brief), and applying on
+ * the right, where it stays in sight. Applying was a second page.
  */
 export default function JobPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -129,8 +112,10 @@ export default function JobPage() {
   const post = job.data;
   const budget = budgetLabel(post.budgetMin, post.budgetMax);
   const isOpen = post.status === 'open';
-  const rolesLeft = rolesLeftFor(post);
   const openRoles = openRolesOf(post);
+  const when = post.eventDate ? jobDay(post.eventDate) : null;
+  const weekday = post.eventDate ? jobWeekday(post.eventDate) : null;
+  const distance = jobDistance(post);
 
   const share = () => copyJobLink(post.slug);
 
@@ -148,117 +133,158 @@ export default function JobPage() {
   };
 
   return (
-    <Screen title={job.data.title}>
-      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-2 mb-4 text-muted-foreground"
-          onClick={() => router.back()}
-        >
-          <ArrowLeft className="size-4" />
-          Back
-        </Button>
-
-        {!isOpen && (
-          <div className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-4 py-3 text-sm text-amber-600 dark:text-amber-200/90">
-            {post.status === 'filled'
-              ? 'This job has been filled.'
-              : post.status === 'expired'
-                ? 'This job has ended.'
-                : 'This post is closed.'}{' '}
-            <Link href="/jobs" className="font-semibold underline">
-              See what else is open
+    <Screen title={post.title}>
+      {/* Where the post sits, in the shell's bar. On a phone-sized window
+          there is room for its title alone, and an arrow back. */}
+      <PageHeader
+        title={
+          <span className="flex min-w-0 items-center gap-2">
+            {/* The desktop title bar already has back and forward. */}
+            {!IS_DESKTOP && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="-ml-2 shrink-0 sm:hidden"
+                aria-label="Back"
+                onClick={() => {
+                  if (window.history.length > 1) router.back();
+                  else router.push('/jobs');
+                }}
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
+            )}
+            <Link
+              href="/jobs"
+              className="hidden shrink-0 font-medium text-muted-foreground hover:text-foreground sm:inline"
+            >
+              Jobs
             </Link>
-          </div>
-        )}
+            <ChevronRight className="hidden size-3.5 shrink-0 text-muted-foreground/70 sm:block" aria-hidden />
+            <span className="truncate">{post.title}</span>
+          </span>
+        }
+      />
 
-        <Card>
-          <CardContent className="space-y-6">
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <h1 className="text-xl font-extrabold leading-tight tracking-tight">
-                  {post.title}
-                </h1>
+      <div className="mx-auto w-full max-w-[1200px] px-4 pb-12 pt-6 sm:px-6">
+        <div className="flex flex-wrap items-start gap-8">
+          {/* Capped, so the post does not stretch across the page when there is
+              no card beside it: a post that has ended, for somebody who never
+              applied. */}
+          <div className="flex min-w-0 max-w-[832px] flex-[2_1_480px] flex-col gap-6">
+            {!isOpen && (
+              <div className="rounded-[14px] border border-warning/25 bg-warning/10 px-4 py-3 text-sm text-warning">
+                {post.status === 'filled'
+                  ? 'This job has been filled.'
+                  : post.status === 'expired'
+                    ? 'This job has ended.'
+                    : 'This post is closed.'}{' '}
+                <Link href="/jobs" className="font-semibold underline">
+                  See what else is open
+                </Link>
               </div>
-              <div className="flex shrink-0 gap-1">
-                <Button variant="ghost" size="icon" onClick={share} aria-label="Copy link">
-                  <Share2 className="size-4" />
-                </Button>
-                {/* The post and the person behind it are reported apart: what is
-                    wrong with one post is not always wrong with its poster. */}
-                {!post.isMine && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" aria-label="More for this post">
-                        <Ellipsis className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-52">
-                      <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Flag className="size-3.5" />
-                        {reported ? 'Post reported' : 'Report this post'}
-                      </DropdownMenuLabel>
-                      {REPORT_REASONS.map((r) => (
-                        <DropdownMenuItem
-                          key={r.value}
-                          disabled={reported || report.isPending}
-                          onSelect={() => flag(r.value)}
-                        >
-                          {r.label}
-                        </DropdownMenuItem>
-                      ))}
-                      <DropdownMenuSeparator />
-                      <PersonSafetyItems
-                        safety={safety}
-                        subject={{ name: post.postedBy.displayName, target: { jobPostId: post.id } }}
-                      />
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </div>
+            )}
 
-            <div className="flex items-center gap-3">
-              <Avatar className="size-10">
-                <AvatarImage src={post.postedBy.avatarUrl ?? undefined} alt="" />
-                <AvatarFallback className="text-xs">
-                  {post.postedBy.displayName.slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-2">
+                <h1 className="text-2xl font-bold leading-[30px] tracking-[-0.025em]">{post.title}</h1>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <Avatar className="size-6">
+                    <AvatarImage src={post.postedBy.avatarUrl ?? undefined} alt="" />
+                    <AvatarFallback className="text-[9px] font-bold">
+                      {post.postedBy.displayName.slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
                   {/* Their profile, natively, not the marketing page. */}
                   {post.postedBy.handle ? (
-                    <Link
-                      href={`/u/${post.postedBy.handle}`}
-                      className="hover:underline"
-                    >
+                    <Link href={`/u/${post.postedBy.handle}`} className="font-semibold hover:underline">
                       {post.postedBy.displayName}
                     </Link>
                   ) : (
-                    post.postedBy.displayName
+                    <span className="font-semibold">{post.postedBy.displayName}</span>
                   )}
-                </p>
-                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Users className="size-3" />
-                  {post.applicantCount === 0
-                    ? 'No applications yet'
-                    : `${post.applicantCount} applied`}
-                </p>
+                  <span className="text-muted-foreground">
+                    · Posted {postedAgo(post.createdAt)} ·{' '}
+                    {post.applicantCount === 0 ? 'No applications yet' : `${post.applicantCount} applied`}
+                  </span>
+                </div>
               </div>
+              <Button
+                variant="secondary"
+                className="h-9 rounded-[10px] pl-2.5 pr-3.5 font-semibold"
+                onClick={share}
+              >
+                <Share />
+                Share
+              </Button>
+              {/* The post and the person behind it are reported apart: what is
+                  wrong with one post is not always wrong with its poster. */}
+              {!post.isMine && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="size-9 rounded-[10px]"
+                      aria-label="More for this post"
+                    >
+                      <Ellipsis className="size-[18px]" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-52">
+                    <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Flag className="size-3.5" />
+                      {reported ? 'Post reported' : 'Report this post'}
+                    </DropdownMenuLabel>
+                    {REPORT_REASONS.map((r) => (
+                      <DropdownMenuItem
+                        key={r.value}
+                        disabled={reported || report.isPending}
+                        onSelect={() => flag(r.value)}
+                      >
+                        {r.label}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <PersonSafetyItems
+                      safety={safety}
+                      subject={{ name: post.postedBy.displayName, target: { jobPostId: post.id } }}
+                    />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
 
-            <div className="grid gap-3 rounded-xl bg-muted/40 p-4 sm:grid-cols-3">
-              <Detail icon={CalendarDays} label="Date">
-                {post.eventDate ? jobDate(post.eventDate) : 'Flexible'}
-              </Detail>
-              <Detail icon={MapPin} label="Where">
-                {post.location ?? 'Not specified'}
-              </Detail>
-              <Detail icon={Banknote} label="Budget">
-                {budget ?? 'Open to offers'}
-              </Detail>
+            {/* When, what it pays, where: the three things a decision needs,
+                in the order they are weighed. */}
+            <div className={cn(CARD, 'flex flex-col overflow-hidden')}>
+              <div className="flex items-center gap-4 p-4">
+                {when && <DateTile size="lg" top={when.month} day={when.day} />}
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span
+                    className={cn(
+                      'text-[22px] font-bold leading-7 tracking-[-0.02em] tabular-nums',
+                      !budget && 'text-muted-foreground',
+                    )}
+                  >
+                    <span className="sr-only">Budget: </span>
+                    {budget ?? 'Open to offers'}
+                  </span>
+                  <span className="text-sm text-secondary-foreground">
+                    <span className="sr-only">Date: </span>
+                    {weekday ?? 'Flexible date'}
+                  </span>
+                </div>
+              </div>
+              <div className={cn(ROW, 'border-t border-border/40 py-2')}>
+                <MapPin aria-hidden className="size-[18px] shrink-0 text-secondary-foreground" />
+                <span className="min-w-0 flex-1 text-sm font-semibold">
+                  <span className="sr-only">Where: </span>
+                  {post.location ?? 'Place not specified'}
+                </span>
+                {distance && <span className="shrink-0 text-[13px] text-muted-foreground">{distance}</span>}
+              </div>
             </div>
 
             {/*
@@ -267,130 +293,67 @@ export default function JobPage() {
               "₱2,000 – ₱15,000" on a post that also wants a videographer
               learns nothing about what *they* would be paid.
             */}
-            <div className="space-y-1.5">
-              {post.rolesWanted.map((role) => {
-                const rate = roleBudgetLabel(post.roleBudgets, role);
-                // Three things a post with several roles has to answer before
-                // anyone can decide anything: what each pays, which are gone,
-                // and which of them you have already taken a shot at.
-                const mine = applicationFor(post, role);
-                const filled = isRoleFilled(post, role);
-                return (
-                  <div
-                    key={role}
-                    className={cn(
-                      'flex items-center justify-between gap-3 rounded-lg border px-3 py-2',
-                      filled && 'opacity-60',
-                    )}
-                  >
-                    <span className="flex items-center gap-2 text-sm font-medium">
-                      {role}
-                      {filled && (
-                        <Badge variant="secondary" className="text-[11px] font-normal">
-                          Filled
-                        </Badge>
-                      )}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-                      {mine && <ApplicationBadge status={mine.status} />}
-                      {rate ?? 'Rate not stated'}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* The headline, when there is nothing left. Said once, above the
-                per-role rows, because "every one of these is gone" is not a
-                thing anybody should have to work out by reading five badges. */}
-            {post.rolesWanted.length > 0 && openRoles.length === 0 && (
-              <p className="rounded-lg bg-muted/60 px-3 py-2.5 text-sm">
-                All roles on this job are now closed.
-              </p>
+            {post.rolesWanted.length > 0 && (
+              <section>
+                <SectionTitle>Who they need</SectionTitle>
+                <div className={cn(CARD, 'flex flex-col overflow-hidden')}>
+                  {post.rolesWanted.map((role, i) => {
+                    const rate = roleBudgetLabel(post.roleBudgets, role);
+                    // Three things a post with several roles has to answer
+                    // before anyone can decide anything: what each pays,
+                    // which are gone, and which of them you have already
+                    // taken a shot at.
+                    const mine = applicationFor(post, role);
+                    const filled = isRoleFilled(post, role);
+                    return (
+                      <div key={role} className={cn(ROW, i > 0 && 'border-t border-border/40')}>
+                        <span
+                          className={cn(
+                            'min-w-0 flex-1 truncate text-sm font-semibold',
+                            filled && 'text-muted-foreground line-through',
+                          )}
+                        >
+                          {role}
+                        </span>
+                        {mine && <ApplicationBadge status={mine.status} />}
+                        <span
+                          className={cn(
+                            'shrink-0 text-sm tabular-nums',
+                            filled || !rate ? 'font-medium text-muted-foreground' : 'font-semibold',
+                          )}
+                        >
+                          {filled ? 'Filled' : (rate ?? 'Rate not stated')}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Said once, under the rows, because "every one of these is
+                    gone" is not a thing anybody should have to work out by
+                    reading five rows. */}
+                {openRoles.length === 0 && (
+                  <p className="mx-1 mt-2 text-[13px] leading-[18px] text-muted-foreground">
+                    All roles on this job are now closed.
+                  </p>
+                )}
+              </section>
             )}
 
-            <div>
-              <h2 className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                The job
-              </h2>
-              <p className="mt-2 whitespace-pre-line text-[15px] leading-relaxed">
+            <section>
+              <SectionTitle>About the job</SectionTitle>
+              <p className="max-w-[64ch] whitespace-pre-line text-[15px] leading-6 text-secondary-foreground">
                 {post.description}
               </p>
-            </div>
+            </section>
 
             {/* One group for the poster and everyone hired (board 137). */}
             <CrewChatCard post={post} />
+          </div>
 
-            {/* Your own post offers management, not an application — the API
-                refuses a self-apply, so offering it would only let somebody
-                write out a whole application to be told no. */}
-            {post.isMine ? (
-              <div className="flex items-center justify-between gap-4 border-t pt-5">
-                <p className="text-xs text-muted-foreground">
-                  This is your post. Applications arrive under Jobs › Posted.
-                </p>
-                {/* To this post's row with its applicants open, not the top
-                    of the board with every post shut. */}
-                <Button asChild variant="outline">
-                  <Link href={`/jobs?tab=posted&post=${post.id}`}>
-                    <Users className="size-4" />
-                    Manage post
-                  </Link>
-                </Button>
-              </div>
-            ) : (
-              <>
-                {/* What happened to the ones you already made. */}
-                {post.myApplications.length > 0 && (
-                  <ApplicationState post={post} conversationId={conversationId} />
-                )}
-
-                {/*
-                  Apply is still offered while any role is left, which is the
-                  change: applying as HMUA used to close the videographer slot
-                  on the same post for good.
-                */}
-                {isOpen && rolesLeft.length > 0 && (
-                  <div className="flex items-center justify-between gap-4 border-t pt-5">
-                    <p className="text-xs text-muted-foreground">
-                      {post.myApplications.length > 0
-                        ? `You can still apply for ${listOf(rolesLeft)}.`
-                        : 'They see your profile and roles alongside your application.'}
-                    </p>
-                    <Button asChild>
-                      <Link href={`/jobs/${post.slug}/apply`}>
-                        <Send className="size-4" />
-                        {post.myApplications.length > 0 ? 'Apply for another' : 'Apply'}
-                      </Link>
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
+          <ApplyCard post={post} conversationId={conversationId} />
+        </div>
       </div>
       {safety.dialogs}
     </Screen>
-  );
-}
-
-function Detail({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-        <Icon className="size-3.5" />
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-semibold">{children}</p>
-    </div>
   );
 }
