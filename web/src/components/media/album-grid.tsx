@@ -2,9 +2,9 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useMemo, type DragEvent, type MouseEvent } from 'react';
-import { Check, FileText, Heart, Music, Play } from 'lucide-react';
+import { Check, FileText, Heart, Music, Play, Video } from 'lucide-react';
 import { kindOf, THUMBNAIL_EDGE, type StoredFile } from '@/api';
-import { daySpan, groupByDay } from '@/lib/media-days';
+import { groupByDay, timeOfDay } from '@/lib/media-days';
 import { cn } from '@/lib/utils';
 import type { useSelection } from '@/hooks/useMediaSelection';
 import { VideoThumbnail } from './video-thumbnail';
@@ -12,11 +12,31 @@ import { VideoThumbnail } from './video-thumbnail';
 /** The type a drag of album files carries, so a section can tell it from a drop of new files. */
 export const ALBUM_FILES_DRAG = 'application/x-virgo-files';
 
-export type Density = 'comfortable' | 'compact';
+/**
+ * How large the tiles are. `dense` is the desktop app's: smaller tiles, and
+ * with them a grid worked by pointer, where every tile shows its circle and
+ * a plain click always opens.
+ */
+export type Density = 'comfortable' | 'compact' | 'dense';
 
-const TILE: Record<Density, string> = {
-  comfortable: 'grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-2',
-  compact: 'grid-cols-[repeat(auto-fill,minmax(6.75rem,1fr))] gap-1',
+/** What the grid has been narrowed to. Films get their own layout. */
+export type GridKind = 'all' | 'image' | 'video' | 'audio';
+
+/**
+ * The square grid's columns at each tile size, two pixels apart as on the
+ * phone. Exported so the files still uploading line up on the same columns.
+ */
+export const TILE_GRID: Record<Density, string> = {
+  comfortable: 'grid-cols-2 gap-0.5 sm:grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))]',
+  compact: 'grid-cols-3 gap-0.5 sm:grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))]',
+  dense: 'grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-0.5',
+};
+
+/** Films are 16:9 with their name under them: three or four across, two when the tiles are larger. */
+const FILM_GRID: Record<Density, string> = {
+  comfortable: 'grid-cols-[repeat(auto-fill,minmax(min(360px,100%),1fr))] gap-x-4 gap-y-5',
+  compact: 'grid-cols-[repeat(auto-fill,minmax(min(260px,100%),1fr))] gap-x-4 gap-y-5',
+  dense: 'grid-cols-[repeat(auto-fill,minmax(min(220px,100%),1fr))] gap-x-3 gap-y-4',
 };
 
 /**
@@ -28,7 +48,8 @@ const TILE: Record<Density, string> = {
  */
 const TILE_SIZES: Record<Density, string> = {
   comfortable: 'auto, 14rem',
-  compact: 'auto, 9rem',
+  compact: 'auto, 10rem',
+  dense: 'auto, 8rem',
 };
 
 /**
@@ -64,12 +85,113 @@ function clock(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * "Sat, 21 Dec": the day short enough to sit on one line with its count.
+ * Spelled out here rather than left to the browser's locale data, which puts
+ * the comma in for some and leaves it out for others. "Today" and "Yesterday"
+ * are kept as the shared grouping gives them.
+ */
+function shortDay(key: string, title: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!match || title === 'Today' || title === 'Yesterday') return title;
+  const [year, month, day] = match.slice(1).map(Number);
+  const short = `${WEEKDAYS[new Date(year, month - 1, day).getDay()]}, ${day} ${MONTHS[month - 1]}`;
+  return year === new Date().getFullYear() ? short : `${short} ${year}`;
+}
+
+/** "4:45 PM" from a wall clock's "16:45"; the AM or PM left off when the time after it says it. */
+function twelveHour(time: string, meridiem = true): string {
+  const [hh, mm] = time.split(':').map(Number);
+  const text = `${hh % 12 === 0 ? 12 : hh % 12}:${String(mm).padStart(2, '0')}`;
+  return meridiem ? `${text} ${hh < 12 ? 'AM' : 'PM'}` : text;
+}
+
+/**
+ * "2:10 to 4:45 PM": what a day's frames span, off the camera's own clock.
+ * Null when fewer than two carry a time, since a span of one time is a time.
+ */
+function spanOf(files: readonly StoredFile[]): string | null {
+  const times = files
+    .map(timeOfDay)
+    .filter((time): time is string => time !== null)
+    .sort();
+  const first = times[0];
+  const last = times[times.length - 1];
+  if (times.length < 2 || first === last) return null;
+  const sameHalf = Number(first.slice(0, 2)) < 12 === Number(last.slice(0, 2)) < 12;
+  return `${twelveHour(first, !sameHalf)} to ${twelveHour(last)}`;
+}
+
+/** "21 Dec, 8:40 PM": when a film was shot, or when it arrived if the camera wrote no time. */
+function shotAt(file: StoredFile): string {
+  const taken = file.takenAt ? /^\d{4}-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(file.takenAt) : null;
+  if (taken) return `${Number(taken[2])} ${MONTHS[Number(taken[1]) - 1]}, ${twelveHour(taken[3])}`;
+  const arrived = new Date(file.createdAt);
+  if (Number.isNaN(arrived.getTime())) return '';
+  return `${arrived.getDate()} ${MONTHS[arrived.getMonth()]}, ${twelveHour(`${arrived.getHours()}:${arrived.getMinutes()}`)}`;
+}
+
+/**
+ * When a set of files was taken, for the desktop app's inspector: "21 Dec,
+ * 2:14 PM" for one time, "21 Dec, 2:14 to 3:36 PM" for a run within a day,
+ * "20 Dec to 21 Dec" across days, with the years when they are not the same
+ * one. Off the camera's own clock, read as written; null when none of them
+ * carries one.
+ */
+export function takenSpan(files: readonly StoredFile[]): string | null {
+  // The earliest and the latest, compared as text: written this way, the
+  // order of the characters is the order of the times.
+  let first: RegExpExecArray | null = null;
+  let last: RegExpExecArray | null = null;
+  for (const file of files) {
+    const stamp = file.takenAt ? /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2}))?/.exec(file.takenAt) : null;
+    if (!stamp) continue;
+    if (!first || stamp[0] < first[0]) first = stamp;
+    if (!last || stamp[0] > last[0]) last = stamp;
+  }
+  if (!first || !last) return null;
+  const years = first[1] !== last[1];
+  const day = (stamp: RegExpExecArray) =>
+    `${Number(stamp[3])} ${MONTHS[Number(stamp[2]) - 1]}${years ? ` ${stamp[1]}` : ''}`;
+  if (first[0].slice(0, 10) !== last[0].slice(0, 10)) return `${day(first)} to ${day(last)}`;
+  const from: string | undefined = first[4];
+  const to: string | undefined = last[4];
+  if (!from || !to) return day(first);
+  if (from === to) return `${day(first)}, ${twelveHour(from)}`;
+  const sameHalf = Number(from.slice(0, 2)) < 12 === Number(to.slice(0, 2)) < 12;
+  return `${day(first)}, ${twelveHour(from, !sameHalf)} to ${twelveHour(to)}`;
+}
+
+/** "64 items", or "4 films" when the grid is showing only those. */
+function countOf(n: number, kind: GridKind): string {
+  const [one, many] = kind === 'video' ? ['film', 'films'] : kind === 'image' ? ['photo', 'photos'] : ['item', 'items'];
+  return `${n.toLocaleString()} ${n === 1 ? one : many}`;
+}
+
+interface TileProps {
+  file: StoredFile;
+  index: number;
+  chosen: boolean;
+  selecting: boolean;
+  selectable: boolean;
+  /** The desktop app's tile: its circle always drawn, its marks a size down. */
+  dense: boolean;
+  draggable: boolean;
+  onClick: (event: MouseEvent, file: StoredFile) => void;
+  onToggle: () => void;
+  onDragStart: (event: DragEvent, file: StoredFile) => void;
+}
+
 /**
  * An album's media, under the day each thing was taken.
  *
  * Replaces a masonry wall with no dates on it, while the phone app showed the
  * same album in days: the two clients now agree, and both group by capture
- * time rather than by the evening it was uploaded.
+ * time rather than by the evening it was uploaded. Narrowed to films, the
+ * tiles are 16:9 with each film's name and time under it, as on the phone.
  *
  * Selecting works the way a desktop file browser does — the tick in a tile's
  * corner, ⌘ or Ctrl-click to add one, Shift-click to take a run — and a
@@ -80,15 +202,18 @@ export function AlbumGrid({
   selection,
   selecting,
   density,
+  kind = 'all',
   canDrag,
   canSelect = true,
   onOpen,
 }: {
   files: StoredFile[];
   selection: ReturnType<typeof useSelection>;
-  /** Selection mode: a plain click chooses rather than opens. */
+  /** Selection mode: a plain click chooses rather than opens. Not when the tiles are `dense`. */
   selecting: boolean;
   density: Density;
+  /** What the list was narrowed to, for the count's word and the films' layout. */
+  kind?: GridKind;
   /** Only someone who can organise the album may drag files onto sections. */
   canDrag: boolean;
   /**
@@ -100,6 +225,10 @@ export function AlbumGrid({
 }) {
   const days = useMemo(() => groupByDay(files), [files]);
   const order = useMemo(() => files.map((file) => file.key), [files]);
+  const films = kind === 'video';
+  // The desktop app has no Select button to turn choosing on and off: the
+  // circle chooses, and a plain click on the tile opens it whatever is chosen.
+  const dense = density === 'dense';
 
   const click = (event: MouseEvent, file: StoredFile) => {
     if (!canSelect) {
@@ -107,7 +236,7 @@ export function AlbumGrid({
     } else if (event.shiftKey) {
       event.preventDefault();
       selection.extendTo(file.key, order);
-    } else if (event.metaKey || event.ctrlKey || selecting) {
+    } else if (event.metaKey || event.ctrlKey || (selecting && !dense)) {
       event.preventDefault();
       selection.toggle(file.key);
     } else {
@@ -124,20 +253,26 @@ export function AlbumGrid({
   };
 
   return (
-    <div className="space-y-8">
+    <div className={dense ? 'space-y-1.5' : 'space-y-4'}>
       {days.map((day) => {
         const keys = day.items.map((file) => file.key);
         const allChosen = keys.every((key) => selection.has(key));
-        const span = daySpan(day.items);
+        // A film says when it was shot under its own tile.
+        const span = films ? null : spanOf(day.items);
         const headingId = `day-${day.key}`;
         return (
           <section key={`${day.key}-${day.start}`} aria-labelledby={headingId}>
-            <header className="group/day mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 id={headingId} className="text-base font-semibold tracking-tight">
-                {day.title}
+            <header className={cn('group/day flex items-baseline gap-2', dense ? 'pt-1.5 pb-2' : 'pt-1 pb-3')}>
+              <h2 id={headingId} className={cn('shrink-0 font-bold', dense ? 'text-[13px]' : 'text-[15px]', 'leading-5')}>
+                {shortDay(day.key, day.title)}
               </h2>
-              <p className="text-xs tabular-nums text-muted-foreground">
-                {day.items.length.toLocaleString()} item{day.items.length === 1 ? '' : 's'}
+              <p
+                className={cn(
+                  'min-w-0 flex-1 truncate tabular-nums text-muted-foreground',
+                  dense ? 'text-xs' : 'text-[13px]',
+                )}
+              >
+                {countOf(day.items.length, kind)}
                 {span ? ` · ${span}` : ''}
               </p>
               {canSelect && (
@@ -145,8 +280,8 @@ export function AlbumGrid({
                   type="button"
                   onClick={() => selection.setMany(keys, !allChosen)}
                   className={cn(
-                    'rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100',
-                    selecting ? 'opacity-100' : 'opacity-0 group-hover/day:opacity-100',
+                    'shrink-0 rounded-md text-xs font-semibold text-secondary-foreground transition-opacity hover:text-foreground focus-visible:opacity-100',
+                    selecting || dense ? 'opacity-100' : 'opacity-0 group-hover/day:opacity-100',
                   )}
                 >
                   {allChosen ? 'Clear day' : 'Select day'}
@@ -154,27 +289,114 @@ export function AlbumGrid({
               )}
             </header>
 
-            <ul className={cn('grid', TILE[density])}>
-              {day.items.map((file, offset) => (
-                <Tile
-                  key={file.key}
-                  file={file}
-                  sizes={TILE_SIZES[density]}
-                  index={day.start + offset}
-                  chosen={selection.has(file.key)}
-                  selecting={selecting}
-                  selectable={canSelect}
-                  draggable={canDrag}
-                  onClick={click}
-                  onToggle={() => selection.toggle(file.key)}
-                  onDragStart={drag}
-                />
-              ))}
+            <ul className={cn('grid', films ? FILM_GRID[density] : TILE_GRID[density])}>
+              {day.items.map((file, offset) => {
+                const props: TileProps = {
+                  file,
+                  index: day.start + offset,
+                  chosen: selection.has(file.key),
+                  selecting,
+                  selectable: canSelect,
+                  dense,
+                  draggable: canDrag,
+                  onClick: click,
+                  onToggle: () => selection.toggle(file.key),
+                  onDragStart: drag,
+                };
+                return films ? (
+                  <FilmTile key={file.key} {...props} />
+                ) : (
+                  <Tile key={file.key} {...props} sizes={TILE_SIZES[density]} />
+                );
+              })}
             </ul>
           </section>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * The length of a film, at the foot of its tile. On the desktop app's small
+ * tile the time alone says it is a film; the glyph is kept for one whose
+ * length is not known, which would otherwise pass for a photograph.
+ */
+function Length({ ms, dense = false }: { ms: number | null | undefined; dense?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'absolute flex items-center gap-1 bg-black/70 font-semibold tabular-nums text-white',
+        dense
+          ? 'right-1 bottom-1 rounded-[5px] px-[5px] py-px text-[10px]'
+          : 'right-1.5 bottom-1.5 rounded-md px-1.5 py-0.5 text-[11px]',
+      )}
+    >
+      {(!dense || !ms) && <Play className="size-2.5 fill-current" aria-hidden />}
+      {ms ? clock(ms) : null}
+    </span>
+  );
+}
+
+/**
+ * The client's pick. Top right, across from the tick: on the web the tick
+ * comes up under the pointer, and the two cannot share a corner.
+ */
+function Picked({ dense = false }: { dense?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'absolute grid place-items-center rounded-full bg-action text-action-foreground',
+        dense ? 'top-[5px] right-[5px] size-[18px]' : 'top-1.5 right-1.5 size-[22px]',
+      )}
+      title="Picked by your client"
+    >
+      <Heart className={cn('fill-current', dense ? 'size-2.5' : 'size-3')} aria-hidden />
+    </span>
+  );
+}
+
+/**
+ * The tick. Its own button so it can be reached by keyboard and does not open
+ * the file; always there in selection mode, on hover otherwise. Dark when
+ * chosen, never terracotta: that is the page's one action. In the desktop
+ * app it is always there: it is the only way in to choosing.
+ */
+function Tick({
+  name,
+  chosen,
+  selecting,
+  dense,
+  onToggle,
+}: {
+  name: string;
+  chosen: boolean;
+  selecting: boolean;
+  dense: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={chosen}
+      aria-label={`${chosen ? 'Deselect' : 'Select'} ${name}`}
+      className={cn(
+        'absolute grid place-items-center rounded-full transition-opacity focus-visible:opacity-100',
+        dense ? 'top-[5px] left-[5px] size-[18px] border-[1.5px]' : 'top-1.5 left-1.5 size-[22px] border-2',
+        chosen
+          ? 'border-transparent bg-foreground text-background opacity-100'
+          : cn(
+              'border-white text-transparent hover:bg-black/40',
+              // Always there, so nearly clear: a ring over the picture, with
+              // just enough under it to show on a white sky.
+              dense ? 'bg-black/10' : 'bg-black/25',
+            ),
+        selecting || chosen || dense ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+      )}
+    >
+      <Check className={dense ? 'size-[11px]' : 'size-3'} strokeWidth={dense ? 3 : 3.5} aria-hidden />
+    </button>
   );
 }
 
@@ -185,22 +407,14 @@ function Tile({
   chosen,
   selecting,
   selectable,
+  dense,
   draggable,
   onClick,
   onToggle,
   onDragStart,
-}: {
-  file: StoredFile;
+}: TileProps & {
   /** The tile's drawn width, as an `<img sizes>` value. */
   sizes: string;
-  index: number;
-  chosen: boolean;
-  selecting: boolean;
-  selectable: boolean;
-  draggable: boolean;
-  onClick: (event: MouseEvent, file: StoredFile) => void;
-  onToggle: () => void;
-  onDragStart: (event: DragEvent, file: StoredFile) => void;
 }) {
   const kind = kindOf(file.contentType);
   const still = kind === 'video' ? file.posterUrl : kind === 'image' ? (file.thumbnailUrl ?? file.url) : null;
@@ -209,17 +423,18 @@ function Tile({
   const name = file.mediaTitle || file.originalName;
 
   return (
-    <li className="group relative aspect-square">
+    // Its key is on the tile so the desktop app's Space can open the file
+    // the keyboard is on.
+    <li className="group relative aspect-square" data-file-key={file.key}>
       <button
         type="button"
         draggable={draggable}
         onDragStart={(event) => onDragStart(event, file)}
         onClick={(event) => onClick(event, file)}
         aria-label={`${what} ${index + 1}, ${name}${file.picked ? ', picked by your client' : ''}`}
-        className={cn(
-          'relative block size-full overflow-hidden rounded-lg bg-muted bg-cover bg-center text-left outline-offset-2 transition-[transform,box-shadow] duration-200',
-          chosen && 'ring-3 ring-primary ring-offset-2 ring-offset-background',
-        )}
+        // The focus ring is drawn inside the tile: two pixels from its
+        // neighbours, one drawn outside would be under them.
+        className="relative block size-full overflow-hidden bg-muted bg-cover bg-center text-left -outline-offset-2"
         style={file.blurDataUrl ? { backgroundImage: `url("${file.blurDataUrl}")` } : undefined}
       >
         {still ? (
@@ -230,15 +445,15 @@ function Tile({
             alt=""
             loading="lazy"
             decoding="async"
-            className={cn('size-full object-cover transition-[transform,opacity] duration-500', chosen ? 'scale-[0.94] opacity-85' : 'group-hover:scale-[1.03]')}
+            className={cn('size-full object-cover transition-transform duration-500', !chosen && 'group-hover:scale-[1.03]')}
           />
         ) : (
-          <span className="grid size-full place-items-center bg-secondary px-3 text-center">
+          <span className="grid size-full place-items-center px-3 text-center">
             <span>
               {kind === 'audio' ? (
                 <Music className="mx-auto size-6 text-muted-foreground" aria-hidden />
               ) : kind === 'video' ? (
-                <VideoThumbnail className="mx-auto block size-14 sm:size-20" />
+                <VideoThumbnail className={cn('mx-auto block', dense ? 'size-9' : 'size-12 sm:size-14')} />
               ) : (
                 <FileText className="mx-auto size-6 text-muted-foreground" aria-hidden />
               )}
@@ -247,24 +462,15 @@ function Tile({
           </span>
         )}
 
-        {kind === 'video' && (
-          <span className="absolute right-1.5 bottom-1.5 flex items-center gap-1 rounded-md bg-black/65 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
-            <Play className="size-3 fill-current" aria-hidden />
-            {file.durationMs ? clock(file.durationMs) : null}
-          </span>
-        )}
+        {kind === 'video' && <Length ms={file.durationMs} dense={dense} />}
 
         {file.processingStatus === 'pending' && (
-          <span className="absolute left-1.5 bottom-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
-            Preparing
+          <span className="absolute left-1.5 bottom-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+            Getting ready
           </span>
         )}
 
-        {file.picked && (
-          <span className="absolute top-1.5 right-1.5 grid size-6 place-items-center rounded-full bg-background/90 shadow-sm" title="Picked by your client">
-            <Heart className="size-3.5 fill-primary text-primary" aria-hidden />
-          </span>
-        )}
+        {file.picked && <Picked dense={dense} />}
 
         {/* The filename, on hover, where the old grid showed it. */}
         {still && (
@@ -272,27 +478,82 @@ function Tile({
             {name}
           </span>
         )}
+
+        {/* Over the picture, which would cover a ring drawn on the button. */}
+        {chosen && <span aria-hidden className="pointer-events-none absolute inset-0 ring-3 ring-foreground ring-inset" />}
       </button>
 
-      {/* The tick. Its own button so it can be reached by keyboard and does
-          not open the file; always there in selection mode, on hover otherwise. */}
-      {selectable && (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-pressed={chosen}
-          aria-label={`${chosen ? 'Deselect' : 'Select'} ${name}`}
-          className={cn(
-            'absolute top-1.5 left-1.5 grid size-6 place-items-center rounded-full border-2 transition-opacity focus-visible:opacity-100',
-            chosen
-              ? 'border-transparent bg-action text-action-foreground opacity-100'
-              : 'border-white bg-black/30 text-transparent hover:bg-black/45',
-            selecting || chosen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+      {selectable && <Tick name={name} chosen={chosen} selecting={selecting} dense={dense} onToggle={onToggle} />}
+    </li>
+  );
+}
+
+/**
+ * A film among films: wide, with its name and when it was shot under it.
+ *
+ * The length is on the picture, so the line under the name is the time. One
+ * still being processed is a pale tile that says so; it has no frame to show.
+ */
+function FilmTile({
+  file,
+  index,
+  chosen,
+  selecting,
+  selectable,
+  dense,
+  draggable,
+  onClick,
+  onToggle,
+  onDragStart,
+}: TileProps) {
+  const name = file.mediaTitle || file.originalName;
+  const length = file.durationMs ? clock(file.durationMs) : null;
+  const pending = file.processingStatus === 'pending';
+
+  return (
+    <li className="group relative min-w-0" data-file-key={file.key}>
+      <button
+        type="button"
+        draggable={draggable}
+        onDragStart={(event) => onDragStart(event, file)}
+        onClick={(event) => onClick(event, file)}
+        aria-label={`Film ${index + 1}, ${name}${length ? `, ${length}` : ''}${pending ? ', getting ready' : ''}${file.picked ? ', picked by your client' : ''}`}
+        className="block w-full rounded-lg text-left outline-offset-4"
+      >
+        <span className="relative flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-muted">
+          {pending ? (
+            <span className="flex flex-col items-center gap-1.5 text-[13px] font-semibold text-secondary-foreground">
+              <Video className="size-5" aria-hidden />
+              Getting ready
+            </span>
+          ) : file.posterUrl ? (
+            <>
+              <img
+                src={file.posterUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className={cn('absolute inset-0 size-full object-cover transition-transform duration-500', !chosen && 'group-hover:scale-[1.03]')}
+              />
+              <span className="relative grid size-11 place-items-center rounded-full bg-black/55 text-white">
+                <Play className="size-4 translate-x-px fill-current" aria-hidden />
+              </span>
+            </>
+          ) : (
+            // No frame of its own: a film has one only once it has been posted.
+            <VideoThumbnail className="size-16" />
           )}
-        >
-          <Check className="size-3.5" strokeWidth={3} aria-hidden />
-        </button>
-      )}
+          {length && !pending && <Length ms={file.durationMs} dense={dense} />}
+          {file.picked && <Picked dense={dense} />}
+          {chosen && <span aria-hidden className="pointer-events-none absolute inset-0 rounded-lg ring-3 ring-foreground ring-inset" />}
+        </span>
+        <span className="mt-2 block truncate text-sm leading-5 font-semibold" title={name}>
+          {name}
+        </span>
+        <span className="block text-xs leading-4 text-muted-foreground">{shotAt(file)}</span>
+      </button>
+
+      {selectable && <Tick name={name} chosen={chosen} selecting={selecting} dense={dense} onToggle={onToggle} />}
     </li>
   );
 }

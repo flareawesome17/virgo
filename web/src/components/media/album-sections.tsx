@@ -38,6 +38,7 @@ import {
   useRenameSection,
   useReorderSections,
 } from '@/hooks/useAlbumSections';
+import { FilterChip } from '@/components/kit';
 import { cn } from '@/lib/utils';
 import { ALBUM_FILES_DRAG } from './album-grid';
 
@@ -54,6 +55,13 @@ export interface SectionCounts {
 function problem(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'Please try again.';
 }
+
+/**
+ * Hides a dense row's count whenever its options button shows: under the
+ * pointer, with the keyboard on the button, or with its menu open.
+ */
+const COUNT_UNDER_OPTIONS =
+  'group-hover:invisible group-has-[[aria-haspopup=menu]:focus-visible]:invisible group-has-[[data-state=open]]:invisible';
 
 interface Entry {
   key: SectionFilter;
@@ -96,6 +104,7 @@ export function AlbumSections({
   canManage,
   onDropFiles,
   onShareSection,
+  dense = false,
 }: {
   albumId: string;
   layout: 'rail' | 'chips';
@@ -106,6 +115,8 @@ export function AlbumSections({
   onDropFiles: (keys: string[], sectionId: string | null) => void;
   /** A client link to just this section; absent for someone who cannot share. */
   onShareSection?: (section: AlbumSection) => void;
+  /** The desktop app's: 32px rows in 13px type, for a rail 160px wide. */
+  dense?: boolean;
 }) {
   const [naming, setNaming] = useState<{ id?: string; initial: string } | null>(null);
   const [deleting, setDeleting] = useState<AlbumSection | null>(null);
@@ -176,7 +187,10 @@ export function AlbumSections({
           variant="ghost"
           size="icon"
           aria-label={`Options for ${section.name}`}
-          className="size-7 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+          className={cn(
+            'shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100',
+            dense ? 'size-6' : 'size-7',
+          )}
         >
           <MoreHorizontal className="size-4" />
         </Button>
@@ -215,31 +229,26 @@ export function AlbumSections({
   return (
     <>
       {layout === 'rail' ? (
-        <nav aria-label="Sections" className="space-y-1">
-          <div className="flex items-center justify-between px-2 pb-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Sections</p>
-            {canManage && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                aria-label="Add a section"
-                onClick={() => setNaming({ initial: '' })}
-              >
-                <Plus className="size-4" />
-              </Button>
-            )}
-          </div>
+        <nav aria-label="Sections" className="flex flex-col gap-0.5">
+          <p className={cn('pb-1.5 text-xs font-semibold text-muted-foreground', dense ? 'px-2' : 'px-2.5')}>
+            Sections
+          </p>
           {list.map((entry) => {
             const active = value === entry.key;
             const index = entry.section ? counts.sections.indexOf(entry.section) : -1;
+            const optioned = canManage && !!entry.section;
             return (
               <div
                 key={entry.key}
                 {...dropProps(entry)}
                 className={cn(
-                  'group flex items-center gap-1 rounded-lg transition-colors',
-                  active ? 'bg-accent' : 'hover:bg-accent/60',
+                  'group flex items-center transition-colors',
+                  // The chosen one is a white card on the page, as a row is in
+                  // the sidebar. The desktop app's rail sits on the sheet
+                  // itself, and its chosen row is the pale fill one has there.
+                  dense
+                    ? cn('relative h-8 rounded-lg', active ? 'bg-muted' : 'hover:bg-muted/60')
+                    : cn('h-9 rounded-[10px]', active ? 'bg-card ring-1 ring-border/60' : 'hover:bg-muted'),
                   over === entry.key && 'bg-primary/10 ring-2 ring-primary ring-inset',
                 )}
               >
@@ -247,66 +256,109 @@ export function AlbumSections({
                   type="button"
                   onClick={() => onChange(entry.key)}
                   aria-current={active ? 'true' : undefined}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left text-sm"
+                  className={cn(
+                    'flex h-full min-w-0 flex-1 items-center text-left',
+                    dense ? 'gap-1.5 rounded-lg px-2 text-[13px]' : 'gap-2 rounded-[10px] px-2.5 text-sm',
+                  )}
                 >
-                  {entry.key === 'picked' ? (
-                    <Heart className="size-3.5 shrink-0 fill-primary text-primary" aria-hidden />
-                  ) : (
-                    <span
+                  {entry.key === 'picked' && (
+                    <Heart
+                      className={cn('shrink-0 fill-primary text-primary', dense ? 'size-3' : 'size-3.5')}
                       aria-hidden
-                      className={cn(
-                        'size-2 shrink-0 rounded-full',
-                        entry.key === 'all' ? 'bg-foreground/60' : entry.key === 'none' ? 'bg-border' : 'bg-primary',
-                      )}
                     />
                   )}
-                  <span className={cn('min-w-0 flex-1 truncate', active ? 'font-semibold' : 'font-medium text-foreground/85')}>
+                  <span
+                    className={cn(
+                      'min-w-0 flex-1 truncate',
+                      active ? 'font-semibold text-foreground' : 'font-medium text-secondary-foreground',
+                    )}
+                  >
                     {entry.label}
                   </span>
-                  <span className="text-xs tabular-nums text-muted-foreground">{entry.count.toLocaleString()}</span>
+                  <span
+                    className={cn(
+                      'tabular-nums text-muted-foreground',
+                      dense ? 'text-xs' : 'text-[13px] font-medium',
+                      // Gives its place to the options while they show.
+                      dense && optioned && COUNT_UNDER_OPTIONS,
+                    )}
+                  >
+                    {entry.count.toLocaleString()}
+                  </span>
                 </button>
-                {canManage && entry.section && menu(entry.section, index)}
-              </div>
-            );
-          })}
-          {canManage && counts.sections.length === 0 && (
-            <p className="px-2.5 pt-2 text-xs leading-relaxed text-muted-foreground">
-              Group the album into chapters — Prep, Ceremony, Reception — and the client link shows them as chapters too.
-            </p>
-          )}
-        </nav>
-      ) : (
-        <div role="tablist" aria-label="Sections" className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
-          {list.map((entry) => {
-            const active = value === entry.key;
-            return (
-              <button
-                key={entry.key}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => onChange(entry.key)}
-                className={cn(
-                  'flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm transition-colors',
-                  active ? 'border-transparent bg-foreground font-semibold text-background' : 'bg-card hover:bg-accent',
+                {optioned && entry.section && (
+                  // At 160px there is no room to keep a place for the options
+                  // beside the count: they are laid over it, so the counts
+                  // stay in one column down the rail.
+                  <span className={dense ? 'absolute inset-y-0 right-1 flex items-center' : 'pr-1'}>
+                    {menu(entry.section, index)}
+                  </span>
                 )}
-              >
-                {entry.key === 'picked' && <Heart className={cn('size-3.5', active ? 'fill-background' : 'fill-primary text-primary')} aria-hidden />}
-                {entry.label}
-                <span className={cn('text-xs tabular-nums', active ? 'text-background/70' : 'text-muted-foreground')}>
-                  {entry.count.toLocaleString()}
-                </span>
-              </button>
+              </div>
             );
           })}
           {canManage && (
             <button
               type="button"
               onClick={() => setNaming({ initial: '' })}
-              className="flex shrink-0 items-center gap-1 rounded-full border border-dashed px-3.5 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+              className={cn(
+                'flex items-center text-left font-medium text-muted-foreground transition-colors hover:text-foreground',
+                dense ? 'h-8 gap-1.5 rounded-lg px-2 text-[13px]' : 'h-9 gap-2 rounded-[10px] px-2.5 text-sm',
+              )}
+            >
+              <Plus className={dense ? 'size-3.5' : 'size-4'} aria-hidden />
+              Add a section
+            </button>
+          )}
+          {canManage && counts.sections.length === 0 && (
+            <p className={cn('pt-1 text-xs leading-relaxed text-muted-foreground', dense ? 'px-2' : 'px-2.5')}>
+              Group the album into chapters — Prep, Ceremony, Reception — and the client link shows them as chapters too.
+            </p>
+          )}
+        </nav>
+      ) : (
+        // Chips where there is no room for the rail: they narrow the grid, so
+        // they are the kit's, dark when chosen.
+        <div
+          role="group"
+          aria-label="Sections"
+          className={cn(
+            'no-scrollbar flex items-center gap-2 overflow-x-auto py-1',
+            // Out to the edges of whatever holds it: the page's gutters, or
+            // the desktop app's narrower column.
+            dense ? '-mx-3 px-3' : '-mx-4 px-4 sm:-mx-6 sm:px-6',
+          )}
+        >
+          {list.map((entry) => {
+            const active = value === entry.key;
+            return (
+              <FilterChip
+                key={entry.key}
+                dense={dense}
+                on={active}
+                count={entry.count}
+                icon={
+                  entry.key === 'picked' ? (
+                    <Heart className={active ? 'fill-background' : 'fill-primary text-primary'} aria-hidden />
+                  ) : undefined
+                }
+                onClick={() => onChange(entry.key)}
+              >
+                {entry.label}
+              </FilterChip>
+            );
+          })}
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => setNaming({ initial: '' })}
+              className={cn(
+                'flex shrink-0 items-center gap-1 rounded-full border border-dashed font-semibold text-muted-foreground hover:text-foreground',
+                dense ? 'h-[26px] px-2.5 text-xs' : 'h-8 px-3 text-[13px]',
+              )}
             >
               <Plus className="size-3.5" aria-hidden />
-              Section
+              Add a section
             </button>
           )}
           {canManage && list.find((entry) => entry.key === value)?.section && (

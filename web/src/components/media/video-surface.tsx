@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { ChevronDown, X } from 'lucide-react';
+import { AUDIO_DOCK_HEIGHT_VAR } from '@/components/media/audio-dock';
 import { VideoPlayer } from '@/components/media/video-player';
 import { useVideoPlayback } from '@/components/media/video-playback';
 
@@ -35,9 +35,13 @@ const STACK_GAP_PX = 12;
  * `<video>` element in between — so the film would stop at the exact moment
  * somebody asked to keep it going. Same element, same position, different
  * class names.
+ *
+ * This is only the frame now. The name over an open film and the row under a
+ * docked one are the player's own (VideoPlayer): they say how far through it
+ * is, which nothing out here knows.
  */
 export function VideoSurface() {
-  const { current, mode, close, minimise, expand } = useVideoPlayback();
+  const { current, mode, minimise } = useVideoPlayback();
 
   // Escape minimises rather than closes, matching the caret: put the film
   // away, do not throw it away. Only while it is full — in the corner, escape
@@ -94,45 +98,13 @@ export function VideoSurface() {
       className={
         full
           ? 'fixed inset-0 z-50 bg-black'
-          : 'fixed bottom-4 right-4 z-50 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-white/10 bg-[#141210] shadow-[0_24px_70px_-28px_rgba(0,0,0,0.8)]'
+          : 'dark fixed right-4 z-50 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[14px] bg-card shadow-[0_16px_40px_rgba(0,0,0,0.28)] ring-1 ring-border'
       }
+      // Above the recordings bar while one is playing, not on top of it: the
+      // bar runs the width of the main column, this corner included.
+      style={full ? undefined : { bottom: `calc(1rem + var(${AUDIO_DOCK_HEIGHT_VAR}, 0px))` }}
     >
-      <div className={full ? 'h-full' : 'aspect-video'}>
-        <VideoPlayer file={current} compact={!full} />
-      </div>
-
-      <div
-        className={
-          full
-            ? 'absolute left-4 top-4 flex items-center gap-2'
-            : 'flex items-center gap-2 border-t border-white/10 px-2.5 py-2'
-        }
-      >
-        <button
-          onClick={full ? minimise : expand}
-          aria-label={full ? 'Minimise' : 'Expand'}
-          className="grid size-9 shrink-0 place-items-center rounded-full bg-black/45 text-white/80 hover:text-white"
-        >
-          <ChevronDown
-            size={18}
-            className={full ? '' : 'rotate-180'}
-          />
-        </button>
-
-        {!full && (
-          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-white">
-            {current.mediaTitle || current.originalName}
-          </span>
-        )}
-
-        <button
-          onClick={close}
-          aria-label="Stop playing"
-          className="grid size-9 shrink-0 place-items-center rounded-full bg-black/45 text-white/55 hover:text-white"
-        >
-          <X size={16} />
-        </button>
-      </div>
+      <VideoPlayer file={current} compact={!full} surfaced />
     </div>
   );
 }

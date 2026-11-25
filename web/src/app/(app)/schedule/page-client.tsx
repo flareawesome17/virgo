@@ -1,33 +1,28 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  ArrowLeft,
   Bell,
   BellOff,
-  BellPlus,
   CalendarDays,
-  Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Loader2,
   LogOut,
   Mail,
-  MapPin,
   Pencil,
   Trash2,
   Users,
-  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { PageHeader, Screen } from '@/components/app-shell';
-import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,39 +41,79 @@ import {
   useScheduleEventRange,
 } from '@/hooks/useScheduleEvents';
 import type { Reminder, ScheduleEvent } from '@/api';
-import { AttendeeSummary, ManageAttendeesDialog } from '@/components/event-invites';
+import { AttendeeCount, ManageAttendeesDialog, initials } from '@/components/event-invites';
+import { startsIn } from '@/components/home/use-home';
+import { CARD, DateTile, Pill, TimeTile, dateTileParts } from '@/components/kit';
 import { useDeleteReminder, useReminders, useUpdateReminder } from '@/hooks/useReminders';
+import { useWorkspaces } from '@/hooks/useWorkspaces';
 import {
   DAY_DOT_SIZE,
   DAYS,
-  MONTHS,
   dayDots,
-  eventTypeLabel,
   dateToKey,
+  eventTypeLabel,
   formatTime,
   getMonthWeeks,
   isEventUpcoming,
   labelForDateKey,
+  parseDateKey,
   todayKey,
 } from '@/lib/calendar';
 import { EventDialog } from '@/components/schedule/event-dialog';
+import { EventPanel } from '@/components/schedule/event-panel';
+import {
+  HeadLink,
+  KindLine,
+  ROWS,
+  ReminderEvent,
+  ReminderRow,
+  RowsSkeleton,
+  SectionHead,
+  dayTitle,
+  eventLine,
+  reminderWhen,
+  timeTileParts,
+} from '@/components/schedule/parts';
 import { NewReminderDialog } from '@/components/schedule/reminder-dialog';
 
-/** Tab values that ?tab= may name. Anything else is ignored. */
-const TABS = ['day', 'upcoming', 'invites', 'reminders'];
+/**
+ * What the right-hand column shows: the picked day with what follows it, or
+ * one whole list with a way back. ?tab= may name any of them.
+ */
+type View = 'day' | 'upcoming' | 'reminders';
+
+/** How many events Coming up shows before "See all". */
+const SOON_SHOWN = 3;
+/** How many reminders the page shows before "See all". */
+const REMINDERS_SHOWN = 4;
+
+/** Decline and Accept, the size of the bar's own buttons. */
+const ANSWER = 'h-9 rounded-[10px] px-3.5 text-sm font-semibold';
+
+/** A row with nothing in it to open: an empty list, said in one line. */
+const QUIET_ROW = cn(CARD, 'flex min-h-[52px] items-center px-4 py-2 text-sm text-muted-foreground');
 
 /**
- * Invitations waiting on an answer.
+ * Invitations waiting on an answer, above the day.
  *
- * Its own tab rather than inline on the day: an invitation is not yet part of
- * your schedule, and showing it beside events you have actually committed to
- * would blur the one thing that matters about it — that it needs a decision.
+ * They had a tab of their own, which kept them out of sight until somebody
+ * thought to look there. An invitation is the one thing on this page that
+ * needs a decision, so it leads the column, as on the phone, and takes no
+ * room at all when there is none.
  */
-function InvitationsTab() {
+function Invitations({ linked, className }: { linked: boolean; className?: string }) {
   const { invitations, isLoading } = useEventInvitations();
   const respond = useRespondToEventInvitation();
   /** Which invitation is mid-flight, so only its buttons show a spinner. */
   const [answering, setAnswering] = useState<string | null>(null);
+  const section = useRef<HTMLElement>(null);
+
+  // A notification's link lands here. In a narrow window the month sits above
+  // the invitation, so the invitation is brought into view.
+  const waiting = invitations.length > 0;
+  useEffect(() => {
+    if (linked && waiting) section.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [linked, waiting]);
 
   const answer = (eventId: string, accept: boolean, title: string) => {
     setAnswering(eventId);
@@ -94,81 +129,79 @@ function InvitationsTab() {
     );
   };
 
-  if (isLoading && invitations.length === 0) return <ListSkeleton rows={2} />;
-
-  if (invitations.length === 0) {
+  if (!waiting) {
+    // Said only to somebody who followed a link to one that has since been
+    // withdrawn or answered. Otherwise no invitations is no card.
+    if (!linked || isLoading) return null;
     return (
-      <Card>
-        <EmptyState
-          icon={Mail}
-          title="No invitations"
-          description="When someone invites you to an event, it lands here."
-        />
-      </Card>
+      <div className={cn(CARD, 'flex min-h-[60px] items-center gap-3 px-3 py-2.5', className)}>
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-secondary-foreground">
+          <Mail aria-hidden className="size-[18px]" />
+        </span>
+        <span className="flex min-w-0 flex-col">
+          <span className="text-sm font-semibold">No invitations</span>
+          <span className="text-[13px] text-muted-foreground">
+            When someone invites you to an event, it lands here.
+          </span>
+        </span>
+      </div>
     );
   }
 
   return (
-    <ul className="flex flex-col gap-2">
-      {invitations.map((invitation) => (
-        <li key={invitation.id}>
-          <Card className="border-primary/30">
-            <CardContent className="py-3">
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{invitation.title}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {labelForDateKey(invitation.event_date)}
-                    {invitation.event_time
-                      ? ` · ${formatTime(invitation.event_time)}`
-                      : ''}
-                    {invitation.location ? ` · ${invitation.location}` : ''}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Invited by {invitation.inviter_name}
-                  </p>
-                </div>
-                <Badge variant="secondary" className="shrink-0">
-                  {eventTypeLabel(invitation)}
-                </Badge>
-              </div>
-
-              {invitation.description && (
-                <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                  {invitation.description}
+    <section ref={section} aria-label="Invitations" className={className}>
+      <ul className={ROWS}>
+        {invitations.map((invitation) => {
+          const busy = answering === invitation.event_id;
+          const facts = [
+            eventTypeLabel(invitation),
+            dayTitle(invitation.event_date),
+            invitation.event_time ? formatTime(invitation.event_time) : 'the whole day',
+            invitation.location?.trim(),
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          return (
+            <li key={invitation.id} className="flex flex-wrap items-center gap-3 py-3 pl-4 pr-3">
+              <Avatar className="size-9">
+                <AvatarFallback className="text-[13px] font-bold">
+                  {initials(invitation.inviter_name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex min-w-0 flex-[1_1_240px] flex-col">
+                <p className="text-sm font-semibold [overflow-wrap:anywhere]">
+                  {invitation.inviter_name} invited you to {invitation.title}
                 </p>
-              )}
-
-              <div className="mt-3 flex gap-2">
-                <Button
-                  size="sm"
-                  className="flex-1"
-                  disabled={answering === invitation.event_id}
-                  onClick={() => answer(invitation.event_id, true, invitation.title)}
-                >
-                  {answering === invitation.event_id ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Check className="size-3.5" />
-                  )}
-                  Accept
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1"
-                  disabled={answering === invitation.event_id}
-                  onClick={() => answer(invitation.event_id, false, invitation.title)}
-                >
-                  <X className="size-3.5" />
-                  Decline
-                </Button>
+                <KindLine event={invitation}>{facts}</KindLine>
+                {invitation.description && (
+                  <p className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground">
+                    {invitation.description}
+                  </p>
+                )}
               </div>
-            </CardContent>
-          </Card>
-        </li>
-      ))}
-    </ul>
+              <Button
+                variant="secondary"
+                className={ANSWER}
+                disabled={busy}
+                onClick={() => answer(invitation.event_id, false, invitation.title)}
+              >
+                Decline
+              </Button>
+              {/* Dark, not terracotta: the page's one filled button is the
+                  bar's Create. */}
+              <Button
+                className={cn(ANSWER, 'bg-foreground text-background hover:bg-foreground/85')}
+                disabled={busy}
+                onClick={() => answer(invitation.event_id, true, invitation.title)}
+              >
+                {busy && <Loader2 className="size-4 animate-spin" />}
+                Accept
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -193,26 +226,140 @@ const DONE_REMINDERS = {
   limit: 30,
 } as const;
 
-function reminderWhen(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+/** Ticks a reminder off, or back on, and says so when the server refuses. */
+function useToggleReminder() {
+  const update = useUpdateReminder();
+  return (reminder: Reminder) =>
+    update.mutate(
+      { id: reminder.id, is_completed: !reminder.is_completed },
+      {
+        onError: (err: Error) =>
+          toast.error('Could not update the reminder', { description: err.message }),
+      },
+    );
 }
 
 /**
- * "For Reyes wedding", on a reminder made for an event.
+ * The next few reminders, under the month.
  *
- * A reminder carries only the event's id. The page already holds most events
- * it could name, so those are used as they are; the rest — an overdue
- * reminder's event from months back — are read one by one.
+ * Their own, not only from inside an event: a reminder to back up a card or
+ * send an invoice belongs to no event. They sat behind a tab; what is late
+ * is said here now, where the page opens, and the rest is one click away.
  */
-function ReminderEvent({ eventId, known }: { eventId: string; known?: ScheduleEvent }) {
-  const { data } = useScheduleEvent(known ? undefined : eventId);
-  const event = known ?? data;
+function RemindersGlance({
+  knownEvents,
+  onSeeAll,
+  onNew,
+  className,
+}: {
+  /** The events the page already holds, by id, for the form of a reminder made for one. */
+  knownEvents: Map<string, ScheduleEvent>;
+  onSeeAll: () => void;
+  onNew: () => void;
+  className?: string;
+}) {
+  // The same query as the whole list's, so opening that costs no second read.
+  const open = useReminders(OPEN_REMINDERS);
+  const toggle = useToggleReminder();
+  const [editing, setEditing] = useState<Reminder | null>(null);
+
+  const now = new Date().getTime();
+  const isLate = (r: Reminder) => !r.is_completed && Date.parse(r.reminder_time) < now;
+  const overdue = open.reminders.filter(isLate).length;
+  // Oldest first as they are listed, so what is late leads.
+  const shown = open.reminders.slice(0, REMINDERS_SHOWN);
+
   return (
-    <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-      <CalendarDays className="size-3 shrink-0" aria-hidden />
-      {/* Still for an event while it loads, or when you can no longer see it. */}
-      <span className="truncate">{event ? `For ${event.title}` : 'For an event'}</span>
-    </span>
+    <section aria-labelledby="schedule-reminders" className={className}>
+      <SectionHead id="schedule-reminders" title="Reminders">
+        <HeadLink aria-label="See all reminders" onClick={onSeeAll}>
+          See all
+        </HeadLink>
+        <HeadLink aria-label="New reminder" onClick={onNew}>
+          New
+        </HeadLink>
+      </SectionHead>
+
+      {overdue > 0 && (
+        <button
+          type="button"
+          onClick={onSeeAll}
+          className="mb-2.5 flex min-h-10 w-full items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-left text-[13px] font-semibold text-destructive outline-none transition-opacity hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <Clock aria-hidden className="size-4 shrink-0" />
+          {overdue} overdue. Tick {overdue === 1 ? 'it' : 'them'} off, or move{' '}
+          {overdue === 1 ? 'it' : 'them'}.
+        </button>
+      )}
+
+      {open.loadFailed && open.reminders.length === 0 ? (
+        // Not "No reminders set": that would tell someone their reminders are
+        // gone when the request simply never arrived.
+        <ErrorState message="Could not load your reminders." onRetry={() => void open.refetch()} />
+      ) : open.isLoading && open.reminders.length === 0 ? (
+        <RowsSkeleton rows={2} />
+      ) : shown.length === 0 ? (
+        <p className={QUIET_ROW}>No reminders set</p>
+      ) : (
+        <ul className={ROWS}>
+          {shown.map((reminder) => (
+            <ReminderRow
+              key={reminder.id}
+              reminder={reminder}
+              late={isLate(reminder)}
+              onToggle={() => toggle(reminder)}
+              onOpen={() => setEditing(reminder)}
+            />
+          ))}
+        </ul>
+      )}
+
+      {editing && (
+        <NewReminderDialog
+          open
+          onOpenChange={(next) => !next && setEditing(null)}
+          reminder={editing}
+          event={
+            editing.schedule_event_id ? knownEvents.get(editing.schedule_event_id) : undefined
+          }
+        />
+      )}
+    </section>
+  );
+}
+
+/** A whole list's title, with the way back to the day beside it. */
+function ListHead({
+  title,
+  onBack,
+  children,
+}: {
+  title: string;
+  onBack: () => void;
+  children?: ReactNode;
+}) {
+  const head = useRef<HTMLDivElement>(null);
+  // "See all" can sit below where its list then opens: under the month, in
+  // one column. The list is brought to the reader, not left above them.
+  useEffect(() => {
+    head.current?.scrollIntoView({ block: 'nearest' });
+  }, []);
+
+  return (
+    <div ref={head} className="mb-2.5 flex scroll-mt-4 items-center gap-1.5">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="-ml-2 rounded-[10px]"
+        aria-label="Back to the day"
+        title="Back to the day"
+        onClick={onBack}
+      >
+        <ArrowLeft />
+      </Button>
+      <h2 className="min-w-0 flex-1 truncate text-base font-bold tracking-tight">{title}</h2>
+      {children}
+    </div>
   );
 }
 
@@ -224,17 +371,19 @@ function ReminderEvent({ eventId, known }: { eventId: string; known?: ScheduleEv
  * ticked off on the web at all, and one whose time had passed sat among the
  * ones still to come with nothing to say it was late.
  */
-function RemindersTab({
+function AllReminders({
   onNew,
+  onBack,
   knownEvents,
 }: {
   onNew: () => void;
+  onBack: () => void;
   /** The events the page already holds, by id, for naming a reminder's. */
   knownEvents: Map<string, ScheduleEvent>;
 }) {
   const open = useReminders(OPEN_REMINDERS);
   const done = useReminders(DONE_REMINDERS);
-  const update = useUpdateReminder();
+  const toggle = useToggleReminder();
   const remove = useDeleteReminder();
   const [deleting, setDeleting] = useState<Reminder | null>(null);
   // A reminder could not be changed here at all: a wrong time meant deleting
@@ -254,125 +403,112 @@ function RemindersTab({
     { key: 'done', title: 'Done lately', items: done.reminders.filter((r) => !openIds.has(r.id)) },
   ].filter((s) => s.items.length > 0);
 
-  const toggle = (reminder: Reminder) =>
-    update.mutate(
-      { id: reminder.id, is_completed: !reminder.is_completed },
-      {
-        onError: (err: Error) =>
-          toast.error('Could not update the reminder', { description: err.message }),
-      },
-    );
+  const head = (
+    <ListHead title="Reminders" onBack={onBack}>
+      <HeadLink aria-label="New reminder" onClick={onNew}>
+        New
+      </HeadLink>
+    </ListHead>
+  );
 
   if (open.loadFailed && open.reminders.length === 0) {
     // Not "No reminders": that would tell someone their reminders are gone
     // when the request simply never arrived.
     return (
-      <ErrorState
-        message="Could not load your reminders."
-        onRetry={() => {
-          void open.refetch();
-          void done.refetch();
-        }}
-      />
+      <section>
+        {head}
+        <ErrorState
+          message="Could not load your reminders."
+          onRetry={() => {
+            void open.refetch();
+            void done.refetch();
+          }}
+        />
+      </section>
     );
   }
 
   if ((open.isLoading && open.reminders.length === 0) || (sections.length === 0 && done.isLoading)) {
-    return <ListSkeleton rows={3} />;
+    return (
+      <section>
+        {head}
+        <RowsSkeleton rows={3} />
+      </section>
+    );
   }
 
   if (sections.length === 0) {
     return (
-      <Card>
-        <EmptyState
-          icon={Bell}
-          title="No reminders"
-          description="A nudge at a set time: an alert here, and a push on your phone if you use the app."
-          action={
-            <Button size="sm" onClick={onNew}>
-              Add a reminder
-            </Button>
-          }
-        />
-      </Card>
+      <section>
+        {head}
+        <div className={CARD}>
+          <EmptyState
+            icon={Bell}
+            title="No reminders"
+            description="A nudge at a set time: an alert here, and a push on your phone if you use the app."
+            action={
+              <Button size="sm" variant="secondary" onClick={onNew}>
+                Add a reminder
+              </Button>
+            }
+          />
+        </div>
+      </section>
     );
   }
 
   return (
-    <>
+    <section>
+      {head}
       <div className="flex flex-col gap-5">
         {sections.map((section) => (
           <section key={section.key} aria-labelledby={`reminders-${section.key}`}>
             <h3
               id={`reminders-${section.key}`}
               className={cn(
-                'mb-2 text-[11px] font-bold uppercase tracking-[0.12em]',
+                'mb-2 text-[13px] font-semibold',
                 section.key === 'overdue' ? 'text-destructive' : 'text-muted-foreground',
               )}
             >
               {section.title}
             </h3>
-            <ul className="flex flex-col gap-2">
+            <ul className={ROWS}>
               {section.items.map((reminder) => (
-                <li key={reminder.id}>
-                  <Card className="transition-colors hover:border-primary/40">
-                    <CardContent className="flex items-center gap-3 py-3">
-                      <Checkbox
-                        checked={reminder.is_completed}
-                        onCheckedChange={() => toggle(reminder)}
-                        aria-label={`${reminder.title}, done`}
+                <ReminderRow
+                  key={reminder.id}
+                  reminder={reminder}
+                  late={section.key === 'overdue' && !reminder.is_completed}
+                  onToggle={() => toggle(reminder)}
+                  onOpen={() => setEditing(reminder)}
+                  detail={
+                    reminder.schedule_event_id ? (
+                      <ReminderEvent
+                        eventId={reminder.schedule_event_id}
+                        known={knownEvents.get(reminder.schedule_event_id)}
                       />
-                      {/* The tick and the bin sit outside it, so neither
-                          opens the form on the way. */}
-                      <button
-                        type="button"
-                        aria-haspopup="dialog"
-                        onClick={() => setEditing(reminder)}
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                      >
-                        {reminder.is_alarm_enabled ? (
-                          <Bell className="size-4 shrink-0 text-primary" aria-hidden />
-                        ) : (
-                          <BellOff className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                        )}
-                        <span className="block min-w-0 flex-1">
-                          <span
-                            className={cn(
-                              'block truncate text-sm font-semibold',
-                              reminder.is_completed && 'text-muted-foreground line-through',
-                            )}
-                          >
-                            {reminder.title}
-                          </span>
-                          <span
-                            className={cn(
-                              'mt-0.5 block text-xs',
-                              section.key === 'overdue' && !reminder.is_completed
-                                ? 'text-destructive'
-                                : 'text-muted-foreground',
-                            )}
-                          >
-                            {reminderWhen(reminder.reminder_time)}
-                          </span>
-                          {reminder.schedule_event_id && (
-                            <ReminderEvent
-                              eventId={reminder.schedule_event_id}
-                              known={knownEvents.get(reminder.schedule_event_id)}
-                            />
-                          )}
+                    ) : null
+                  }
+                  trailing={
+                    <>
+                      {/* Said only when it is off: a reminder that will not
+                          sound is the one worth noticing. */}
+                      {!reminder.is_alarm_enabled && (
+                        <span role="img" aria-label="Alarm off" title="Alarm off" className="flex">
+                          <BellOff aria-hidden className="size-4 text-muted-foreground" />
                         </span>
-                      </button>
+                      )}
                       <Button
                         size="icon"
                         variant="ghost"
+                        className="rounded-[10px] text-secondary-foreground"
                         aria-label="Delete reminder"
                         onClick={() => setDeleting(reminder)}
                       >
-                        <Trash2 className="size-3.5" />
+                        <Trash2 />
                       </Button>
-                    </CardContent>
-                  </Card>
-                </li>
+                    </>
+                  }
+                />
               ))}
             </ul>
           </section>
@@ -417,17 +553,175 @@ function RemindersTab({
           }
         />
       )}
-    </>
+    </section>
   );
 }
 
-/** "Organised by Ana Reyes", on an event you are a guest at. */
-function OrganisedBy({ event }: { event: ScheduleEvent }) {
-  if (!event.organiser_name) return null;
+/** One of the small icons at the end of a day's row. */
+function RowIcon({
+  label,
+  title,
+  onClick,
+  children,
+}: {
+  label: string;
+  title?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
-    <p className="mt-1 truncate text-xs text-muted-foreground">
-      Organised by <span className="font-medium text-foreground">{event.organiser_name}</span>
-    </p>
+    <Button
+      size="icon"
+      variant="ghost"
+      className="rounded-[10px] text-secondary-foreground"
+      aria-label={label}
+      title={title}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
+  );
+}
+
+/**
+ * An event on the day being looked at: a row that leads with the hour,
+ * because the day is already in the title above it.
+ *
+ * It was a card of six lines. What a row cannot hold (the notes, who
+ * organised it, who is going by name) is in the event's panel, which the
+ * row's words open; the icons at its end are the ones the card had.
+ */
+function DayRow({
+  event,
+  workspace,
+  reminders,
+  onOpen,
+  onEdit,
+  onGuests,
+  onDelete,
+  onLeave,
+}: {
+  event: ScheduleEvent;
+  /** The name of the workspace it is filed under, when the page holds it. */
+  workspace?: string;
+  /** Its open reminders, soonest first. */
+  reminders: Reminder[];
+  onOpen: () => void;
+  onEdit: () => void;
+  onGuests: () => void;
+  onDelete: () => void;
+  onLeave: () => void;
+}) {
+  // Undefined on a just-created event, which is always yours.
+  const mine = event.is_owner !== false;
+  const tile = timeTileParts(event.event_time);
+  const countdown = startsIn(event);
+  const bell =
+    reminders.length === 0
+      ? ''
+      : reminders.length === 1
+        ? `Reminder · ${reminderWhen(reminders[0].reminder_time)}`
+        : `${reminders.length} reminders · first ${reminderWhen(reminders[0].reminder_time)}`;
+
+  return (
+    <li className="flex min-h-16 items-center gap-3 py-2 pl-2.5 pr-3 transition-colors has-[[data-opens]:hover]:bg-muted/50">
+      <TimeTile time={tile.time} meridiem={tile.meridiem} />
+      <button
+        type="button"
+        data-opens
+        aria-haspopup="dialog"
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 flex-col justify-center self-stretch rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        <span className="truncate text-sm font-semibold">{event.title}</span>
+        <KindLine event={event}>
+          {eventLine(event, workspace)}
+          <AttendeeCount eventId={event.id} />
+          {!mine && ' · Guest'}
+        </KindLine>
+      </button>
+      {/* Not in a phone-sized window, where the icons already leave the
+          title little room. The panel says it there. */}
+      {countdown && (
+        <Pill tone="warm" className="hidden sm:inline-flex">
+          Starts {countdown}
+        </Pill>
+      )}
+      {bell && (
+        <span role="img" aria-label={bell} title={bell} className="flex shrink-0">
+          <Bell aria-hidden className="size-4 text-secondary-foreground" />
+        </span>
+      )}
+      {/* Editing is open to anyone on the event. If this row is in your list
+          at all you either own it or accepted an invitation to it — the API
+          scopes the read to exactly those two — so no extra flag is needed
+          to know you may change it. */}
+      <RowIcon label={`Edit ${event.title}`} onClick={onEdit}>
+        <Pencil />
+      </RowIcon>
+      {/* The guest list and deleting stay with whoever created it. */}
+      {mine ? (
+        <>
+          <RowIcon label={`Who is coming to ${event.title}`} onClick={onGuests}>
+            <Users />
+          </RowIcon>
+          <RowIcon label={`Delete ${event.title}`} onClick={onDelete}>
+            <Trash2 />
+          </RowIcon>
+        </>
+      ) : (
+        // A guest who accepted could not back out short of asking the
+        // organiser. The API takes a decline after an accept; this is the
+        // button for it.
+        <RowIcon label="Can't make it" title="Can't make it" onClick={onLeave}>
+          <LogOut />
+        </RowIcon>
+      )}
+    </li>
+  );
+}
+
+/**
+ * An event on some other day: a row that leads with its date, as on Home.
+ * The whole row opens the event.
+ */
+function UpcomingRow({
+  event,
+  workspace,
+  going = false,
+  onOpen,
+}: {
+  event: ScheduleEvent;
+  workspace?: string;
+  /** Says how many are going: in the whole list, not in the three on the day's page. */
+  going?: boolean;
+  onOpen: () => void;
+}) {
+  const date = dateTileParts(event.event_date);
+  return (
+    <li>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        onClick={onOpen}
+        className="flex min-h-[60px] w-full items-center gap-3 py-2 pl-2.5 pr-4 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50"
+      >
+        <DateTile top={date.weekday} day={date.day} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-semibold">{event.title}</span>
+          <KindLine event={event}>
+            {eventLine(event, workspace, 'workspace')}
+            {going && <AttendeeCount eventId={event.id} />}
+            {event.is_owner === false && ' · Guest'}
+          </KindLine>
+        </span>
+        {event.event_time ? (
+          <span className="shrink-0 text-[13px] font-semibold tabular-nums text-secondary-foreground">
+            {formatTime(event.event_time)}
+          </span>
+        ) : null}
+      </button>
+    </li>
   );
 }
 
@@ -446,15 +740,19 @@ function ScheduleContent() {
     null,
   );
   const [creatingReminder, setCreatingReminder] = useState(false);
-  /** The event a new reminder is being made for: its card's Remind me. */
-  const [remindingFor, setRemindingFor] = useState<ScheduleEvent | null>(null);
   /** The event whose guest list is open, if any. */
   const [managing, setManaging] = useState<{ id: string; title: string } | null>(
     null,
   );
-  const [tab, setTab] = useState('day');
-  /** The event a notification pointed at (?event=), until it is on screen. */
+  const [view, setView] = useState<View>('day');
+  /** Whether a link asked for the invitations, which then say so when there are none. */
+  const [invitesLinked, setInvitesLinked] = useState(false);
+  /** The event open in the panel, if any. */
+  const [panelEventId, setPanelEventId] = useState<string | null>(null);
+  /** The event a link pointed at (?event=), until it has been read. */
   const [linkedEventId, setLinkedEventId] = useState<string | null>(null);
+  /** The linked event whose day and panel have been opened, so that happens once. */
+  const [followed, setFollowed] = useState<string | null>(null);
 
   // ?new=1 and ?date=… let links from anywhere land on the right day, already
   // open. Applied during render whenever the query changes, rather than in an
@@ -467,6 +765,7 @@ function ScheduleContent() {
     if (date) {
       setSelected(date);
       setCursor(new Date(`${date}T00:00:00`));
+      setView('day');
     }
     if (searchParams.get('new') === '1') {
       setNewEventWorkspace(searchParams.get('workspace'));
@@ -474,13 +773,22 @@ function ScheduleContent() {
     }
     // ?tab=invites is where an event-invite notification points, so tapping it
     // lands on the decision rather than on the calendar; ?tab=reminders is a
-    // reminder's.
+    // reminder's, and opens the whole list. The invitations are above the day
+    // now, so theirs is the day.
     const wanted = searchParams.get('tab');
-    if (wanted && TABS.includes(wanted)) setTab(wanted);
+    if (wanted === 'day' || wanted === 'upcoming' || wanted === 'reminders') setView(wanted);
+    if (wanted === 'invites') {
+      setView('day');
+      setInvitesLinked(true);
+    }
     // ?event= is an answer or a change to one event. Its date is not in the
     // link, so it is read first and the day is chosen once it arrives.
     const linked = searchParams.get('event');
-    if (linked) setLinkedEventId(linked);
+    if (linked) {
+      setLinkedEventId(linked);
+      // Followed again even when it is the event the last link named.
+      setFollowed(null);
+    }
   }
 
   // Cleared afterwards so a refresh does not reopen the dialog.
@@ -522,9 +830,11 @@ function ScheduleContent() {
     soonWindow.from,
     soonWindow.to,
   );
-  const { invitations } = useEventInvitations();
-  // The same query as the Reminders tab's, so this costs no second request.
+  // The same query as the reminder lists', so this costs no second request.
   const { reminders } = useReminders(OPEN_REMINDERS);
+  // The list the Create forms choose from, so naming a row's workspace costs
+  // no request either.
+  const { workspaces } = useWorkspaces({ limit: 100, orderBy: 'name', direction: 'asc' });
   const removeEvent = useDeleteScheduleEvent();
   const respond = useRespondToEventInvitation();
   /** An accepted event a guest is backing out of. */
@@ -537,28 +847,23 @@ function ScheduleContent() {
   // on its day from the copy held before.
   const linkedEvent =
     !linkedQuery.isError && linkedQuery.data?.id === linkedEventId ? linkedQuery.data : null;
-  /** The event shown picked out on its day, once the link has been followed. */
-  const [highlighted, setHighlighted] = useState<string | null>(null);
-  if (linkedEvent && highlighted !== linkedEvent.id) {
-    setHighlighted(linkedEvent.id);
+  // Its day behind, and the event itself in the panel. It used to be ringed
+  // on its day's list, which was as close as the page came to opening one.
+  if (linkedEvent && followed !== linkedEvent.id) {
+    setFollowed(linkedEvent.id);
     setSelected(linkedEvent.event_date);
     setCursor(new Date(`${linkedEvent.event_date}T00:00:00`));
-    setTab('day');
+    setView('day');
+    setPanelEventId(linkedEvent.id);
   }
   // Only before it was shown: a failure after that is the event being deleted
   // from this page, which needs no telling.
-  const linkedFailed = linkedQuery.isError && !!linkedEventId && highlighted !== linkedEventId;
+  const linkedFailed = linkedQuery.isError && !!linkedEventId && followed !== linkedEventId;
   useEffect(() => {
     // Deleted since, or you are no longer on it. Said, rather than landing on
     // today as though the link had worked.
     if (linkedFailed) toast.error('That event is no longer on your schedule');
   }, [linkedFailed]);
-  useEffect(() => {
-    if (!highlighted) return;
-    document
-      .getElementById(`schedule-event-${highlighted}`)
-      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [highlighted]);
 
   const eventsByDate = useMemo(() => {
     const map: Record<string, typeof events> = {};
@@ -569,7 +874,7 @@ function ScheduleContent() {
   }, [events]);
 
   // Every event the page already holds, so a reminder can name the one it is
-  // for without reading it again.
+  // for, and the panel can open on one, without reading it again.
   const knownEvents = useMemo(() => {
     const map = new Map<string, ScheduleEvent>();
     for (const event of [...soonEvents, ...events]) map.set(event.id, event);
@@ -577,8 +882,7 @@ function ScheduleContent() {
   }, [events, soonEvents]);
 
   // The open reminders for each event, soonest first as they are listed, so
-  // an event's card can say one is set rather than invite a second by
-  // accident.
+  // an event's row can say one is set.
   const remindersByEvent = useMemo(() => {
     const map = new Map<string, Reminder[]>();
     for (const reminder of reminders) {
@@ -589,6 +893,13 @@ function ScheduleContent() {
     }
     return map;
   }, [reminders]);
+
+  const workspaceNames = useMemo(
+    () => new Map(workspaces.map((w) => [w.id, w.name])),
+    [workspaces],
+  );
+  const workspaceOf = (event: ScheduleEvent) =>
+    event.workspace_id ? workspaceNames.get(event.workspace_id) : undefined;
 
   const now = new Date();
   const listedForDay = eventsByDate[selected] ?? [];
@@ -607,9 +918,42 @@ function ScheduleContent() {
         `${b.event_date}${b.event_time ?? ''}`,
       ),
     );
+  // The picked day is left out of the few shown beside it: it is the list
+  // above them, and its events would show in both.
+  const soon = upcoming.filter((e) => e.event_date !== selected).slice(0, SOON_SHOWN);
+
+  // The whole list, a month to a card: over sixty days a tile's "MON 16"
+  // would not say which month it meant.
+  const upcomingByMonth: { month: string; events: ScheduleEvent[] }[] = [];
+  for (const event of upcoming) {
+    const month = parseDateKey(event.event_date).toLocaleDateString('en-US', {
+      month: 'long',
+      year: 'numeric',
+    });
+    const last = upcomingByMonth[upcomingByMonth.length - 1];
+    if (last?.month === month) last.events.push(event);
+    else upcomingByMonth.push({ month, events: [event] });
+  }
 
   const shiftMonth = (by: number) =>
     setCursor((c) => new Date(c.getFullYear(), c.getMonth() + by, 1));
+  // A day picked on the calendar is always shown: from one of the whole
+  // lists, it is also the way back.
+  const pickDay = (key: string) => {
+    setSelected(key);
+    setView('day');
+  };
+  const awayFromToday =
+    selected !== today ||
+    cursor.getMonth() !== now.getMonth() ||
+    cursor.getFullYear() !== now.getFullYear();
+  /** Opens an event in its panel, with the calendar on its day behind it. */
+  const openEvent = (event: ScheduleEvent) => {
+    setSelected(event.event_date);
+    setCursor(parseDateKey(event.event_date));
+    setPanelEventId(event.id);
+  };
+  const named = (event: ScheduleEvent) => ({ id: event.id, title: event.title });
 
   return (
     <Screen title="Schedule">
@@ -619,338 +963,270 @@ function ScheduleContent() {
         // and the count that matters is what is ahead.
         description={`${upcoming.length} coming up · ${reminders.length} reminder${reminders.length === 1 ? '' : 's'}`}
         // New event and New reminder are the bar's Create, as on the phone.
-        // The empty states keep theirs, and ?new=1 still opens a new event.
+        // The sections keep their own links, and ?new=1 still opens a new
+        // event.
       />
 
-      <div className="mx-auto grid w-full max-w-6xl gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[1fr_20rem]">
-        {/* Calendar */}
-        <Card className="h-fit">
-          <CardContent className="py-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-bold">
-                {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
-              </h2>
-              <div className="flex items-center gap-1">
-                <Button size="icon" variant="ghost" onClick={() => shiftMonth(-1)} aria-label="Previous month">
-                  <ChevronLeft className="size-4" />
+      {/* Two columns where the page is wide enough for both, measured on the
+          page and not the window, since the sidebar takes its share. In one
+          column the sections fall in the phone's order: the month, what
+          needs an answer, the day, what follows, then the reminders. */}
+      <div className="@container mx-auto w-full max-w-[1200px] px-4 pb-12 pt-7 sm:px-6">
+        <div className="flex flex-col gap-7 @4xl:flex-row @4xl:items-start">
+          <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-[1_1_380px] @4xl:flex-col @4xl:gap-7">
+            <section aria-label="Calendar" className={cn(CARD, 'order-1 @4xl:order-none')}>
+              <div className="flex items-center gap-1 pb-1 pl-4 pr-2 pt-3">
+                <h2 className="min-w-0 flex-1 truncate text-base font-bold" aria-live="polite">
+                  {cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                </h2>
+                {/* A way home, only once you have wandered off it. */}
+                {awayFromToday && (
+                  <button
+                    type="button"
+                    aria-label="Go to today"
+                    onClick={() => {
+                      setCursor(new Date());
+                      pickDay(today);
+                    }}
+                    className="h-8 rounded-full bg-muted px-3 text-[13px] font-semibold text-secondary-foreground outline-none transition-colors hover:bg-muted/70 focus-visible:ring-3 focus-visible:ring-ring/50"
+                  >
+                    Today
+                  </button>
+                )}
+                <Button
+                  size="icon-lg"
+                  variant="ghost"
+                  className="rounded-[10px]"
+                  onClick={() => shiftMonth(-1)}
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft className="size-5" />
                 </Button>
                 <Button
-                  size="sm"
+                  size="icon-lg"
                   variant="ghost"
-                  onClick={() => {
-                    setCursor(new Date());
-                    setSelected(today);
-                  }}
+                  className="rounded-[10px]"
+                  onClick={() => shiftMonth(1)}
+                  aria-label="Next month"
                 >
-                  Today
-                </Button>
-                <Button size="icon" variant="ghost" onClick={() => shiftMonth(1)} aria-label="Next month">
-                  <ChevronRight className="size-4" />
+                  <ChevronRight className="size-5" />
                 </Button>
               </div>
-            </div>
 
-            <div className="grid grid-cols-7 gap-1">
-              {DAYS.map((day) => (
-                <div
-                  key={day}
-                  className="pb-1 text-center text-[11px] font-bold uppercase tracking-wider text-muted-foreground"
-                >
-                  {day}
-                </div>
-              ))}
-              {weeks.flat().map((cell) => {
-                const dots = dayDots(eventsByDate[cell.key] ?? []);
-                const isSelected = cell.key === selected;
-                return (
-                  <button
-                    key={cell.key}
-                    onClick={() => setSelected(cell.key)}
-                    className={cn(
-                      'relative aspect-square rounded-lg text-sm transition-colors',
-                      cell.isOutside && 'text-muted-foreground/40',
-                      isSelected
-                        ? 'bg-primary font-bold text-primary-foreground'
-                        : 'hover:bg-accent',
-                      cell.isToday && !isSelected && 'font-bold text-primary',
-                    )}
+              <div className="grid grid-cols-7 px-2 pb-2">
+                {DAYS.map((day) => (
+                  <span
+                    key={day}
+                    className="flex h-7 items-center justify-center text-xs font-semibold text-muted-foreground"
                   >
-                    {cell.day}
-                    {dots.colors.length > 0 && (
-                      <span className="absolute inset-x-0 bottom-1 flex items-center justify-center gap-[3px]">
+                    <span aria-hidden>{day.slice(0, 1)}</span>
+                    <span className="sr-only">{day}</span>
+                  </span>
+                ))}
+                {weeks.flat().map((cell) => {
+                  const cellEvents = eventsByDate[cell.key] ?? [];
+                  const dots = dayDots(cellEvents);
+                  const isSelected = cell.key === selected;
+                  return (
+                    <button
+                      key={cell.key}
+                      type="button"
+                      onClick={() => pickDay(cell.key)}
+                      aria-pressed={isSelected}
+                      aria-current={cell.isToday ? 'date' : undefined}
+                      aria-label={`${labelForDateKey(cell.key)}, ${cellEvents.length} event${cellEvents.length === 1 ? '' : 's'}`}
+                      className="group flex h-[52px] flex-col items-center justify-center gap-[3px] outline-none"
+                    >
+                      {/* Today is the one filled day. A day you picked gets a
+                          ring, so the two can never be mistaken for each
+                          other. */}
+                      <span
+                        className={cn(
+                          'grid size-8 place-items-center rounded-full text-sm tabular-nums transition-colors group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-ring',
+                          cell.isToday
+                            ? 'bg-primary font-bold text-primary-foreground'
+                            : isSelected
+                              ? 'font-bold ring-2 ring-inset ring-foreground'
+                              : cn(
+                                  'font-medium group-hover:bg-muted',
+                                  cell.isOutside && 'text-muted-foreground/60',
+                                ),
+                        )}
+                      >
+                        {cell.day}
+                      </span>
+                      <span
+                        className="flex items-center gap-[3px]"
+                        style={{ height: DAY_DOT_SIZE, opacity: cell.isOutside ? 0.4 : 1 }}
+                      >
                         {dots.colors.map((color, i) => (
                           <span
                             key={i}
-                            // A selected cell is filled with `primary`, and a
-                            // type colour on top of that can disappear. The
-                            // fill already says which day is selected, so the
-                            // dots only have to stay visible.
-                            className={cn('rounded-full', isSelected && 'bg-primary-foreground')}
-                            style={{
-                              width: DAY_DOT_SIZE,
-                              height: DAY_DOT_SIZE,
-                              opacity: cell.isOutside ? 0.4 : 1,
-                              ...(isSelected ? {} : { backgroundColor: color }),
-                            }}
+                            className="rounded-full"
+                            style={{ width: DAY_DOT_SIZE, height: DAY_DOT_SIZE, backgroundColor: color }}
                           />
                         ))}
                         {dots.overflow > 0 && (
-                          <span
-                            className={cn(
-                              'text-[9px] font-bold leading-none',
-                              isSelected ? 'text-primary-foreground' : 'text-muted-foreground',
-                            )}
-                          >
+                          <span className="text-[9px] font-bold leading-none text-muted-foreground">
                             +{dots.overflow}
                           </span>
                         )}
                       </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
 
-        {/* Day detail + lists */}
-        <div className="min-w-0">
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="w-full">
-              <TabsTrigger value="day" className="flex-1">
-                {labelForDateKey(selected)}
-              </TabsTrigger>
-              <TabsTrigger value="upcoming" className="flex-1">
-                Upcoming
-              </TabsTrigger>
-              <TabsTrigger value="invites" className="flex-1">
-                Invites
-                {invitations.length > 0 && (
-                  <span className="ml-1 rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">
-                    {invitations.length}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="reminders" className="flex-1">
-                Reminders
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="day" className="mt-4">
-              {/* Each month is its own fetch now, so a month still on its way
-                  is not "Nothing on this day". */}
-              {isLoading && dayEvents.length === 0 ? (
-                <ListSkeleton rows={2} />
-              ) : dayEvents.length === 0 ? (
-                <Card>
-                  <EmptyState
-                    icon={CalendarDays}
-                    title="Nothing on this day"
-                    action={
-                      <Button size="sm" onClick={() => setCreatingEvent(true)}>
-                        Add an event
-                      </Button>
-                    }
-                  />
-                </Card>
-              ) : (
-                <ul className="flex flex-col gap-2">
-                  {dayEvents.map((event) => {
-                    // Undefined on a just-created event, which is always yours.
-                    const mine = event.is_owner !== false;
-                    const eventReminders = remindersByEvent.get(event.id) ?? [];
-                    return (
-                      <li key={event.id} id={`schedule-event-${event.id}`}>
-                        <Card
-                          className={cn(
-                            event.id === highlighted && 'border-primary ring-2 ring-primary/30',
-                          )}
-                        >
-                          <CardContent className="flex items-start gap-3 py-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-semibold">{event.title}</p>
-                              <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                                {event.event_time ? formatTime(event.event_time) : 'All day'}
-                                {event.location && (
-                                  <>
-                                    <span aria-hidden>·</span>
-                                    <MapPin className="size-3 shrink-0" />
-                                    <span className="truncate">{event.location}</span>
-                                  </>
-                                )}
-                              </p>
-                              {event.description && (
-                                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                                  {event.description}
-                                </p>
-                              )}
-                              {!mine && <OrganisedBy event={event} />}
-                              {/* A guest too: who else is going is theirs to
-                                  read, and was never shown. Read-only either
-                                  way — managing it is the Users button. */}
-                              <span className="mt-1 block">
-                                <AttendeeSummary eventId={event.id} />
-                              </span>
-                              {eventReminders.length > 0 && (
-                                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Bell className="size-3 shrink-0 text-primary" aria-hidden />
-                                  <span className="truncate">
-                                    {eventReminders.length === 1
-                                      ? `Reminder · ${reminderWhen(eventReminders[0].reminder_time)}`
-                                      : `${eventReminders.length} reminders · first ${reminderWhen(eventReminders[0].reminder_time)}`}
-                                  </span>
-                                </p>
-                              )}
-                              {/* A reminder is only ever yours, so a guest
-                                  sets one as freely as the organiser — the
-                                  phone's event screen offers it to both. A
-                                  word rather than one more icon: the row of
-                                  them already leaves the title little room. */}
-                              <Button
-                                size="xs"
-                                variant="link"
-                                className="mt-1 h-auto px-0"
-                                onClick={() => setRemindingFor(event)}
-                              >
-                                <BellPlus />
-                                Remind me
-                              </Button>
-                            </div>
-                            <div className="flex shrink-0 flex-col items-end gap-1">
-                              <Badge variant="secondary">
-                                {eventTypeLabel(event)}
-                              </Badge>
-                              {!mine && (
-                                <Badge variant="outline" className="text-[10px]">
-                                  Guest
-                                </Badge>
-                              )}
-                            </div>
-                            {/* Editing is open to anyone on the event. If this
-                                row is in your list at all you either own it or
-                                accepted an invitation to it — the API scopes
-                                the read to exactly those two — so no extra
-                                flag is needed to know you may change it. */}
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              aria-label="Edit event"
-                              onClick={() => setEditingEvent(event)}
-                            >
-                              <Pencil className="size-3.5" />
-                            </Button>
-                            {/* The guest list and deleting stay with whoever
-                                created it. */}
-                            {mine ? (
-                              <>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  aria-label="Manage who is invited"
-                                  onClick={() =>
-                                    setManaging({ id: event.id, title: event.title })
-                                  }
-                                >
-                                  <Users className="size-3.5" />
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  aria-label="Delete event"
-                                  onClick={() =>
-                                    setDeleting({ id: event.id, title: event.title })
-                                  }
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </Button>
-                              </>
-                            ) : (
-                              // A guest who accepted could not back out short of
-                              // asking the organiser. The API takes a decline
-                              // after an accept; this is the button for it.
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                aria-label="Can't make it"
-                                title="Can't make it"
-                                onClick={() =>
-                                  setLeaving({ id: event.id, title: event.title })
-                                }
-                              >
-                                <LogOut className="size-3.5" />
-                              </Button>
-                            )}
-                          </CardContent>
-                        </Card>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </TabsContent>
-
-            <TabsContent value="upcoming" className="mt-4">
-              {soonLoading && soonEvents.length === 0 ? (
-                <ListSkeleton rows={3} />
-              ) : upcoming.length === 0 ? (
-                <Card>
-                  <EmptyState
-                    icon={CalendarDays}
-                    title="Nothing upcoming"
-                    description="Nothing in the next 60 days. Later events are on the calendar."
-                  />
-                </Card>
-              ) : (
-                <ul className="flex flex-col gap-2">
-                  {upcoming.map((event) => (
-                    <li key={event.id}>
-                      <button
-                        className="w-full text-left"
-                        onClick={() => {
-                          setSelected(event.event_date);
-                          setCursor(new Date(`${event.event_date}T00:00:00`));
-                        }}
-                      >
-                        <Card className="transition-colors hover:border-primary/40">
-                          <CardContent className="py-3">
-                            <p className="truncate text-sm font-semibold">{event.title}</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {labelForDateKey(event.event_date)}
-                              {event.event_time ? ` · ${formatTime(event.event_time)}` : ''}
-                            </p>
-                            {event.is_owner === false && (
-                              <>
-                                <OrganisedBy event={event} />
-                                <Badge variant="outline" className="mt-1 text-[10px]">
-                                  Guest
-                                </Badge>
-                              </>
-                            )}
-                            <span className="mt-1 block">
-                              <AttendeeSummary eventId={event.id} />
-                            </span>
-                          </CardContent>
-                        </Card>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </TabsContent>
-
-            <TabsContent value="invites" className="mt-4">
-              <InvitationsTab />
-            </TabsContent>
-
-            <TabsContent value="reminders" className="mt-4">
-              <RemindersTab
-                onNew={() => setCreatingReminder(true)}
+            {/* Not beside the whole list of them, which would say it twice. */}
+            {view !== 'reminders' && (
+              <RemindersGlance
                 knownEvents={knownEvents}
+                onSeeAll={() => setView('reminders')}
+                onNew={() => setCreatingReminder(true)}
+                className="order-5 @4xl:order-none"
               />
-            </TabsContent>
-          </Tabs>
+            )}
+          </div>
+
+          <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-[2_1_480px] @4xl:flex-col @4xl:gap-7">
+            <Invitations linked={invitesLinked} className="order-2" />
+
+            {view === 'reminders' ? (
+              <div className="order-3">
+                <AllReminders
+                  onNew={() => setCreatingReminder(true)}
+                  onBack={() => setView('day')}
+                  knownEvents={knownEvents}
+                />
+              </div>
+            ) : view === 'upcoming' ? (
+              <section className="order-3">
+                <ListHead title="Coming up" onBack={() => setView('day')} />
+                {soonLoading && soonEvents.length === 0 ? (
+                  <RowsSkeleton rows={3} />
+                ) : upcoming.length === 0 ? (
+                  <div className={CARD}>
+                    <EmptyState
+                      icon={CalendarDays}
+                      title="Nothing upcoming"
+                      description="Nothing in the next 60 days. Later events are on the calendar."
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-5">
+                    {upcomingByMonth.map((group) => (
+                      <section key={group.month} aria-label={group.month}>
+                        <h3 className="mb-2 text-[13px] font-semibold text-muted-foreground">
+                          {group.month}
+                        </h3>
+                        <ul className={ROWS}>
+                          {group.events.map((event) => (
+                            <UpcomingRow
+                              key={event.id}
+                              event={event}
+                              workspace={workspaceOf(event)}
+                              going
+                              onOpen={() => openEvent(event)}
+                            />
+                          ))}
+                        </ul>
+                      </section>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : (
+              <>
+                {/* The picked day. Its rows lead with the hour, because the
+                    day is already in the title. */}
+                <section aria-labelledby="schedule-day" className="order-3">
+                  <SectionHead id="schedule-day" title={dayTitle(selected)}>
+                    <HeadLink onClick={() => setCreatingEvent(true)}>Add event</HeadLink>
+                  </SectionHead>
+                  {/* Each month is its own fetch now, so a month still on its
+                      way is not "Nothing on this day". */}
+                  {isLoading && dayEvents.length === 0 ? (
+                    <RowsSkeleton rows={2} />
+                  ) : dayEvents.length === 0 ? (
+                    // One row, not a block: most days have nothing on them.
+                    <button
+                      type="button"
+                      aria-label="Nothing on this day. Add event"
+                      onClick={() => setCreatingEvent(true)}
+                      className={cn(
+                        CARD,
+                        'flex min-h-[60px] w-full items-center gap-3 px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50',
+                      )}
+                    >
+                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-secondary-foreground">
+                        <CalendarDays aria-hidden className="size-[18px]" />
+                      </span>
+                      <span className="min-w-0 flex-1 text-muted-foreground">Nothing on this day</span>
+                      <span className="shrink-0 font-semibold text-primary">Add event</span>
+                    </button>
+                  ) : (
+                    <ul className={ROWS}>
+                      {dayEvents.map((event) => (
+                        <DayRow
+                          key={event.id}
+                          event={event}
+                          workspace={workspaceOf(event)}
+                          reminders={remindersByEvent.get(event.id) ?? []}
+                          onOpen={() => openEvent(event)}
+                          onEdit={() => setEditingEvent(event)}
+                          onGuests={() => setManaging(named(event))}
+                          onDelete={() => setDeleting(named(event))}
+                          onLeave={() => setLeaving(named(event))}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+
+                {/* What follows, in Home's rows, led by the date. */}
+                <section aria-labelledby="schedule-soon" className="order-4">
+                  <SectionHead id="schedule-soon" title="Coming up">
+                    <HeadLink aria-label="See all that is coming up" onClick={() => setView('upcoming')}>
+                      See all
+                    </HeadLink>
+                  </SectionHead>
+                  {soonLoading && soonEvents.length === 0 ? (
+                    <RowsSkeleton rows={3} />
+                  ) : soon.length === 0 ? (
+                    <p className={QUIET_ROW}>
+                      {upcoming.length === 0
+                        ? 'Nothing in the next 60 days. Later events are on the calendar.'
+                        : 'Nothing else in the next 60 days'}
+                    </p>
+                  ) : (
+                    <ul className={ROWS}>
+                      {soon.map((event) => (
+                        <UpcomingRow
+                          key={event.id}
+                          event={event}
+                          workspace={workspaceOf(event)}
+                          onOpen={() => openEvent(event)}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+          </div>
         </div>
       </div>
+
+      <EventPanel
+        eventId={panelEventId}
+        known={panelEventId ? knownEvents.get(panelEventId) : undefined}
+        onClose={() => setPanelEventId(null)}
+        onEdit={setEditingEvent}
+        onInvite={(event) => setManaging(named(event))}
+        onDelete={(event) => setDeleting(named(event))}
+        onLeave={(event) => setLeaving(named(event))}
+      />
 
       <EventDialog
         open={creatingEvent}
@@ -970,13 +1246,6 @@ function ScheduleContent() {
         />
       )}
       <NewReminderDialog open={creatingReminder} onOpenChange={setCreatingReminder} />
-      {remindingFor && (
-        <NewReminderDialog
-          open
-          onOpenChange={(next) => !next && setRemindingFor(null)}
-          event={remindingFor}
-        />
-      )}
       {/* Deleting an event was immediate and irreversible, with no undo and
           no trace — one mis-aimed click on a phone-sized target destroyed a
           booking and everyone's invitations to it. */}
@@ -1000,6 +1269,10 @@ function ScheduleContent() {
                       description: err.message,
                     }),
                 });
+                // Its panel goes with it, and a link that named it is done
+                // with: read again, it would only fail.
+                if (panelEventId === deleting.id) setPanelEventId(null);
+                if (linkedEventId === deleting.id) setLinkedEventId(null);
                 setDeleting(null);
               }}
             >
@@ -1030,6 +1303,8 @@ function ScheduleContent() {
                   { eventId: leaving.id, accept: false },
                   {
                     onSuccess: () => {
+                      if (panelEventId === leaving.id) setPanelEventId(null);
+                      if (linkedEventId === leaving.id) setLinkedEventId(null);
                       setLeaving(null);
                       toast.success('Taken off your schedule');
                     },

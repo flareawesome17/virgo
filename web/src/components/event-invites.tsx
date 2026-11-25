@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CARD } from '@/components/kit';
 import { useFriends } from '@/hooks/useFriends';
 import {
   useEventAttendees,
@@ -24,7 +25,10 @@ import {
 } from '@/hooks/useScheduleEvents';
 import type { AttendeeStatus } from '@/api';
 
-function initials(name: string): string {
+/** Two letters for a face with no photo: one from each of two names, or the first two of one. */
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length > 1) return (words[0][0] + words[1][0]).toUpperCase();
   return name.trim().slice(0, 2).toUpperCase();
 }
 
@@ -348,5 +352,115 @@ export function AttendeeSummary({ eventId }: { eventId: string }) {
       {waiting > 0 && <span>· {waiting} pending</span>}
       {declined > 0 && <span>· {declined} declined</span>}
     </span>
+  );
+}
+
+/** What somebody said, as an event's panel puts it beside their name. */
+const PANEL_STATUS: Record<AttendeeStatus, string> = {
+  pending: 'Invited',
+  accepted: 'Going',
+  declined: 'Not going',
+};
+
+/**
+ * " · 2 going", on the end of an event's row.
+ *
+ * A count where the card had faces and names: the row is one line now, and
+ * the names are a click away in the event's panel. Nobody having said yes
+ * yet is still worth a word, so the count falls back to who was asked.
+ */
+export function AttendeeCount({ eventId }: { eventId: string }) {
+  const { attendees } = useEventAttendees(eventId);
+  if (attendees.length === 0) return null;
+
+  const going = attendees.filter((a) => a.status === 'accepted').length;
+  const waiting = attendees.filter((a) => a.status === 'pending').length;
+  const text =
+    going > 0 ? `${going} going` : waiting > 0 ? `${waiting} invited` : `${attendees.length} declined`;
+  return <> · {text}</>;
+}
+
+function PersonRow({
+  name,
+  you = false,
+  avatarUrl,
+  status,
+}: {
+  name: string;
+  /** The reader's own row, which says "You" under their own face. */
+  you?: boolean;
+  avatarUrl: string | null;
+  status: string;
+}) {
+  return (
+    <li className="flex min-h-[52px] items-center gap-3 px-4 py-2">
+      <Avatar className="size-8">
+        <AvatarImage src={avatarUrl ?? undefined} />
+        <AvatarFallback className="text-xs font-bold">{initials(name)}</AvatarFallback>
+      </Avatar>
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{you ? 'You' : name}</span>
+      <span className="shrink-0 text-[13px] text-muted-foreground">{status}</span>
+    </li>
+  );
+}
+
+/**
+ * Who is coming, in an event's panel: whoever organised it first, then
+ * everyone asked and what each of them said.
+ *
+ * Read-only. Changing the list is the guests dialog, which only the
+ * organiser is offered.
+ */
+export function AttendeeRows({
+  eventId,
+  organiser,
+  youId,
+}: {
+  eventId: string;
+  /** Whose event it is, when that is known. `you` when it is the reader's own. */
+  organiser: { name: string; avatarUrl: string | null; you?: boolean } | null;
+  /** The reader's own account, so their row among the guests says "You". */
+  youId?: string;
+}) {
+  const { attendees, isLoading, loadFailed, refetch } = useEventAttendees(eventId);
+
+  return (
+    <ul className={cn(CARD, 'overflow-hidden [&>*+*]:border-t [&>*+*]:border-border/40')}>
+      {organiser && (
+        <PersonRow
+          name={organiser.name}
+          you={organiser.you}
+          avatarUrl={organiser.avatarUrl}
+          status="Organiser"
+        />
+      )}
+      {attendees.map((person) => (
+        <PersonRow
+          key={person.id}
+          name={person.name}
+          you={person.user_id === youId}
+          avatarUrl={person.avatar_url}
+          status={PANEL_STATUS[person.status]}
+        />
+      ))}
+      {/* Said only when there is nothing else to show: an organiser alone on
+          the list already says nobody has been asked. */}
+      {attendees.length === 0 && (isLoading || loadFailed || !organiser) && (
+        <li className="flex min-h-[52px] items-center px-4 py-2 text-sm text-muted-foreground">
+          {isLoading ? (
+            'Loading…'
+          ) : loadFailed ? (
+            <span>
+              Could not load who is invited.{' '}
+              <button type="button" className="underline" onClick={() => refetch()}>
+                Try again
+              </button>
+            </span>
+          ) : (
+            'Nobody invited yet.'
+          )}
+        </li>
+      )}
+    </ul>
   );
 }

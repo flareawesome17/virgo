@@ -2,12 +2,23 @@
 
 import Link from 'next/link';
 import { useState, type ComponentType } from 'react';
-import { Bookmark, CloudOff, ImageIcon, Loader2, Lock, Play } from 'lucide-react';
+import {
+  Bookmark,
+  ChevronRight,
+  CloudOff,
+  ImageIcon,
+  Loader2,
+  Lock,
+  Play,
+  Plus,
+} from 'lucide-react';
+import { CARD } from '@/components/kit';
 import { EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ShelfMosaic, shelfCoverUrls } from '@/components/showcase/kept-grid';
+import { NewShelfDialog } from '@/components/showcase/new-shelf-form';
 import { opensInPlace } from '@/components/showcase/open-in-place';
 import { ShowcaseDialog } from '@/components/showcase/showcase-dialog';
 import { ShowcaseHost } from '@/components/showcase/showcase-host';
@@ -25,6 +36,13 @@ import { cn } from '@/lib/utils';
 export type WorkTasteTab = 'work' | 'taste';
 
 /**
+ * Two across on a phone-sized window, then as many 220px tiles as fit: the
+ * one grid for a profile's work and for its shelves.
+ */
+const TILES =
+  'grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-[repeat(auto-fill,minmax(220px,1fr))] sm:gap-x-5 sm:gap-y-6';
+
+/**
  * The two halves of a creative: what they made, and what they respond to.
  *
  * The phone's ProfileWorkTaste. One component for both profiles, so the page
@@ -35,7 +53,11 @@ export type WorkTasteTab = 'work' | 'taste';
  * handle, and posting does not, so anybody without one saw nothing over posts
  * they had made. Your own list also keeps your private posts, marked, which
  * is the one place to find them again; and your private shelves, which
- * nobody else sees, after "All kept", which is everything on all of them.
+ * nobody else sees.
+ *
+ * Your own Taste leads with All kept — everything you kept, whatever shelf
+ * it is on — as a row of its own, then the shelves as tiles, and last a
+ * dashed tile that makes another.
  *
  * A post opens over the profile, drawn as the feed draws it, as it does from
  * a shelf: one way of looking at a post wherever it is found.
@@ -63,6 +85,7 @@ export function ProfileWorkTaste({
   const work = isSelf ? ownWork : visitorWork;
   const taste = isSelf ? ownTaste : visitorTaste;
   const [open, setOpen] = useState<string | null>(null);
+  const [addingShelf, setAddingShelf] = useState(false);
 
   // "All kept" leads your own Taste once there is anything kept at all.
   const showAllKept = isSelf && allKept.total > 0;
@@ -104,7 +127,7 @@ export function ProfileWorkTaste({
             </Card>
           ) : (
             <>
-              <div className="mt-4 grid grid-cols-2 gap-1.5 overflow-hidden rounded-xl sm:grid-cols-3">
+              <div className={cn(TILES, 'mt-4')}>
                 {work.showcases.map((showcase) => (
                   <WorkTile
                     key={showcase.id}
@@ -159,39 +182,88 @@ export function ProfileWorkTaste({
             />
           </Card>
         ) : (
-          <ul className="mt-4 grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3">
+          <div className="mt-4 flex flex-col gap-6">
             {showAllKept && (
-              <ShelfTile
-                href="/kept"
-                name="All kept"
-                count={allKept.total}
+              <AllKeptRow
+                total={allKept.total}
                 urls={allKept.entries.slice(0, 4).map((entry) => entry.url)}
-                detail="Only you"
               />
             )}
-            {taste.shelves.map((shelf) => (
-              <ShelfTile
-                key={shelf.id}
-                // Somebody else's shelf is read through the public route; the
-                // default is your own, and asking for a shelf that is not
-                // yours there answers 404.
-                href={
-                  isSelf
-                    ? `/shelf/${shelf.id}`
-                    : `/shelf/${shelf.id}?own=0&name=${encodeURIComponent(shelf.name)}`
-                }
-                name={shelf.name}
-                count={shelf.count}
-                urls={shelfCoverUrls(shelf)}
-                detail={shelf.isPublic ? undefined : 'Private'}
-              />
-            ))}
-          </ul>
+
+            <section className="flex flex-col gap-4">
+              <h2 className="text-base font-bold leading-6 tracking-tight">
+                Shelves{' '}
+                <span className="font-medium text-muted-foreground">
+                  {taste.shelves.length} {taste.shelves.length === 1 ? 'shelf' : 'shelves'}
+                </span>
+              </h2>
+              <ul className={TILES}>
+                {taste.shelves.map((shelf) => (
+                  <ShelfTile
+                    key={shelf.id}
+                    // Somebody else's shelf is read through the public route; the
+                    // default is your own, and asking for a shelf that is not
+                    // yours there answers 404. It is told whose it is, too: the
+                    // shelf itself does not say.
+                    href={
+                      isSelf
+                        ? `/shelf/${shelf.id}`
+                        : `/shelf/${shelf.id}?own=0&name=${encodeURIComponent(shelf.name)}&by=${encodeURIComponent(firstName)}`
+                    }
+                    name={shelf.name}
+                    count={shelf.count}
+                    urls={shelfCoverUrls(shelf)}
+                    isPrivate={!shelf.isPublic}
+                  />
+                ))}
+                {isSelf && (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => setAddingShelf(true)}
+                      className="flex aspect-square w-full flex-col items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-muted-foreground/40 text-[15px] font-semibold text-secondary-foreground outline-none transition-colors hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      <Plus aria-hidden className="size-[22px]" />
+                      New shelf
+                    </button>
+                  </li>
+                )}
+              </ul>
+            </section>
+          </div>
         )}
       </div>
 
       <ShowcaseDialog showcaseId={open} onClose={() => setOpen(null)} />
+      {isSelf && <NewShelfDialog open={addingShelf} onClose={() => setAddingShelf(false)} />}
     </ShowcaseHost>
+  );
+}
+
+/**
+ * Everything you kept, whatever shelf it is on: one row across the page
+ * rather than a tile among the shelves, because it is not one of them.
+ */
+function AllKeptRow({ total, urls }: { total: number; urls: string[] }) {
+  const pieces = `${total} ${total === 1 ? 'piece' : 'pieces'}`;
+  return (
+    <Link
+      href="/kept"
+      aria-label={`All kept, ${pieces}, only you see this list`}
+      className={cn(
+        CARD,
+        'flex min-h-[84px] items-center gap-4 py-3 pl-3 pr-4 outline-none transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50',
+      )}
+    >
+      <ShelfMosaic urls={urls} className="w-[60px] shrink-0 rounded-[10px]" />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="text-[15px] font-semibold leading-5">All kept</span>
+        <span className="text-[13px] leading-[18px] text-muted-foreground">
+          {pieces} · only you see this list
+        </span>
+      </span>
+      <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground/70" />
+    </Link>
   );
 }
 
@@ -201,45 +273,42 @@ function ShelfTile({
   name,
   count,
   urls,
-  detail,
+  isPrivate,
 }: {
   href: string;
   name: string;
   count: number;
   urls: string[];
-  /** "Private", or who sees it, when that is not everyone. */
-  detail?: string;
+  isPrivate: boolean;
 }) {
   return (
-    <li>
+    <li className="min-w-0">
       <Link
         href={href}
-        aria-label={`${name}, ${count} kept${detail ? `, ${detail.toLowerCase()}` : ''}`}
-        className="group block rounded-xl outline-offset-2"
+        aria-label={`${name}, ${count} kept, ${isPrivate ? 'private' : 'public'}`}
+        className="group flex flex-col gap-2 outline-none"
       >
         <ShelfMosaic
           urls={urls}
-          className="transition-opacity group-hover:opacity-90 motion-reduce:transition-none"
+          className="rounded-2xl ring-ring/50 transition-opacity group-hover:opacity-90 group-focus-visible:ring-3 motion-reduce:transition-none"
         />
-        <p className="mt-1.5 truncate text-[13px] font-semibold group-hover:underline">{name}</p>
-        <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-          {count} kept
-          {detail && (
-            <>
-              <span aria-hidden>·</span>
-              <Lock className="size-3" />
-              {detail}
-            </>
-          )}
-        </p>
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-[15px] font-semibold leading-5">{name}</span>
+          <span className="flex items-center gap-[5px] text-[13px] leading-[18px] text-muted-foreground">
+            {isPrivate && <Lock aria-hidden className="size-3 shrink-0" />}
+            {count} kept · {isPrivate ? 'Private' : 'Public'}
+          </span>
+        </span>
       </Link>
     </li>
   );
 }
 
 /**
- * The cover of one showcase. A click opens the post over the profile; a
- * click for a new tab still goes to its own page.
+ * One showcase: its cover upright, 4:5, with its title and what kind of work
+ * it is under it, as on the phone. A square cut a portrait photograph down
+ * to its middle. A click opens the post over the profile; a click for a new
+ * tab still goes to its own page.
  */
 function WorkTile({
   showcase,
@@ -251,6 +320,9 @@ function WorkTile({
   onOpen: () => void;
 }) {
   const cover = showcase.pieces[0];
+  const about = [showcase.category, showcase.keptCount > 0 ? `${showcase.keptCount} kept` : null]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <Link
       href={`/showcase/${showcase.id}`}
@@ -258,34 +330,42 @@ function WorkTile({
         if (opensInPlace(event)) onOpen();
       }}
       aria-label={showcase.title ?? 'Open this showcase'}
-      className="group relative block aspect-square overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      className="group flex min-w-0 flex-col outline-none"
     >
-      {cover && (
-        <PieceImage
-          piece={cover}
-          alt={showcase.title ?? ''}
-          sizes="(max-width: 640px) 50vw, 300px"
-          className="transition-transform duration-500 group-hover:scale-105 motion-reduce:transition-none"
-        />
-      )}
-      {cover?.kind === 'video' && (
-        <span className="pointer-events-none absolute inset-0 grid place-items-center">
-          <span className="grid size-10 place-items-center rounded-full bg-black/50 text-white">
-            <Play size={16} fill="currentColor" />
+      <span className="relative block aspect-[4/5] overflow-hidden rounded-2xl bg-muted ring-ring/50 group-focus-visible:ring-3">
+        {cover && (
+          <PieceImage
+            piece={cover}
+            alt={showcase.title ?? ''}
+            sizes="(max-width: 640px) 50vw, 300px"
+            className="transition-transform duration-500 group-hover:scale-105 motion-reduce:transition-none"
+          />
+        )}
+        {cover?.kind === 'video' && (
+          <span className="pointer-events-none absolute inset-0 grid place-items-center">
+            <span className="grid size-10 place-items-center rounded-full bg-black/50 text-white">
+              <Play size={16} fill="currentColor" />
+            </span>
           </span>
-        </span>
-      )}
-      {showcase.pieces.length > 1 && (
-        <span className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">
-          {showcase.pieces.length}
-        </span>
-      )}
-      {isSelf && <StatusBadge status={showcaseStatus(showcase)} />}
+        )}
+        {showcase.pieces.length > 1 && (
+          <span className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">
+            {showcase.pieces.length}
+          </span>
+        )}
+        {isSelf && <StatusBadge status={showcaseStatus(showcase)} />}
+      </span>
       {showcase.title && (
-        <span className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/75 to-transparent p-2.5 text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-          {showcase.title}
-        </span>
+        <span className="mt-2 truncate text-sm font-semibold leading-5">{showcase.title}</span>
       )}
+      <span
+        className={cn(
+          'truncate text-xs leading-4 text-muted-foreground',
+          !showcase.title && 'mt-2',
+        )}
+      >
+        {about || 'Post'}
+      </span>
     </Link>
   );
 }

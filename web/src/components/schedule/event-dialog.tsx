@@ -1,31 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
 import { DiscardChangesDialog } from '@/components/discard-changes-dialog';
 import { InvitePeople } from '@/components/event-invites';
 import { LocationField } from '@/components/location-field';
+import {
+  ChoiceChip,
+  FORM_INPUT,
+  FORM_SUBMIT,
+  FORM_TEXTAREA,
+  FormCard,
+  FormField,
+  FormRow,
+  FormSection,
+  FormSwitchRow,
+} from '@/components/kit';
 import {
   useCreateScheduleEvent,
   useInviteToEvent,
@@ -33,12 +28,22 @@ import {
 } from '@/hooks/useScheduleEvents';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import type { EventType, ScheduleEvent } from '@/api';
+import { parseDateKey } from '@/lib/calendar';
 import { useDiscardGuard, useGuardedClose, useOpeningKey } from '@/lib/discard-guard';
+import { cn } from '@/lib/utils';
+import {
+  FORM_FIELD_FILL,
+  FORM_ROW_CORNERS,
+  FORM_ROW_INPUT,
+  FormDialogContent,
+  FormInputRow,
+  FormSelectRow,
+} from './form-dialog';
 
 /**
  * Written out with labels rather than capitalising the value, because one of
- * them is not a word — "Others (specify)" is an instruction, and `other`
- * capitalised reads as a category nobody would pick on purpose.
+ * them is not a kind at all: "Other" asks for the name the person gives it,
+ * and that name is what every screen then prints.
  */
 const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'event', label: 'Event' },
@@ -46,7 +51,7 @@ const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'review', label: 'Review' },
   { value: 'delivery', label: 'Delivery' },
   { value: 'meeting', label: 'Meeting' },
-  { value: 'other', label: 'Others (specify)' },
+  { value: 'other', label: 'Other' },
 ];
 
 
@@ -62,6 +67,14 @@ function timeInputValue(event: ScheduleEvent | undefined): string {
 
 /** The workspace select's value for an event that belongs to none. */
 const NO_WORKSPACE = 'none';
+
+/**
+ * LocationField as the value of a row: its own box and pin taken off, its
+ * text set to the right like the values under it. Done from outside because
+ * the job forms use the same field as a box, and must keep it.
+ */
+const PLACE_IN_ROW =
+  'min-w-0 flex-1 [&>div>svg]:hidden [&_input]:h-9 [&_input]:border-0 [&_input]:bg-transparent [&_input]:pl-2 [&_input]:pr-1 [&_input]:text-right [&_input]:font-semibold [&_input::placeholder]:font-normal [&_input:focus-visible]:ring-0 dark:[&_input]:bg-transparent';
 
 
 export type EventDialogProps = {
@@ -117,6 +130,8 @@ function EventDialogForm({
   const [otherLabel, setOtherLabel] = useState(event?.event_type_other ?? '');
   const [location, setLocation] = useState(event?.location ?? '');
   const [guests, setGuests] = useState<string[]>([]);
+  /** Whether the people to invite are on show under their row. */
+  const [inviting, setInviting] = useState(false);
   const [workspaceId, setWorkspaceId] = useState(
     event?.workspace_id ?? defaultWorkspaceId ?? NO_WORKSPACE,
   );
@@ -136,15 +151,15 @@ function EventDialogForm({
     { title, description, date, time, allDay, type, otherLabel, location, guests, workspaceId },
     open,
   );
-  // Escape, the overlay, the X and Cancel all come through `close`. A save
-  // closes through onOpenChange directly, which nobody needs to confirm.
+  // Escape, the overlay and the X all come through `close`. A save closes
+  // through onOpenChange directly, which nobody needs to confirm.
   const guard = useGuardedClose(dirty, onOpenChange);
   const close = guard.close;
   const eventTime = allDay ? null : time || null;
 
   const submit = () => {
     const trimmed = title.trim();
-    if (!trimmed || !date || needsLabel) return;
+    if (!trimmed || !date || needsLabel || pending) return;
 
     // Sent on every save, not only when `other` is chosen: switching away from
     // it has to clear the old name, and omitting the field would leave the
@@ -219,180 +234,198 @@ function EventDialogForm({
     );
   };
 
+  // Enter in a one-line field saves, as in the other two Create forms. Not
+  // while an input method is still composing the word being typed.
+  const submitOnEnter = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
+  };
+
+  const chosenWorkspace = listed.find((w) => w.id === workspaceId);
+
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{editing ? 'Edit event' : 'New event'}</DialogTitle>
-          <DialogDescription>
-            {!editing
-              ? 'A shoot, an edit, a meeting — or anything else you name.'
-              : guestEdit
-                ? // Says who owns it and that the change is not quiet. Editing
-                  // somebody else's event should feel like an act with an
-                  // audience, because it is one.
-                  event?.organiser_name
-                  ? `This is ${event.organiser_name}’s event. They and everyone going will be told what you changed.`
-                  : 'This is not your event. The organiser and everyone going will be told what you changed.'
-                : 'Anyone who accepted sees these changes on their own calendar.'}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="event-title">Title</Label>
-            <Input
-              id="event-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Reyes wedding — ceremony"
-              autoFocus
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="event-date">Date</Label>
-              {/* A native date input: the browser gives a real, localised,
-                  keyboard-accessible picker for free. */}
-              <Input
-                id="event-date"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="event-time">Time</Label>
-              <Input
-                id="event-time"
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                disabled={allDay}
-              />
-            </div>
-          </div>
-
-          <div className="-mt-1 flex items-center gap-2">
-            <Checkbox
-              id="event-all-day"
-              checked={allDay}
-              onCheckedChange={(checked) => {
-                const next = checked === true;
-                setAllDay(next);
-                // Cleared rather than kept behind the box: unticking it later
-                // should not bring back a time that was decided against.
-                if (next) setTime('');
-              }}
-            />
-            <Label htmlFor="event-all-day" className="font-normal">
-              All day
-            </Label>
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Type</Label>
-            <Select value={type} onValueChange={(v) => setType(v as EventType)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {EVENT_TYPES.map(({ value, label }) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {type === 'other' && (
-              <Input
-                id="event-type-other"
-                value={otherLabel}
-                onChange={(e) => setOtherLabel(e.target.value)}
-                placeholder="Client viewing"
-                maxLength={40}
-                aria-label="What kind of event"
-                autoFocus
-              />
-            )}
-          </div>
-
-          {!guestEdit && ownWorkspaces.length > 0 && (
-            <div className="grid gap-2">
-              <Label htmlFor="event-workspace">Workspace</Label>
-              <Select value={workspaceId} onValueChange={setWorkspaceId}>
-                <SelectTrigger id="event-workspace">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_WORKSPACE}>None</SelectItem>
-                  {ownWorkspaces.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>
-                      {w.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          <div className="grid gap-2">
-            <Label htmlFor="event-location">Where</Label>
-            <LocationField
-              id="event-location"
-              value={location}
-              onChange={setLocation}
-              placeholder="Cebu City, or the venue"
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="event-description">Notes</Label>
-            <Textarea
-              id="event-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional"
-              rows={3}
-            />
-          </div>
-
-          {/* Guests are managed from the event's own Users button once it
-              exists, so an edit does not offer to invite anyone. */}
-          {!editing && (
-            <div className="grid gap-2 border-t pt-3">
-              <Label>
-                Invite collaborators
-                {guests.length > 0 && (
-                  <span className="ml-1 font-normal text-muted-foreground">
-                    · {guests.length} selected
-                  </span>
-                )}
-              </Label>
-              <p className="-mt-1 text-xs text-muted-foreground">
-                They choose whether to join. Accepting puts it on their calendar.
-              </p>
-              <InvitePeople selected={guests} onChange={setGuests} />
-            </div>
-          )}
-        </div>
-
-        {/* Pinned, so Save is reachable however tall the form grows. */}
-        <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 border-t bg-popover p-4">
-          <Button variant="outline" onClick={() => close(false)}>
-            Cancel
-          </Button>
+      <FormDialogContent
+        wide
+        title={editing ? 'Edit event' : 'New event'}
+        // An edit says who else it reaches before anything is changed.
+        // Editing somebody else's event should feel like an act with an
+        // audience, because it is one.
+        notice={editing}
+        description={
+          !editing
+            ? 'A shoot, an edit, a meeting — or anything else you name.'
+            : guestEdit
+              ? event?.organiser_name
+                ? `This is ${event.organiser_name}’s event. They and everyone going will be told what you changed.`
+                : 'This is not your event. The organiser and everyone going will be told what you changed.'
+              : 'Anyone who accepted sees these changes on their own calendar.'
+        }
+        footer={
           <Button
+            type="button"
+            className={FORM_SUBMIT}
             onClick={submit}
             disabled={!title.trim() || !date || needsLabel || pending}
           >
             {pending && <Loader2 className="size-4 animate-spin" />}
             {editing ? 'Save changes' : 'Create event'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        }
+      >
+        {/* What it is, first, as on the phone. */}
+        <FormField label="What is it?" htmlFor="event-title">
+          <Input
+            id="event-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={submitOnEnter}
+            placeholder="Prenup shoot, Ana & Marco"
+            className={cn(FORM_INPUT, FORM_FIELD_FILL)}
+            autoFocus
+          />
+        </FormField>
+
+        <FormField label="Kind">
+          <div role="group" aria-label="Kind" className="flex flex-wrap gap-2">
+            {EVENT_TYPES.map(({ value, label }) => (
+              <ChoiceChip key={value} on={type === value} onClick={() => setType(value)}>
+                {label}
+              </ChoiceChip>
+            ))}
+          </div>
+          {type === 'other' && (
+            <Input
+              id="event-type-other"
+              value={otherLabel}
+              onChange={(e) => setOtherLabel(e.target.value)}
+              onKeyDown={submitOnEnter}
+              placeholder="Client viewing"
+              maxLength={40}
+              aria-label="What kind of event"
+              className={cn(FORM_INPUT, FORM_FIELD_FILL, 'mt-1')}
+              autoFocus
+            />
+          )}
+        </FormField>
+
+        <FormSection title="When">
+          <FormCard>
+            <FormInputRow label="Date" htmlFor="event-date">
+              {date && (
+                <span aria-hidden className="text-muted-foreground">
+                  {parseDateKey(date).toLocaleDateString('en-US', { weekday: 'short' })}
+                </span>
+              )}
+              {/* A native date input: the browser gives a real, localised,
+                  keyboard-accessible picker for free, and it takes typing. */}
+              <input
+                id="event-date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className={FORM_ROW_INPUT}
+              />
+            </FormInputRow>
+            {!allDay && (
+              <FormInputRow label="Time" htmlFor="event-time">
+                <input
+                  id="event-time"
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className={FORM_ROW_INPUT}
+                />
+              </FormInputRow>
+            )}
+            <FormSwitchRow
+              label="All day"
+              checked={allDay}
+              onCheckedChange={(next) => {
+                setAllDay(next);
+                // Cleared rather than kept behind the switch: turning it off
+                // later should not bring back a time that was decided against.
+                if (next) setTime('');
+              }}
+            />
+          </FormCard>
+        </FormSection>
+
+        <FormSection title={editing ? 'Where' : 'Where and who'}>
+          {/* Not clipped, unlike every other card: the place's suggestions
+              drop out of the bottom of its row. */}
+          <FormCard className="overflow-visible">
+            <div
+              className={cn(
+                'flex min-h-12 items-center gap-3 pl-4 pr-3 text-sm transition-colors focus-within:bg-muted/50',
+                FORM_ROW_CORNERS,
+              )}
+            >
+              <label htmlFor="event-location" className="shrink-0 text-secondary-foreground">
+                Place
+              </label>
+              <div className={PLACE_IN_ROW}>
+                <LocationField
+                  id="event-location"
+                  value={location}
+                  onChange={setLocation}
+                  placeholder="Cebu City, or the venue"
+                />
+              </div>
+            </div>
+
+            {!guestEdit && ownWorkspaces.length > 0 && (
+              <FormSelectRow
+                id="event-workspace"
+                label="Workspace"
+                value={workspaceId}
+                onValueChange={setWorkspaceId}
+                display={
+                  workspaceId === NO_WORKSPACE ? 'None' : (chosenWorkspace?.name ?? 'Another workspace')
+                }
+                placeholder={workspaceId === NO_WORKSPACE}
+                options={[
+                  { value: NO_WORKSPACE, label: 'None' },
+                  ...ownWorkspaces.map((w) => ({ value: w.id, label: w.name })),
+                ]}
+                className={FORM_ROW_CORNERS}
+              />
+            )}
+
+            {/* Guests are managed from the event's own panel once it exists,
+                so an edit does not offer to invite anyone. */}
+            {!editing && (
+              <FormRow
+                label="Invite"
+                value={guests.length > 0 ? `${guests.length} chosen` : 'Nobody yet'}
+                placeholder={guests.length === 0}
+                aria-expanded={inviting}
+                aria-controls="event-invite"
+                onClick={() => setInviting((on) => !on)}
+                className={FORM_ROW_CORNERS}
+              />
+            )}
+            {!editing && inviting && (
+              <div id="event-invite" className="flex flex-col gap-2 px-4 py-3">
+                <p className="text-xs text-muted-foreground">
+                  They choose whether to join. Accepting puts it on their calendar.
+                </p>
+                <InvitePeople selected={guests} onChange={setGuests} />
+              </div>
+            )}
+          </FormCard>
+        </FormSection>
+
+        <FormField label="Notes" htmlFor="event-description" optional>
+          <Textarea
+            id="event-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What to bring, where to park…"
+            rows={3}
+            className={cn(FORM_TEXTAREA, FORM_FIELD_FILL)}
+          />
+        </FormField>
+      </FormDialogContent>
       <DiscardChangesDialog guard={guard} />
     </Dialog>
   );
