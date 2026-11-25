@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState, type ReactNode } from 'react';
 import { ArrowLeft, ChartColumn, ChevronLeft, ChevronRight, Landmark, Repeat } from 'lucide-react';
 import { categoryLabel, formatMoney, todayIso, type MoneyInsights, type MoneyKind } from '@/api';
@@ -10,6 +10,7 @@ import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CategoryIcon } from '@/components/money/icons';
+import { MoneyTabs, moneyTabHref } from '@/components/money/money-tabs';
 import { useMoneyInsights, useMoneyRecurring } from '@/hooks/useMoney';
 import { cn } from '@/lib/utils';
 
@@ -171,6 +172,7 @@ export default function InsightsPage() {
  * (mobile/app/(app)/money/insights.tsx), laid out for a wider window.
  */
 function Insights() {
+  const router = useRouter();
   const params = useSearchParams();
   const today = todayIso();
   const thisYear = Number(today.slice(0, 4));
@@ -219,6 +221,11 @@ function Insights() {
   return (
     <Screen title="Insights">
       <PageHeader title="Insights" description="Only you can see this" />
+      {/* Money's tabs, at the width they have on Money, so they stay where
+          they were when Insights is the one chosen. */}
+      <div className="mx-auto w-full max-w-[1200px] px-4 pt-3 sm:px-6">
+        <MoneyTabs value="insights" onChange={(tab) => tab !== 'insights' && router.push(moneyTabHref(tab))} />
+      </div>
       <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
           <Link href="/money">
