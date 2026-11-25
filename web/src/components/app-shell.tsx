@@ -58,6 +58,8 @@ import { VerifyEmailBanner } from '@/components/verify-email-banner';
 import { DesktopUpdateBanner } from '@/components/desktop-update-banner';
 import { OfflineBanner } from '@/components/offline-banner';
 import { UploadDock } from '@/components/upload/upload-dock';
+import { AudioDock } from '@/components/media/audio-dock';
+import { AudioPlaybackProvider } from '@/components/media/audio-playback';
 import { DesktopTitleBar } from '@/components/desktop-title-bar';
 import { IS_DESKTOP } from '@/lib/desktop';
 import { DesktopAttention } from '@/components/desktop-attention';
@@ -475,7 +477,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   // as Chat was a banner taller than the room it had, and its composer slid
   // off the bottom. Offline first: being offline explains most other failures.
   const page = (
-    <>
+    // Above the pages rather than inside any of them: a recording keeps
+    // playing when you leave the album that started it.
+    <AudioPlaybackProvider>
       <div className="shrink-0 empty:hidden">
         <OfflineBanner />
         <DesktopUpdateBanner />
@@ -485,7 +489,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <SlotsContext.Provider value={slots}>{children}</SlotsContext.Provider>
       </main>
-    </>
+      {/* What is playing, in a row of its own under the page: the page ends
+          above the bar, so its last rows are never covered. */}
+      <AudioDock />
+    </AudioPlaybackProvider>
   );
 
   /*
@@ -599,16 +606,22 @@ export function Screen({ title, children }: { title?: ReactNode; children: React
  * beside it, and the description as the line under the name. Where the bar
  * has no room for the buttons, on a phone-sized window, they sit at the top
  * of the page instead.
+ *
+ * `beside` sits in the bar straight after the name: the desktop app's pages
+ * put their tabs or filter chips there, so the list starts one row higher.
+ * The web's bar has the description under the name and no room for it.
  */
 export function PageHeader({
   title,
   description,
   actions,
+  beside,
   className,
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  beside?: ReactNode;
   className?: string;
 }) {
   const { title: titleSlot, actions: actionsSlot } = useContext(SlotsContext);
@@ -618,16 +631,23 @@ export function PageHeader({
     <>
       {titleSlot &&
         createPortal(
-          <div className="min-w-0">
-            <h1 className="flex min-w-0 items-center gap-1 truncate text-[15px] font-semibold leading-tight">
-              {title}
-            </h1>
-            {description && (
-              <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                {description}
-              </p>
+          <>
+            <div className="min-w-0">
+              <h1 className="flex min-w-0 items-center gap-1 truncate text-[15px] font-semibold leading-tight">
+                {title}
+              </h1>
+              {description && (
+                <p className="hidden truncate text-xs text-muted-foreground sm:block">
+                  {description}
+                </p>
+              )}
+            </div>
+            {/* Gives way three times as fast as the name, so a long line
+                beside it is cut before the page's name is. */}
+            {beside && (
+              <div className="ml-2 flex min-w-0 shrink-[3] items-center gap-2 overflow-hidden">{beside}</div>
             )}
-          </div>,
+          </>,
           titleSlot,
         )}
       {actions && wide && actionsSlot && createPortal(actions, actionsSlot)}

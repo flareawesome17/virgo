@@ -1,16 +1,19 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
-import { Archive, ArrowLeft, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
+import { Archive, ArrowLeft, ChevronRight, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
+import { CARD, FilterChip } from '@/components/kit';
 import { EmptyState, ErrorState } from '@/components/states';
 import { WorkspaceInvitations } from '@/components/workspace-invitations';
 import { WorkspaceCard } from '@/components/workspaces/workspace-card';
 import { CreateWorkspaceDialog } from '@/components/workspaces/create-workspace-dialog';
+import { DesktopWorkspaces } from '@/components/workspaces/desktop-workspaces';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -23,17 +26,58 @@ import {
 import { useDeletedWorkspaces, useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAlbums } from '@/hooks/useAlbums';
 import { useUsage } from '@/hooks/useUsage';
+import { IS_DESKTOP } from '@/lib/desktop';
 import { plural } from '@/lib/workspaces';
 import { cn } from '@/lib/utils';
 
 type Scope = 'all' | 'yours' | 'shared';
 type Sort = 'last_activity_at' | 'name' | 'created_at';
 
+const SCOPES: { value: Scope; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'yours', label: 'Yours' },
+  { value: 'shared', label: 'Shared with you' },
+];
+
 const SORTS: { value: Sort; label: string }[] = [
   { value: 'last_activity_at', label: 'Recent activity' },
   { value: 'name', label: 'Name' },
   { value: 'created_at', label: 'Newest' },
 ];
+
+/** As many across as fit at 300px each, and one across on a phone. */
+const GRID = 'grid grid-cols-[repeat(auto-fill,minmax(min(300px,100%),1fr))] gap-x-5 gap-y-7';
+
+/** A place to go from the end of the list: its name, how many are in it, a chevron. */
+function PlaceRow({
+  href,
+  icon: Icon,
+  label,
+  count,
+  divided,
+}: {
+  href: string;
+  icon: LucideIcon;
+  label: string;
+  count: number;
+  divided: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-label={`${label}, ${count}`}
+      className={cn(
+        'flex min-h-[52px] items-center gap-3 px-4 transition-colors hover:bg-muted/50',
+        divided && 'border-t border-border/40',
+      )}
+    >
+      <Icon className="size-[18px] shrink-0 text-secondary-foreground" aria-hidden />
+      <span className="flex-1 text-sm font-semibold">{label}</span>
+      <span className="text-[13px] tabular-nums text-muted-foreground">{count}</span>
+      <ChevronRight className="size-[15px] shrink-0 text-muted-foreground/70" aria-hidden />
+    </Link>
+  );
+}
 
 function WorkspacesContent() {
   const searchParams = useSearchParams();
@@ -88,8 +132,12 @@ function WorkspacesContent() {
 
   const yours = workspaces.filter((w) => w.is_owner);
   const shared = workspaces.filter((w) => !w.is_owner);
+  // Only when there is something to tell apart: a filter with one side empty
+  // is a control that does nothing. And only while its chips are on the page,
+  // so the archive is never narrowed by a choice nobody can see or undo.
+  const scoped = !showArchived && yours.length > 0 && shared.length > 0;
   const query = search.trim().toLowerCase();
-  const inScope = scope === 'yours' ? yours : scope === 'shared' ? shared : workspaces;
+  const inScope = scoped && scope === 'yours' ? yours : scoped && scope === 'shared' ? shared : workspaces;
   const filtered = query
     ? inScope.filter(
         (w) =>
@@ -99,6 +147,11 @@ function WorkspacesContent() {
       )
     : inScope;
   const albumCount = workspaces.reduce((sum, w) => sum + w.album_count, 0);
+  const counts: Record<Scope, number> = {
+    all: workspaces.length,
+    yours: yours.length,
+    shared: shared.length,
+  };
 
   const startCreate = () => {
     if (atWorkspaceLimit) {
@@ -106,6 +159,11 @@ function WorkspacesContent() {
       return;
     }
     setCreating(true);
+  };
+
+  const showAll = () => {
+    setSearch('');
+    setScope('all');
   };
 
   const summary = showArchived
@@ -117,6 +175,39 @@ function WorkspacesContent() {
       ]
         .filter(Boolean)
         .join(' · ');
+
+  // The desktop app's own layout: a table with the chosen workspace beside
+  // it. The queries, the filter, the order and the search are the ones
+  // above, handed over as they are; the web's grid below is untouched.
+  if (IS_DESKTOP) {
+    return (
+      <Screen title="Workspaces">
+        <DesktopWorkspaces
+          archived={showArchived}
+          workspaces={workspaces}
+          shown={filtered}
+          albums={albums}
+          loading={isLoading}
+          failed={loadFailed}
+          onRetry={() => refetch()}
+          scopes={SCOPES}
+          scoped={scoped}
+          scope={scope}
+          onScope={setScope}
+          counts={counts}
+          sort={sort}
+          onSort={setSort}
+          search={search}
+          onSearch={setSearch}
+          onShowAll={showAll}
+          archivedCount={archivedCount}
+          deletedCount={deleted.length}
+        />
+        {/* Still here for a ?new=1 link, which opens it from the page. */}
+        <CreateWorkspaceDialog open={creating} onOpenChange={setCreating} />
+      </Screen>
+    );
+  }
 
   return (
     <Screen title="Workspaces">
@@ -138,94 +229,67 @@ function WorkspacesContent() {
         // phone. The empty state keeps its own, for a first one.
       />
 
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 sm:px-6 py-6">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 pb-12 pt-6 sm:px-6">
         {/* Above the toolbar and the grid on purpose: an invitation is the one
             thing here that expires on someone else's patience. */}
         {!showArchived && <WorkspaceInvitations />}
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {!showArchived && yours.length > 0 && shared.length > 0 && (
-            <div role="group" aria-label="Show" className="flex gap-0.5 rounded-[10px] bg-muted p-0.5">
-              {(
-                [
-                  ['all', 'All'],
-                  ['yours', `Yours · ${yours.length}`],
-                  ['shared', `Shared with you · ${shared.length}`],
-                ] as [Scope, string][]
-              ).map(([value, label]) => (
-                <button
+        <div className="flex flex-wrap items-center gap-2">
+          {scoped && (
+            <div role="group" aria-label="Show" className="flex flex-wrap items-center gap-2">
+              {SCOPES.map(({ value, label }) => (
+                <FilterChip
                   key={value}
-                  type="button"
-                  aria-pressed={scope === value}
+                  on={scope === value}
+                  // With how many each holds, so the choice is not a guess.
+                  count={counts[value]}
                   onClick={() => setScope(value)}
-                  className={cn(
-                    'h-8 rounded-lg px-3.5 text-[13px] transition-colors',
-                    scope === value
-                      ? 'bg-card font-semibold text-foreground shadow-xs'
-                      : 'font-medium text-secondary-foreground hover:text-foreground',
-                  )}
                 >
                   {label}
-                </button>
+                </FilterChip>
               ))}
             </div>
           )}
 
-          <Select value={sort} onValueChange={(v) => setSort(v as Sort)}>
-            <SelectTrigger className="h-9 w-40" aria-label="Sort by">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORTS.map((s) => (
-                <SelectItem key={s.value} value={s.value}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+            <Select value={sort} onValueChange={(v) => setSort(v as Sort)}>
+              <SelectTrigger
+                className="w-40 shrink-0 rounded-[10px] bg-card font-semibold data-[size=default]:h-9"
+                aria-label="Sort by"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORTS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          <div className="relative w-full max-w-64 flex-1 sm:flex-none">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="workspace-search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search workspaces"
-              aria-label="Search workspaces"
-              className="h-9 pl-9"
-            />
+            <div className="relative min-w-0 flex-1 sm:w-60 sm:flex-none">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-[15px] -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="workspace-search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search workspaces"
+                aria-label="Search workspaces"
+                className="h-9 rounded-[10px] bg-card pl-9"
+              />
+            </div>
           </div>
-
-          {!showArchived && (archivedCount > 0 || deleted.length > 0) && (
-            <div className="ml-auto flex items-center gap-1">
-              {archivedCount > 0 && (
-                <Button
-                  variant="ghost"
-                  className="text-secondary-foreground"
-                  onClick={() => router.push('/workspaces?archived=1')}
-                >
-                  <Archive className="size-4" />
-                  Archived · {archivedCount}
-                </Button>
-              )}
-              {deleted.length > 0 && (
-                <Button
-                  variant="ghost"
-                  className="text-secondary-foreground"
-                  onClick={() => router.push('/workspaces/deleted')}
-                >
-                  <Trash2 className="size-4" />
-                  Recently deleted · {deleted.length}
-                </Button>
-              )}
-            </div>
-          )}
         </div>
 
         {isLoading && workspaces.length === 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className={GRID}>
             {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-64 rounded-2xl" />
+              <div key={i} className="flex flex-col gap-2.5">
+                <Skeleton className="aspect-[16/10] rounded-[14px]" />
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3.5 w-1/2" />
+              </div>
             ))}
           </div>
         ) : loadFailed && workspaces.length === 0 ? (
@@ -233,33 +297,70 @@ function WorkspacesContent() {
           // is gone when the request simply never arrived.
           <ErrorState message="Could not load your workspaces." onRetry={() => refetch()} />
         ) : filtered.length === 0 ? (
-          <Card>
-            <EmptyState
-              icon={showArchived ? Archive : FolderOpen}
-              title={query ? 'No matches' : showArchived ? 'Nothing archived' : 'No workspaces yet'}
-              description={
-                query
-                  ? `Nothing matched “${search.trim()}”.`
-                  : showArchived
+          <div className={CARD}>
+            {workspaces.length > 0 ? (
+              // Narrowed down to nothing, which is not the same as having none.
+              <EmptyState
+                icon={Search}
+                title="Nothing matches"
+                description={query ? `No workspace matches “${search.trim()}”.` : 'Nothing here yet.'}
+                action={
+                  <Button variant="secondary" onClick={showAll}>
+                    Show all
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={showArchived ? Archive : FolderOpen}
+                title={showArchived ? 'Nothing archived' : 'No workspaces yet'}
+                description={
+                  showArchived
                     ? 'Archive a workspace from its settings when the job is done.'
                     : 'A workspace holds the albums, schedule and people for one client.'
-              }
-              action={
-                query || showArchived ? undefined : (
-                  <Button onClick={startCreate}>
-                    <Plus className="size-4" />
-                    Create your first workspace
-                  </Button>
-                )
-              }
-            />
-          </Card>
+                }
+                action={
+                  showArchived ? undefined : (
+                    <Button onClick={startCreate}>
+                      <Plus className="size-4" />
+                      Create your first workspace
+                    </Button>
+                  )
+                }
+              />
+            )}
+          </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className={GRID}>
             {filtered.map((workspace) => (
               <WorkspaceCard key={workspace.id} workspace={workspace} albums={albums} />
             ))}
           </div>
+        )}
+
+        {/* One quiet group at the end, in the rows Settings uses: these are
+            places to go, not work, so they do not look like workspaces. */}
+        {!showArchived && (archivedCount > 0 || deleted.length > 0) && (
+          <nav aria-label="Archived and deleted" className={cn(CARD, 'flex max-w-[560px] flex-col overflow-hidden')}>
+            {archivedCount > 0 && (
+              <PlaceRow
+                href="/workspaces?archived=1"
+                icon={Archive}
+                label="Archived"
+                count={archivedCount}
+                divided={false}
+              />
+            )}
+            {deleted.length > 0 && (
+              <PlaceRow
+                href="/workspaces/deleted"
+                icon={Trash2}
+                label="Recently deleted"
+                count={deleted.length}
+                divided={archivedCount > 0}
+              />
+            )}
+          </nav>
         )}
       </div>
 

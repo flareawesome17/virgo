@@ -3,7 +3,7 @@
 import { forwardRef, useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import { CheckCircle2, Upload, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { COMPOSER_OFFSET_VAR, MINI_PLAYER_VAR, dockFloorCss } from '@/lib/edge-offsets';
+import { AUDIO_DOCK_VAR, COMPOSER_OFFSET_VAR, MINI_PLAYER_VAR, dockFloorCss } from '@/lib/edge-offsets';
 import {
   clampDockBottom,
   dockBounds,
@@ -53,7 +53,7 @@ export const UploadDockIcon = forwardRef<HTMLButtonElement, Props>(function Uplo
     dockBounds({
       viewportHeight: window.innerHeight,
       size: DOCK_ICON_SIZE,
-      floorOffset: Math.max(px(MINI_PLAYER_VAR), px(COMPOSER_OFFSET_VAR)),
+      floorOffset: Math.max(px(MINI_PLAYER_VAR), px(COMPOSER_OFFSET_VAR)) + px(AUDIO_DOCK_VAR),
       topInset: TOP_INSET,
       margin: MARGIN,
     });

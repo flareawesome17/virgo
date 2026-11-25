@@ -2,33 +2,57 @@
 
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useMemo, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   CalendarPlus,
+  FolderPlus,
   FolderX,
   Images,
   Lock,
   LogOut,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Settings2,
   UserPlus,
-  Users,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader, Screen } from '@/components/app-shell';
+import {
+  CARD,
+  DateTile,
+  PageTabs,
+  Pill,
+  SectionTitle,
+  StatusDot,
+  dateTileParts,
+  type PageTab,
+} from '@/components/kit';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states';
 import { NewAlbumDialog } from '@/components/new-album-dialog';
 import { ActivityFeed } from '@/components/workspaces/activity-feed';
-import { PeopleStack, PersonAvatar, Pill, WorkspaceTile } from '@/components/workspaces/bits';
+import { PersonAvatar } from '@/components/workspaces/bits';
+import { Faces } from '@/components/workspaces/faces';
 import { InviteDialog } from '@/components/workspaces/invite-dialog';
 import { MembersPanel } from '@/components/workspaces/members-panel';
 import { WorkspaceSettingsDialog } from '@/components/workspaces/settings-dialog';
+import {
+  workspaceCover,
+  workspaceHolds,
+  workspaceTint,
+  yoursLine,
+} from '@/components/workspaces/workspace-card';
+import { WorkspaceUpload } from '@/components/workspaces/workspace-upload';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,21 +72,36 @@ import { useAlbums } from '@/hooks/useAlbums';
 import { useResendInvitation } from '@/hooks/useCollaborators';
 import { useScheduleEvents } from '@/hooks/useScheduleEvents';
 import { useUsage } from '@/hooks/useUsage';
-import { formatBytes, type Album, type ScheduleEvent, type Workspace } from '@/api';
+import type { Album, AlbumStatus, ScheduleEvent, Workspace, WorkspaceMember } from '@/api';
 import { IS_DESKTOP } from '@/lib/desktop';
-import { formatTime, isEventUpcoming, parseDateKey } from '@/lib/calendar';
+import { eventColor, eventTypeLabel, formatTime, isEventUpcoming } from '@/lib/calendar';
 import {
   ACCESS_LABEL,
   albumContents,
   firstName,
   invitedWhen,
-  joinNames,
-  plural,
   roleInSentence,
 } from '@/lib/workspaces';
+import { cn } from '@/lib/utils';
 
 const TABS = ['overview', 'albums', 'members', 'schedule'] as const;
 type Tab = (typeof TABS)[number];
+
+/** The page's width and rhythm, the same as the list it was opened from. */
+const PAGE = 'mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 pb-12 pt-6 sm:px-6';
+
+/** A button beside the name: 40px tall, its icon set in from the edge. */
+const ACTION = 'h-10 rounded-[10px] pl-3 pr-4 font-semibold';
+
+/** Album tiles: four across beside the page's second column, more where they have the width. */
+const TILES = 'grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-4 gap-y-5';
+const TILES_WIDE = 'grid grid-cols-[repeat(auto-fill,minmax(min(190px,100%),1fr))] gap-x-4 gap-y-5';
+
+/** A draft says nothing on its cover: a status is news once the album has one. */
+const ALBUM_STATUS: Partial<Record<AlbumStatus, { label: string; tone: 'good' | 'warm' }>> = {
+  review: { label: 'In review', tone: 'warm' },
+  delivered: { label: 'Delivered', tone: 'good' },
+};
 
 /** "Private", "Shared with 2", "Offered to 1": who can open an album. */
 function sharingLabel(album: Album): string {
@@ -73,17 +112,32 @@ function sharingLabel(album: Album): string {
   return 'Private';
 }
 
-function AlbumTile({ album, showSharing }: { album: Album; showSharing: boolean }) {
-  const label = sharingLabel(album);
-  const isPrivate = label === 'Private';
+/**
+ * An album as a picture: its status on the cover, and a lock there when
+ * nobody else can open it.
+ *
+ * Who it is shared with, or what you may do in it, is a line of its own under
+ * the size: a tile is too narrow for the count, the size and "Shared with 2"
+ * together, and it was the sharing that got cut off.
+ */
+function AlbumTile({
+  album,
+  locked = false,
+  note,
+}: {
+  album: Album;
+  locked?: boolean;
+  note?: string | null;
+}) {
+  const status = ALBUM_STATUS[album.status];
   return (
     <Link
       href={`/albums/${album.id}`}
-      className="group flex min-w-0 flex-col gap-1.5 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      className="group flex min-w-0 flex-col rounded-[14px] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
     >
-      <span className="block aspect-[4/3] overflow-hidden rounded-[10px] bg-muted">
+      <span className="relative block aspect-[4/3] overflow-hidden rounded-[14px] bg-muted">
         {album.cover_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
+          // eslint-disable-next-line @next/next/no-img-element -- a signed storage URL, not an asset to optimise
           <img
             src={album.cover_url}
             alt=""
@@ -92,63 +146,225 @@ function AlbumTile({ album, showSharing }: { album: Album; showSharing: boolean 
           />
         ) : (
           <span className="grid size-full place-items-center">
-            <Images className="size-6 text-muted-foreground" />
+            <Images className="size-6 text-muted-foreground" aria-hidden />
+          </span>
+        )}
+        {status && (
+          // On the page's colour, so the pill's tint reads the same over any photograph.
+          <span className="absolute left-2 top-2 flex rounded-full bg-background">
+            <Pill tone={status.tone}>{status.label}</Pill>
+          </span>
+        )}
+        {locked && (
+          <span className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-black/60 text-white">
+            <Lock role="img" aria-label="Private" className="size-3" strokeWidth={2.4} />
           </span>
         )}
       </span>
-      <span className="truncate text-[13px] font-semibold">{album.name}</span>
-      {/* Who can open it on a line of its own: a tile is too narrow for the
-          count, the size and "Shared with 2" together, and it was the
-          sharing — the part that asks for something — that got cut off. */}
-      <span className="truncate text-xs text-muted-foreground">{albumContents(album)}</span>
-      {showSharing && (
-        <span
-          className={`-mt-1 flex items-center gap-1 truncate text-xs ${isPrivate ? 'text-warning' : 'text-muted-foreground'}`}
-        >
-          {isPrivate && <Lock className="size-3 shrink-0" aria-hidden />}
-          {label}
-        </span>
-      )}
+      <span className="mt-2 truncate text-sm font-semibold leading-5">{album.name}</span>
+      <span className="truncate text-xs leading-4 text-muted-foreground">{albumContents(album)}</span>
+      {note && <span className="truncate text-xs leading-4 text-muted-foreground">{note}</span>}
     </Link>
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function AlbumTiles({
+  albums,
+  showSharing = false,
+  showAccess = false,
+  wide = false,
+}: {
+  albums: Album[];
+  /** The owner's view: say which albums nobody else can open. */
+  showSharing?: boolean;
+  /** A member's view: say what they may do in each. */
+  showAccess?: boolean;
+  wide?: boolean;
+}) {
   return (
-    <div className="min-w-0 flex-1 basis-36 rounded-xl border bg-card px-4 py-3.5">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-[22px] font-bold tabular-nums tracking-tight">{value}</p>
-      {sub && <p className="mt-0.5 truncate text-xs text-muted-foreground">{sub}</p>}
+    <div className={wide ? TILES_WIDE : TILES}>
+      {albums.map((album) => {
+        const sharing = sharingLabel(album);
+        const locked = showSharing && sharing === 'Private';
+        const note =
+          showSharing && !locked
+            ? sharing
+            : showAccess && album.my_access && album.my_access !== 'owner'
+              ? `You can ${ACCESS_LABEL[album.my_access].toLowerCase()}`
+              : null;
+        return <AlbumTile key={album.id} album={album} locked={locked} note={note} />;
+      })}
     </div>
   );
 }
 
-function EventRow({ event }: { event: ScheduleEvent }) {
-  const date = parseDateKey(event.event_date);
+function TileSkeletons({ count, wide = false }: { count: number; wide?: boolean }) {
   return (
-    <Link
-      href={`/schedule?date=${event.event_date}`}
-      className="flex items-center gap-3 rounded-lg hover:bg-muted/60"
-    >
-      <span className="flex h-[52px] w-12 shrink-0 flex-col items-center justify-center rounded-[10px] bg-primary/10 text-primary">
-        <span className="text-[11px] font-bold tracking-[0.08em]">
-          {date.toLocaleDateString(undefined, { month: 'short' }).toUpperCase()}
-        </span>
-        <span className="text-xl font-bold leading-[22px]">{date.getDate()}</span>
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold">{event.title}</span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {[
-            date.toLocaleDateString(undefined, { weekday: 'short' }),
-            event.event_time ? formatTime(event.event_time) : 'All day',
-            event.location,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </span>
-      </span>
-    </Link>
+    <div className={wide ? TILES_WIDE : TILES}>
+      {Array.from({ length: count }).map((_, i) => (
+        <Skeleton key={i} className="aspect-[4/3] rounded-[14px]" />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Dated rows: the tile every dated row starts with, what it is and where, and
+ * the hour at the end.
+ *
+ * `byMonth` is for the list that runs on past this month: the tile says the
+ * month there, and the weekday moves into the line under the title.
+ */
+function EventRows({ events, byMonth = false }: { events: ScheduleEvent[]; byMonth?: boolean }) {
+  return (
+    <>
+      {events.map((event, i) => {
+        const date = dateTileParts(event.event_date);
+        const weekday = date.weekday.charAt(0) + date.weekday.slice(1).toLowerCase();
+        const kind = [byMonth ? weekday : null, eventTypeLabel(event), event.location?.trim()]
+          .filter(Boolean)
+          .join(' · ');
+        return (
+          <Link
+            key={event.id}
+            href={`/schedule?date=${event.event_date}`}
+            className={cn(
+              'flex min-h-[60px] items-center gap-3 py-2 pl-2.5 pr-4 transition-colors hover:bg-muted/50',
+              i > 0 && 'border-t border-border/40',
+            )}
+          >
+            <DateTile top={byMonth ? date.month : date.weekday} day={date.day} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm font-semibold">{event.title}</span>
+              <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+                <StatusDot color={eventColor(event.event_type)} className="size-[7px]" />
+                <span className="truncate">{kind}</span>
+              </span>
+            </span>
+            <span className="shrink-0 text-[13px] font-semibold tabular-nums text-secondary-foreground">
+              {event.event_time ? formatTime(event.event_time) : 'All day'}
+            </span>
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
+/** Something waiting on the owner, across the top of Overview: one row for each kind. */
+function NeedRow({
+  icon: Icon,
+  lead,
+  rest,
+  action,
+  onAction,
+  disabled = false,
+}: {
+  icon: LucideIcon;
+  lead: string;
+  rest: string;
+  action: string;
+  onAction: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={cn(CARD, 'flex min-h-[52px] items-center gap-3 px-4 py-2.5')}>
+      <Icon className="size-[18px] shrink-0 text-primary" aria-hidden />
+      <p className="min-w-0 flex-1 text-sm">
+        <span className="font-semibold">{lead}</span>{' '}
+        <span className="text-muted-foreground">{rest}</span>
+      </p>
+      <Button
+        variant="link"
+        className="h-auto shrink-0 p-0 font-semibold"
+        disabled={disabled}
+        onClick={onAction}
+      >
+        {action}
+      </Button>
+    </div>
+  );
+}
+
+/** A section's title with a button beside it, where the kit's SectionTitle takes only a link. */
+function SectionHead({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="mb-2.5 flex items-center justify-between gap-3">
+      <h2 className="text-base font-bold tracking-tight">{children}</h2>
+      {action}
+    </div>
+  );
+}
+
+/** The bar's half of a workspace: the way back, and its name. */
+function BarTitle({ workspace }: { workspace: Workspace }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      {/* The desktop title bar already has back and forward. */}
+      {!IS_DESKTOP && (
+        <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
+          <Link href="/workspaces" aria-label="Back to workspaces">
+            <ArrowLeft className="size-4" />
+          </Link>
+        </Button>
+      )}
+      <span className="truncate">{workspace.name}</span>
+      {workspace.archived_at && <Pill>Archived</Pill>}
+    </span>
+  );
+}
+
+/**
+ * The top of a workspace: a photograph from it across the page, then its
+ * name, what it holds and whose it is, with the page's buttons beside them.
+ *
+ * It was a letter on a square in the bar and four tiles of counts. A
+ * workspace is a client's photographs; the one thing its own page did not
+ * show was any of them. With no photograph yet, the band is its own colour.
+ */
+function Hero({
+  workspace,
+  albums,
+  people,
+  whose,
+  children,
+}: {
+  workspace: Workspace;
+  /** Its albums, to find the cover among. */
+  albums: Album[];
+  people: { name: string; avatar_url: string | null }[];
+  /** "Yours · 3 members", or who shared it and as what. */
+  whose: string;
+  /** The buttons. */
+  children: ReactNode;
+}) {
+  const cover = workspaceCover(workspace, albums);
+  return (
+    <>
+      <div
+        className="h-40 overflow-hidden rounded-[20px] sm:h-[220px]"
+        style={{ backgroundColor: workspaceTint(workspace) }}
+      >
+        {cover && (
+          // eslint-disable-next-line @next/next/no-img-element -- a signed storage URL, not an asset to optimise
+          <img src={cover} alt="" className="size-full object-cover" />
+        )}
+      </div>
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex min-w-0 flex-1 basis-[360px] flex-col gap-1">
+          <h2 className="text-[26px] font-bold leading-8 tracking-[-0.025em]">{workspace.name}</h2>
+          <p className="text-sm text-secondary-foreground">{workspaceHolds(workspace)}</p>
+          <p className="mt-0.5 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
+            <Faces people={people} max={5} />
+            <span className="min-w-0">
+              {workspace.archived_at ? 'Archived · ' : ''}
+              {whose}
+            </span>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">{children}</div>
+      </div>
+    </>
   );
 }
 
@@ -194,12 +410,6 @@ function OwnerWorkspace({ workspace }: { workspace: Workspace }) {
       `${a.event_date} ${a.event_time ?? ''}`.localeCompare(`${b.event_date} ${b.event_time ?? ''}`),
     );
 
-  const storageUsed = usage?.storage.usedBytes ?? 0;
-  const share =
-    storageUsed > 0 && workspace.storage_bytes
-      ? Math.max(1, Math.round((workspace.storage_bytes / storageUsed) * 100))
-      : null;
-
   const startCreateAlbum = () => {
     if (isAlbumLimitReached(workspace.album_total)) {
       toast.error('This workspace is full', {
@@ -213,272 +423,236 @@ function OwnerWorkspace({ workspace }: { workspace: Workspace }) {
 
   const invite = (preselect: string | null = null) => setInviting({ preselect });
 
-  const peopleNames = present.map((m) => (m.is_you ? 'You' : firstName(m.name)));
+  const sendAgain = (member: WorkspaceMember) =>
+    resend.mutate(member.id!, {
+      onSuccess: () => toast.success(`Sent to ${firstName(member.name)} again`),
+      onError: (err: Error) => toast.error('Not sent', { description: err.message }),
+    });
+
+  const newEventHref = `/schedule?new=1&workspace=${workspace.id}`;
+  const pages: PageTab<Tab>[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'albums', label: 'Albums', count: workspace.album_count },
+    { key: 'members', label: 'Members', count: workspace.member_count },
+    { key: 'schedule', label: 'Schedule', count: upcoming.length },
+  ];
 
   return (
     <>
       <PageHeader
-        title={
-          <span className="flex items-center gap-3">
-            {/* The desktop title bar already has back and forward. */}
-            {!IS_DESKTOP && (
-              <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-                <Link href="/workspaces" aria-label="Back to workspaces">
-                  <ArrowLeft className="size-4" />
-                </Link>
-              </Button>
-            )}
-            <WorkspaceTile name={workspace.name} color={workspace.accent_color} className="size-9 text-sm" />
-            <span className="truncate">{workspace.name}</span>
-            {workspace.archived_at && <Pill tone="muted">Archived</Pill>}
-          </span>
-        }
+        title={<BarTitle workspace={workspace} />}
         description={workspace.description || undefined}
-        actions={
-          <>
-            <Button variant="outline" onClick={() => invite()}>
-              <UserPlus className="size-4" />
-              Invite
-            </Button>
-            <Button onClick={startCreateAlbum}>
-              <Plus className="size-4" />
-              New album
-            </Button>
-            <Button variant="ghost" size="icon" aria-label="Workspace settings" onClick={() => setEditing(true)}>
-              <Settings2 className="size-4" />
-            </Button>
-          </>
-        }
       />
 
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 sm:px-6 py-5">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Pill>Yours</Pill>
-          <PeopleStack people={present} size="size-7" max={5} />
-          <span className="text-xs text-muted-foreground">
-            {present.length <= 1 ? 'Only you so far' : joinNames(peopleNames)}
-          </span>
-        </div>
+      <div className={PAGE}>
+        <Hero
+          workspace={workspace}
+          albums={albums}
+          // The members once they are known, you among them; until then the
+          // faces the workspace itself came with.
+          people={present.length > 0 ? present : workspace.people}
+          whose={yoursLine(workspace)}
+        >
+          {/* One filled button, and the rest quiet beside it: putting files
+              in is what a workspace is for. */}
+          <WorkspaceUpload
+            workspaceId={workspace.id}
+            albums={albums}
+            loading={loadingAlbums}
+            onNewAlbum={startCreateAlbum}
+            className={ACTION}
+          />
+          <Button variant="secondary" className={ACTION} onClick={startCreateAlbum}>
+            <FolderPlus />
+            New album
+          </Button>
+          <Button variant="secondary" className={ACTION} onClick={() => invite()}>
+            <UserPlus />
+            Invite
+          </Button>
+          <Button asChild variant="secondary" className={ACTION}>
+            <Link href={newEventHref}>
+              <CalendarPlus />
+              Add to schedule
+            </Link>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" className="size-10 rounded-[10px]" aria-label="Workspace options">
+                <MoreHorizontal className="size-[18px]" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onSelect={() => setEditing(true)}>
+                <Settings2 />
+                Workspace settings
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </Hero>
 
-        <div className="flex flex-wrap gap-3">
-          <Stat
-            label="Albums"
-            value={workspace.album_count.toLocaleString()}
-            sub={
-              unshared.length > 0
-                ? `${unshared.length} not shared yet`
-                : hasPeople
-                  ? 'All shared with someone'
-                  : 'Only you can see them'
-            }
-          />
-          <Stat
-            label="Files"
-            value={workspace.media_count.toLocaleString()}
-            sub={
-              workspace.files_this_week > 0
-                ? `${workspace.files_this_week.toLocaleString()} added this week`
-                : 'None added this week'
-            }
-          />
-          <Stat
-            label="Storage"
-            value={formatBytes(workspace.storage_bytes ?? 0)}
-            sub={share !== null ? `${share}% of what you use` : undefined}
-          />
-          <Stat
-            label="Members"
-            value={workspace.member_count.toLocaleString()}
-            sub={
-              workspace.pending_count > 0
-                ? `${plural(workspace.pending_count, 'invite')} waiting`
-                : workspace.member_count <= 1
-                  ? 'Just you'
-                  : 'No invites waiting'
-            }
-          />
-        </div>
+        <PageTabs tabs={pages} value={tab} onChange={setTab} label="Workspace pages" />
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="albums">
-              Albums <span className="ml-1 text-xs text-muted-foreground tabular-nums">{workspace.album_count}</span>
-            </TabsTrigger>
-            <TabsTrigger value="members">
-              Members <span className="ml-1 text-xs text-muted-foreground tabular-nums">{workspace.member_count}</span>
-            </TabsTrigger>
-            <TabsTrigger value="schedule">
-              Schedule <span className="ml-1 text-xs text-muted-foreground tabular-nums">{upcoming.length}</span>
-            </TabsTrigger>
-          </TabsList>
+        {tab === 'overview' && (
+          <div role="tabpanel" aria-label="Overview" className="flex flex-col gap-6">
+            {(unshared.length > 0 || waiting.length > 0) && (
+              <div className="flex flex-col gap-2.5">
+                {unshared.length > 0 && (
+                  <NeedRow
+                    icon={Lock}
+                    lead={
+                      unshared.length === 1
+                        ? `${unshared[0].name} is private.`
+                        : `${unshared.length} albums are private.`
+                    }
+                    rest={unshared.length === 1 ? 'Only you see it.' : 'Only you see them.'}
+                    action="Share"
+                    onAction={() => setTab('members')}
+                  />
+                )}
+                {/* One invitation is resent from here. Several are a list,
+                    and the list with a Resend on each row is in Members. */}
+                {waiting.length === 1 && (
+                  <NeedRow
+                    icon={RefreshCw}
+                    lead={`${firstName(waiting[0].name)} hasn’t answered your invitation.`}
+                    rest={`Sent ${invitedWhen(waiting[0].invited_at)}, as ${roleInSentence(waiting[0].role)}.`}
+                    action="Resend"
+                    disabled={resend.isPending}
+                    onAction={() => sendAgain(waiting[0])}
+                  />
+                )}
+                {waiting.length > 1 && (
+                  <NeedRow
+                    icon={RefreshCw}
+                    lead={`${waiting.length} invitations haven’t been answered.`}
+                    rest="Resend or cancel them from Members."
+                    action="See"
+                    onAction={() => setTab('members')}
+                  />
+                )}
+              </div>
+            )}
 
-          <TabsContent value="overview" className="mt-4">
-            <div className="grid gap-4 lg:grid-cols-3">
-              <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
-                <section className="rounded-2xl border bg-card p-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-[15px] font-semibold">Albums</h2>
-                    {albums.length > 0 && (
-                      <Button variant="link" size="sm" className="px-0" onClick={() => setTab('albums')}>
+            <div className="flex flex-wrap items-start gap-7">
+              <section className="flex min-w-0 flex-[2_1_480px] flex-col">
+                <SectionHead
+                  action={
+                    albums.length > 0 && (
+                      <Button
+                        variant="link"
+                        className="h-auto p-0 font-semibold"
+                        onClick={() => setTab('albums')}
+                      >
                         See all
                       </Button>
-                    )}
-                  </div>
-                  {loadingAlbums ? (
-                    <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-5">
-                      {[0, 1, 2].map((i) => (
-                        <Skeleton key={i} className="aspect-[4/3] rounded-[10px]" />
-                      ))}
-                    </div>
-                  ) : albums.length === 0 ? (
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-sm text-muted-foreground">
-                        No albums yet. An album holds one shoot or one delivery.
-                      </p>
-                      <Button size="sm" variant="outline" onClick={startCreateAlbum}>
-                        <Plus className="size-4" />
-                        New album
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-                      {albums.slice(0, 5).map((album) => (
-                        <AlbumTile key={album.id} album={album} showSharing={hasPeople} />
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                <section className="rounded-2xl border bg-card px-4 pb-1 pt-3.5">
-                  <h2 className="mb-1 text-[15px] font-semibold">What’s been happening</h2>
-                  <ActivityFeed workspaceId={workspace.id} waiting={waitingIds} limit={8} />
-                </section>
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-4">
-                <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-                  <h2 className="text-[15px] font-semibold">Needs you</h2>
-                  {unshared.length === 0 && waiting.length === 0 ? (
+                    )
+                  }
+                >
+                  Albums
+                </SectionHead>
+                {loadingAlbums ? (
+                  <TileSkeletons count={4} />
+                ) : albumsFailed && albums.length === 0 ? (
+                  <ErrorState message="Could not load these albums." onRetry={() => refetchAlbums()} />
+                ) : albums.length === 0 ? (
+                  <div className={cn(CARD, 'flex flex-wrap items-center justify-between gap-3 px-4 py-3.5')}>
                     <p className="text-sm text-muted-foreground">
-                      {hasPeople
-                        ? 'Nothing right now. Every album is shared with someone and every invitation is answered.'
-                        : 'Nothing right now. Invite someone when you want help with this job.'}
+                      No albums yet. An album holds one shoot or one delivery.
                     </p>
-                  ) : (
-                    <>
-                      {unshared.slice(0, 3).map((album) => (
-                        <div key={album.id} className="flex items-start gap-2.5 border-t pt-3 first-of-type:border-t-0 first-of-type:pt-0">
-                          <Lock className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-semibold">{album.name} isn’t shared with anyone</p>
-                            <p className="text-xs text-muted-foreground">New albums start private.</p>
-                          </div>
-                          <Button size="sm" variant="outline" onClick={() => setTab('members')}>
-                            Share
-                          </Button>
-                        </div>
-                      ))}
-                      {waiting.slice(0, 3).map((member) => (
-                        <div key={member.id} className="flex items-start gap-2.5 border-t pt-3 first-of-type:border-t-0 first-of-type:pt-0">
-                          <RefreshCw className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-semibold">
-                              {firstName(member.name)} hasn’t answered your invitation
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Sent {invitedWhen(member.invited_at)}, as {roleInSentence(member.role)}.
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={resend.isPending}
-                            onClick={() =>
-                              resend.mutate(member.id!, {
-                                onSuccess: () => toast.success(`Sent to ${firstName(member.name)} again`),
-                                onError: (err: Error) => toast.error('Not sent', { description: err.message }),
-                              })
-                            }
-                          >
-                            Resend
-                          </Button>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </section>
-
-                <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-[15px] font-semibold">Coming up</h2>
-                    <Button asChild variant="link" size="sm" className="px-0">
-                      <Link href={`/schedule?new=1&workspace=${workspace.id}`}>Add</Link>
+                    <Button size="sm" variant="secondary" onClick={startCreateAlbum}>
+                      <Plus className="size-4" />
+                      New album
                     </Button>
                   </div>
-                  {upcoming.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nothing scheduled for this workspace.</p>
-                  ) : (
-                    upcoming.slice(0, 3).map((event) => <EventRow key={event.id} event={event} />)
-                  )}
+                ) : (
+                  <AlbumTiles albums={albums.slice(0, 8)} showSharing={hasPeople} />
+                )}
+              </section>
+
+              <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-7">
+                <section>
+                  <SectionTitle link={{ label: 'Add', href: newEventHref }}>Coming up</SectionTitle>
+                  <div className={cn(CARD, 'flex flex-col overflow-hidden')}>
+                    {upcoming.length === 0 ? (
+                      <p className="px-4 py-3.5 text-sm text-muted-foreground">
+                        Nothing scheduled for this workspace.
+                      </p>
+                    ) : (
+                      <EventRows events={upcoming.slice(0, 3)} />
+                    )}
+                  </div>
+                </section>
+
+                <section>
+                  <SectionTitle>What’s been happening</SectionTitle>
+                  <div className={cn(CARD, 'px-4')}>
+                    <ActivityFeed workspaceId={workspace.id} waiting={waitingIds} limit={8} />
+                  </div>
                 </section>
               </div>
             </div>
-          </TabsContent>
+          </div>
+        )}
 
-          <TabsContent value="albums" className="mt-4">
+        {tab === 'albums' && (
+          <div role="tabpanel" aria-label="Albums">
             {loadingAlbums && albums.length === 0 ? (
-              <ListSkeleton rows={3} />
+              <TileSkeletons count={4} wide />
             ) : albumsFailed && albums.length === 0 ? (
               <ErrorState message="Could not load these albums." onRetry={() => refetchAlbums()} />
             ) : albums.length === 0 ? (
-              <Card>
+              <div className={CARD}>
                 <EmptyState
                   icon={Images}
                   title="No albums yet"
                   description="An album holds the media for one shoot or one delivery. It starts private; share it from Members."
                   action={
-                    <Button onClick={startCreateAlbum}>
+                    // Quiet: Upload, above, is the page's one filled button.
+                    <Button variant="secondary" onClick={startCreateAlbum}>
                       <Plus className="size-4" />
                       Create the first album
                     </Button>
                   }
                 />
-              </Card>
-            ) : (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                {albums.map((album) => (
-                  <AlbumTile key={album.id} album={album} showSharing={hasPeople} />
-                ))}
               </div>
+            ) : (
+              <AlbumTiles albums={albums} showSharing={hasPeople} wide />
             )}
-          </TabsContent>
+          </div>
+        )}
 
-          <TabsContent value="members" className="mt-4">
+        {tab === 'members' && (
+          <div role="tabpanel" aria-label="Members">
             <MembersPanel workspace={workspace} onInvite={invite} />
-          </TabsContent>
+          </div>
+        )}
 
-          <TabsContent value="schedule" className="mt-4">
-            <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[15px] font-semibold">Coming up in {workspace.name}</h2>
+        {tab === 'schedule' && (
+          <section role="tabpanel" aria-label="Schedule">
+            <SectionHead
+              action={
                 <Button asChild size="sm" variant="outline">
-                  <Link href={`/schedule?new=1&workspace=${workspace.id}`}>
+                  <Link href={newEventHref}>
                     <CalendarPlus className="size-4" />
                     Add event
                   </Link>
                 </Button>
-              </div>
+              }
+            >
+              Coming up in {workspace.name}
+            </SectionHead>
+            <div className={cn(CARD, 'flex flex-col overflow-hidden')}>
               {upcoming.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="px-4 py-3.5 text-sm text-muted-foreground">
                   Nothing scheduled. Events you add here show on your calendar too.
                 </p>
               ) : (
-                upcoming.map((event) => <EventRow key={event.id} event={event} />)
+                <EventRows events={upcoming} byMonth />
               )}
-            </section>
-          </TabsContent>
-        </Tabs>
+            </div>
+          </section>
+        )}
       </div>
 
       <NewAlbumDialog workspaceId={workspace.id} open={creatingAlbum} onOpenChange={setCreatingAlbum} />
@@ -511,76 +685,47 @@ function SharedWorkspace({ workspace }: { workspace: Workspace }) {
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const owner = firstName(workspace.owner.name);
   const hidden = Math.max(0, workspace.album_total - workspace.album_count);
+  // As the API decides it, the same test the album's own page makes.
+  const uploadable = albums.filter((a) => a.my_access === 'upload' || a.my_access === 'manage');
 
   return (
     <>
-      <PageHeader
-        title={
-          <span className="flex items-center gap-3">
-            {/* The desktop title bar already has back and forward. */}
-            {!IS_DESKTOP && (
-              <Button asChild size="icon" variant="ghost" className="-ml-2 shrink-0">
-                <Link href="/workspaces" aria-label="Back to workspaces">
-                  <ArrowLeft className="size-4" />
-                </Link>
-              </Button>
-            )}
-            <WorkspaceTile name={workspace.name} color={workspace.accent_color} className="size-9 text-sm" />
-            <span className="truncate">{workspace.name}</span>
-          </span>
-        }
-        description={`Shared by ${workspace.owner.name} · you’re ${roleInSentence(workspace.my_role, true)}`}
-        actions={
-          <Button variant="outline" onClick={() => setConfirmingLeave(true)}>
-            <LogOut className="size-4" />
+      <PageHeader title={<BarTitle workspace={workspace} />} />
+
+      <div className={PAGE}>
+        <Hero
+          workspace={workspace}
+          albums={albums}
+          people={workspace.people}
+          whose={`Shared by ${workspace.owner.name} · you’re ${roleInSentence(workspace.my_role, true)}`}
+        >
+          {/* Only with somewhere to put files: an Upload that every album
+              refuses is a button that does nothing. */}
+          {uploadable.length > 0 && (
+            <WorkspaceUpload workspaceId={workspace.id} albums={uploadable} className={ACTION} />
+          )}
+          <Button variant="secondary" className={ACTION} onClick={() => setConfirmingLeave(true)}>
+            <LogOut />
             Leave
           </Button>
-        }
-      />
+        </Hero>
 
-      <div className="mx-auto grid w-full max-w-6xl gap-4 px-4 sm:px-6 py-5 lg:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
-          <section className="rounded-2xl border bg-card p-4">
-            <h2 className="text-[15px] font-semibold">Albums shared with you</h2>
+        <div className="flex flex-wrap items-start gap-7">
+          <section className="flex min-w-0 flex-[2_1_480px] flex-col">
+            <SectionTitle>Albums shared with you</SectionTitle>
             {isLoading ? (
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {[0, 1].map((i) => (
-                  <Skeleton key={i} className="aspect-[4/3] rounded-[10px]" />
-                ))}
-              </div>
+              <TileSkeletons count={2} />
             ) : loadFailed && albums.length === 0 ? (
-              <div className="mt-3">
-                <ErrorState message="Could not load these albums." onRetry={() => refetch()} />
-              </div>
+              <ErrorState message="Could not load these albums." onRetry={() => refetch()} />
             ) : albums.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className={cn(CARD, 'px-4 py-3.5 text-sm text-muted-foreground')}>
                 {owner} hasn’t shared an album with you yet. They appear here as soon as one is.
               </p>
             ) : (
-              <ul className="mt-2">
-                {albums.map((album) => (
-                  <li key={album.id} className="border-t first:border-t-0">
-                    <Link href={`/albums/${album.id}`} className="flex items-center gap-3 py-2.5 hover:bg-muted/40">
-                      <span className="size-11 shrink-0 overflow-hidden rounded-[10px] bg-muted">
-                        {album.cover_url && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={album.cover_url} alt="" loading="lazy" className="size-full object-cover" />
-                        )}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold">{album.name}</span>
-                        <span className="block text-xs text-muted-foreground">{albumContents(album)}</span>
-                      </span>
-                      {album.my_access && album.my_access !== 'owner' && (
-                        <Pill tone="info">You can {ACCESS_LABEL[album.my_access].toLowerCase()}</Pill>
-                      )}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <AlbumTiles albums={albums} showAccess />
             )}
             {hidden > 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className="mt-3 text-xs text-muted-foreground">
                 {hidden === 1
                   ? `${owner}’s other album isn’t shared with you.`
                   : `${owner}’s other ${hidden} albums aren’t shared with you.`}
@@ -588,32 +733,43 @@ function SharedWorkspace({ workspace }: { workspace: Workspace }) {
             )}
           </section>
 
-          <section className="rounded-2xl border bg-card px-4 pb-1 pt-3.5">
-            <h2 className="mb-1 text-[15px] font-semibold">What’s been happening</h2>
-            <ActivityFeed workspaceId={workspace.id} limit={8} />
-          </section>
-        </div>
+          <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-7">
+            <section>
+              <SectionTitle>Who’s here</SectionTitle>
+              {members.length > 0 && (
+                <div className={cn(CARD, 'flex flex-col overflow-hidden')}>
+                  {members.map((member, i) => (
+                    <div
+                      key={member.id ?? member.user_id}
+                      className={cn(
+                        'flex min-h-[52px] items-center gap-3 px-4 py-2',
+                        i > 0 && 'border-t border-border/40',
+                      )}
+                    >
+                      <PersonAvatar name={member.name} url={member.avatar_url} className="size-7" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold">
+                          {member.name}
+                          {member.is_you && <span className="font-normal text-muted-foreground"> (you)</span>}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {member.status === 'owner' ? 'Owner' : roleInSentence(member.role, true).replace(/^an? /, '')}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
-        <section className="flex h-fit flex-col gap-1 rounded-2xl border bg-card p-4">
-          <h2 className="mb-1 flex items-center gap-2 text-[15px] font-semibold">
-            <Users className="size-4 text-muted-foreground" aria-hidden />
-            Who’s here
-          </h2>
-          {members.map((member) => (
-            <div key={member.id ?? member.user_id} className="flex items-center gap-3 py-1.5">
-              <PersonAvatar name={member.name} url={member.avatar_url} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">
-                  {member.name}
-                  {member.is_you && <span className="font-normal text-muted-foreground"> (you)</span>}
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  {member.status === 'owner' ? 'Owner' : roleInSentence(member.role, true).replace(/^an? /, '')}
-                </span>
-              </span>
-            </div>
-          ))}
-        </section>
+            <section>
+              <SectionTitle>What’s been happening</SectionTitle>
+              <div className={cn(CARD, 'px-4')}>
+                <ActivityFeed workspaceId={workspace.id} limit={8} />
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
 
       <AlertDialog open={confirmingLeave} onOpenChange={setConfirmingLeave}>
@@ -663,7 +819,12 @@ function WorkspacePageBody() {
       ) : isLoading ? (
         <>
           <PageHeader title={<Skeleton className="h-6 w-56" />} />
-          <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6">
+          <div className={PAGE}>
+            <Skeleton className="h-40 rounded-[20px] sm:h-[220px]" />
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-8 w-72 max-w-full" />
+              <Skeleton className="h-4 w-48" />
+            </div>
             <ListSkeleton rows={3} />
           </div>
         </>
@@ -673,7 +834,7 @@ function WorkspacePageBody() {
         <>
           <PageHeader title="Workspace" />
           <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-10">
-            <Card>
+            <div className={CARD}>
               <EmptyState
                 icon={FolderX}
                 title="This workspace isn’t available"
@@ -693,7 +854,7 @@ function WorkspacePageBody() {
                   </div>
                 }
               />
-            </Card>
+            </div>
           </div>
         </>
       )}

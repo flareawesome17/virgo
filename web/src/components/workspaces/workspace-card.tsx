@@ -1,8 +1,9 @@
 import Link from 'next/link';
-import { Clock } from 'lucide-react';
-import type { Album, MediaAccess, Workspace } from '@/api';
+import { Folder } from 'lucide-react';
+import { formatBytes, type Album, type MediaAccess, type Workspace } from '@/api';
+import { Pill } from '@/components/kit';
 import { plural, relativeTime, roleInSentence } from '@/lib/workspaces';
-import { PeopleStack, PersonAvatar, Pill, WorkspaceTile } from './bits';
+import { Faces } from './faces';
 
 /**
  * The picture that stands for a workspace: the album its owner chose, else
@@ -19,6 +20,44 @@ export function workspaceCover(workspace: Workspace, albums: Album[]): string | 
   return (chosen ?? own[0])?.cover_url ?? null;
 }
 
+/**
+ * A workspace's own colour, pale enough to sit behind a picture or a folder.
+ * The colour is its owner's choice, so it is data and set inline.
+ */
+export function workspaceTint(workspace: Workspace): string {
+  return `color-mix(in srgb, ${workspace.accent_color || 'var(--primary)'} 15%, transparent)`;
+}
+
+/**
+ * “4 albums · 312 files · 3.1 GB”: what a workspace holds, in the phone's
+ * words. Its size only for the owner: the API keeps a member's share of
+ * somebody else's storage to itself.
+ */
+export function workspaceHolds(workspace: Workspace): string {
+  return [
+    workspace.album_count > 0 ? plural(workspace.album_count, 'album') : 'No albums yet',
+    workspace.media_count > 0 ? plural(workspace.media_count, 'file') : null,
+    workspace.storage_bytes ? formatBytes(workspace.storage_bytes) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/**
+ * “Yours · 3 members”, “Yours · only you”, and who has not answered yet. The
+ * invitations used to be a “+1 invited” after the faces; here they end the
+ * sentence the faces start.
+ */
+export function yoursLine(workspace: Workspace): string {
+  return [
+    'Yours',
+    workspace.member_count <= 1 ? 'only you' : plural(workspace.member_count, 'member'),
+    workspace.pending_count > 0 ? `${workspace.pending_count.toLocaleString()} invited` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 /** What a member can do across the albums they were given, if it is one thing. */
 function sharedAccess(workspace: Workspace, albums: Album[]): string | null {
   const mine = albums.filter((a) => a.workspace_id === workspace.id && a.my_access && a.my_access !== 'owner');
@@ -32,80 +71,71 @@ function sharedAccess(workspace: Workspace, albums: Album[]): string | null {
 }
 
 /**
- * One workspace in the list: whose it is, who else is in it, how much it
- * holds, and when something last happened in it.
+ * One workspace in the list, led by a photograph from it: its name and when
+ * something last happened there, how much it holds, what it is for, then who
+ * is in it and whose it is.
+ *
+ * With no photograph yet it is a folder in the workspace's own colour. It was
+ * a letter on a coloured square over a banner: in an app for photographs, the
+ * one thing a list of work did not show was the work.
  */
 export function WorkspaceCard({ workspace, albums }: { workspace: Workspace; albums: Album[] }) {
   const cover = workspaceCover(workspace, albums);
   const access = workspace.is_owner ? null : sharedAccess(workspace, albums);
-  const alone = workspace.is_owner && workspace.member_count <= 1 && workspace.pending_count === 0;
+  const whose = workspace.is_owner
+    ? yoursLine(workspace)
+    : [workspace.owner.name, `you’re ${roleInSentence(workspace.my_role, true)}`, access]
+        .filter(Boolean)
+        .join(' · ');
 
   return (
     <Link
       href={`/workspaces/${workspace.id}`}
-      className="group flex flex-col overflow-hidden rounded-2xl border bg-card text-foreground transition-colors hover:border-primary/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      className="group flex min-w-0 flex-col gap-2.5 rounded-[14px] text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
     >
       <span
-        className="relative block h-32 shrink-0"
-        style={{ backgroundColor: cover ? undefined : `${workspace.accent_color}1F` }}
+        className="grid aspect-[16/10] place-items-center overflow-hidden rounded-[14px]"
+        style={{ backgroundColor: workspaceTint(workspace) }}
       >
-        {cover && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={cover} alt="" loading="lazy" className="size-full object-cover" />
+        {cover ? (
+          // eslint-disable-next-line @next/next/no-img-element -- a signed storage URL, not an asset to optimise
+          <img
+            src={cover}
+            alt=""
+            loading="lazy"
+            className="size-full object-cover transition-transform group-hover:scale-[1.02]"
+          />
+        ) : (
+          <Folder
+            aria-hidden
+            className="size-10 transition-transform group-hover:scale-105"
+            strokeWidth={1.6}
+            style={{ color: workspace.accent_color || 'var(--primary)' }}
+          />
         )}
-        <WorkspaceTile
-          name={workspace.name}
-          color={workspace.accent_color}
-          className="absolute -bottom-[18px] left-4 ring-4 ring-card"
-        />
       </span>
 
-      <span className="flex flex-1 flex-col gap-1.5 px-4 pb-3.5 pt-7">
-        <span className="flex items-center justify-between gap-2">
-          <span className="truncate text-base font-semibold">{workspace.name}</span>
-          {workspace.archived_at ? (
-            <Pill tone="muted">Archived</Pill>
-          ) : workspace.is_owner ? (
-            <Pill>Yours</Pill>
-          ) : (
-            <span className="flex min-w-0 shrink items-center gap-1.5 text-xs text-secondary-foreground">
-              <PersonAvatar
-                name={workspace.owner.name}
-                url={workspace.owner.avatar_url}
-                className="size-[18px] text-[8px]"
-              />
-              <span className="truncate">Shared by {workspace.owner.name}</span>
-            </span>
-          )}
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="flex items-baseline gap-2">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate text-[15px] font-semibold leading-5">{workspace.name}</span>
+            {workspace.archived_at && <Pill>Archived</Pill>}
+          </span>
+          <time dateTime={workspace.last_activity_at} className="shrink-0 text-[13px] text-muted-foreground">
+            {relativeTime(workspace.last_activity_at)}
+          </time>
         </span>
-
-        {!workspace.is_owner && (
-          <span className="text-xs text-muted-foreground">
-            You’re {roleInSentence(workspace.my_role, true)}
-            {access ? ` · ${access}` : ''}
-          </span>
-        )}
-
+        <span className="truncate text-[13px] leading-[18px] text-secondary-foreground">
+          {workspaceHolds(workspace)}
+        </span>
         {workspace.description && (
-          <span className="line-clamp-1 text-[13px] text-muted-foreground">{workspace.description}</span>
+          <span className="truncate text-[13px] leading-[18px] text-muted-foreground">
+            {workspace.description}
+          </span>
         )}
-
-        <span className="mt-auto flex items-center justify-between gap-3 border-t pt-2.5">
-          <span className="truncate text-xs text-secondary-foreground">
-            {plural(workspace.album_count, 'album')} · {plural(workspace.media_count, 'file')}
-            {alone ? ' · private' : ''}
-          </span>
-          <span className="flex shrink-0 items-center gap-2.5">
-            <PeopleStack
-              people={workspace.people}
-              size="size-[22px]"
-              extra={workspace.pending_count > 0 ? `+${workspace.pending_count} invited` : undefined}
-            />
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Clock className="size-3" aria-hidden />
-              <time dateTime={workspace.last_activity_at}>{relativeTime(workspace.last_activity_at)}</time>
-            </span>
-          </span>
+        <span className="mt-1 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
+          <Faces people={workspace.people} />
+          <span className="truncate">{whose}</span>
         </span>
       </span>
     </Link>
