@@ -20,7 +20,9 @@ import {
   CheckUploadsDto,
   CompleteMultipartDto,
   ConfirmUploadDto,
+  CreateHandoffsDto,
   CreateUploadUrlDto,
+  HandoffKeysDto,
   ListFilesDto,
   MultipartRefDto,
   ObjectKeyDto,
@@ -33,6 +35,7 @@ import {
 import { StorageConfig } from './storage.config';
 import { StorageService } from './storage.service';
 import { ThumbnailsService } from './thumbnails.service';
+import { UploadHandoffService } from './upload-handoff.service';
 import { streamZip } from './zip';
 
 /**
@@ -53,7 +56,37 @@ export class StorageController {
     private readonly storage: StorageService,
     private readonly thumbs: ThumbnailsService,
     private readonly config: StorageConfig,
+    private readonly handoffs: UploadHandoffService,
   ) {}
+
+  /**
+   * Background uploads (docs/BACKGROUND_UPLOADS.md): a batch of files for one
+   * album, each with every URL it needs for a day, recorded so the server can
+   * finish them with the phone closed. A request is up to HANDOFF_MAX_FILES,
+   * so a 294-file batch is six of these.
+   */
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('handoffs')
+  createHandoffs(@CurrentUser('id') userId: string, @Body() dto: CreateHandoffsDto) {
+    return this.handoffs.create(userId, dto.albumId, dto.files);
+  }
+
+  /** Finishes handed-over files the phone has seen land, so they show at once. */
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('handoffs/finish')
+  finishHandoffs(@CurrentUser('id') userId: string, @Body() dto: HandoffKeysDto) {
+    return this.handoffs.finish(userId, dto.keys);
+  }
+
+  /** Lets go of handed-over files the person removed. */
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('handoffs/cancel')
+  cancelHandoffs(@CurrentUser('id') userId: string, @Body() dto: HandoffKeysDto) {
+    return this.handoffs.cancel(userId, dto.keys);
+  }
 
   /**
    * Per account, like every limit here: CloudflareThrottlerGuard keys an
@@ -247,6 +280,8 @@ export class StorageController {
     }
 
     this.thumbnailInBackground(dto.key, result.contentType ?? null, result.size);
+    // A handed-over file the phone confirmed itself: the job need not look.
+    void this.handoffs.markFiled(userId, dto.key);
     return result;
   }
 

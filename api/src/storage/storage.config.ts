@@ -147,6 +147,17 @@ export const UPLOAD_URL_TTL_SECONDS = 15 * 60;
 export const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
 
 /**
+ * Background uploads (docs/BACKGROUND_UPLOADS.md): the phone hands a whole
+ * batch to iOS or Android at once, and the system works through it at its own
+ * pace, with the app closed. A file far down the line is sent hours after its
+ * URL was minted, so these live a day. Type and length are still signed in,
+ * and the key is still the server's.
+ */
+export const HANDOFF_URL_TTL_SECONDS = 24 * 60 * 60;
+/** Files per handoff request. A larger pick is asked for in batches. */
+export const HANDOFF_MAX_FILES = 50;
+
+/**
  * How long a signed media URL stays byte-identical.
  *
  * Signatures are pinned to this window so repeat renders return the same URL

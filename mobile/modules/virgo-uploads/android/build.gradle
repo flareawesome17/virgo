@@ -1,0 +1,23 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'ph.virgo'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.virgouploads"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // A job that survives the app leaving the screen, run as a foreground
+  // service with a progress notification (docs/BACKGROUND_UPLOADS.md).
+  implementation 'androidx.work:work-runtime-ktx:2.10.0'
+  // The version expo-file-system and React Native already bring.
+  implementation 'com.squareup.okhttp3:okhttp:4.9.2'
+}

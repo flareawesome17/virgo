@@ -14,10 +14,12 @@ import { FilmPosterService } from './film-poster.service';
 import { SupportFilesService } from './support-files.service';
 import { ReceiptFilesService } from './receipt-files.service';
 import { ChatFilesService } from './chat-files.service';
+import { UploadHandoffService } from './upload-handoff.service';
 
 @Module({
   controllers: [StorageController],
   providers: [
+    UploadHandoffService,
     StorageConfig,
     StorageService,
     DownloadCacheService,

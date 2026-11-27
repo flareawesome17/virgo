@@ -14,10 +14,21 @@ import NetInfo from '@react-native-community/netinfo';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
 import { storageApi } from '@/src/api';
-import { MULTIPART_MIN_BYTES } from '@/src/api/endpoints/storage';
-import { withConfirmRetry } from '@/src/api/confirm-retry';
+import { HANDOFF_MAX_FILES, MULTIPART_MIN_BYTES } from '@/src/api/endpoints/storage';
+import { withConfirmRetry, withUploadRetry } from '@/src/api/confirm-retry';
 import { useAuth, usageQueryKey } from '@/src/hooks';
+import {
+  fractionSent,
+  handoffStanding,
+  isWorthAnotherHandoff,
+  itemsForTicket,
+  nextHandoffBatch,
+  taskIdOf,
+  type HandoffTicket,
+  type ItemResult,
+} from '@/src/lib/handoff-plan';
 import { MAX_RESUME_AGE_MS, type MultipartSession } from '@/src/lib/multipart-resume';
+import { nativeUploads } from '@/src/lib/native-uploads';
 import {
   connectivityRetryDelayMs,
   FOREGROUND_CONCURRENCY,
@@ -66,7 +77,25 @@ export interface UploadTask {
   retryAt?: number;
   /** Connectivity failures in a row, for the growing wait between tries. */
   networkFailures?: number;
+  /**
+   * Set once the file is handed to the system to send (builds with the
+   * native module; docs/BACKGROUND_UPLOADS.md): its key, and the items the
+   * system holds for it, one per PUT. No URL is kept here; only the system
+   * has those. Cleared when it is filed, fails, or is handed over afresh.
+   */
+  handoff?: {
+    key: string;
+    expiresAt: string;
+    items: { id: string; length?: number }[];
+  };
 }
+
+/**
+ * Whether this build sends uploads through the app's own native module, which
+ * hands them to iOS or Android so they carry on with the app off screen. Older
+ * builds have no module and send from JavaScript, as before.
+ */
+const NATIVE = Platform.OS !== 'web' && nativeUploads !== null;
 
 /** What a caller hands over. Everything else is bookkeeping. */
 export interface NewUpload {
@@ -322,7 +351,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     const sub = AppState.addEventListener('change', (next) => {
       const was = appState.current;
       appState.current = next;
-      if (Platform.OS !== 'ios') return;
+      // With the native module every file is already with the system; there
+      // is nothing to hand over on the way out.
+      if (Platform.OS !== 'ios' || NATIVE) return;
 
       if (next === 'active') {
         burst.current = false;
@@ -367,6 +398,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   /** The list as last rendered, for callbacks that must not re-subscribe. */
   const tasksRef = useRef<UploadTask[]>([]);
   tasksRef.current = tasks;
+
+  /** Set below; the launch path calls it once the saved list is in place. */
+  const reconcileRef = useRef<((list: UploadTask[]) => Promise<void>) | null>(null);
 
   /**
    * How to stop the upload in flight, by task id.
@@ -460,6 +494,14 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           continue;
         }
 
+        // Handed to the system to send: what the system holds, what it
+        // reported while the app was gone, and what the server has are
+        // compared once the list is in place (reconcileHandoffs).
+        if (task.handoff) {
+          settled.push({ ...task, status: 'queued', progress: 0, retryAt: undefined });
+          continue;
+        }
+
         // No key means no ticket was ever minted, so nothing was sent.
         if (!task.key) {
           settled.push({ ...task, status: 'queued', progress: 0, retryAt: undefined });
@@ -500,7 +542,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       // forever, so it is marked once, with a reason someone can act on.
       const checked = await Promise.all(
         settled.map(async (task) => {
-          if (task.status !== 'queued') return task;
+          // A handed-over file's copy may already be sent and deleted; the
+          // system says what became of it.
+          if (task.status !== 'queued' || task.handoff) return task;
           const info = await FileSystem.getInfoAsync(task.uri).catch(() => null);
           if (info?.exists) return task;
           // Sent in one piece and ticketed: it may well have arrived, and its
@@ -523,6 +567,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         setTasks(checked);
         setOwner(userId);
         setHydrated(true);
+        if (NATIVE) void reconcileRef.current?.(checked);
       }
     })();
 
@@ -642,6 +687,404 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     [flushProgress],
   );
 
+  // ── Background uploads (builds with the native module) ──────────────────
+  //
+  // The files are not sent from here. They are handed to the system in
+  // batches (handOver), and from then on this only listens: progress moves
+  // the bars, a finished item is collected from the module (drain), and a
+  // file whose items are all in is filed by the server (finish). The server
+  // also files them itself, every minute, for when the app is not running.
+  // docs/BACKGROUND_UPLOADS.md.
+
+  /** Bytes each item has sent, as last reported. */
+  const nativeSent = useRef(new Map<string, number>());
+  /** How each item ended, until its file is settled. */
+  const nativeDone = useRef(new Map<string, ItemResult>());
+  /** A handoff request is on its way. One at a time. */
+  const handing = useRef(false);
+  /** Files marked 'uploading' since their first byte, so it is said once. */
+  const markedUploading = useRef(new Set<string>());
+
+  /** Forgets what was heard about a file's items. */
+  const forgetItems = useCallback((task: UploadTask) => {
+    for (const item of task.handoff?.items ?? []) {
+      nativeSent.current.delete(item.id);
+      nativeDone.current.delete(item.id);
+    }
+    markedUploading.current.delete(task.id);
+  }, []);
+
+  /**
+   * Keys the server is to let go of, sent together: "Stop all" on a batch of
+   * 294 was 294 requests at once, past the rate limit. Best effort: what is
+   * not cancelled expires on the server within a day.
+   */
+  const cancelKeys = useRef(new Set<string>());
+  const cancelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelOnServer = useCallback((key: string) => {
+    cancelKeys.current.add(key);
+    if (cancelTimer.current) return;
+    cancelTimer.current = setTimeout(function send() {
+      const keys = [...cancelKeys.current].slice(0, HANDOFF_MAX_FILES);
+      keys.forEach((each) => cancelKeys.current.delete(each));
+      void storageApi.cancelHandoffs(keys).catch(() => undefined);
+      cancelTimer.current = cancelKeys.current.size > 0 ? setTimeout(send, 250) : null;
+    }, 300);
+  }, []);
+
+  /** Lets go of a handoff: the system stops sending, the server forgets it. */
+  const dropHandoff = useCallback(
+    (task: UploadTask) => {
+      if (!task.handoff) return;
+      void nativeUploads?.cancel(task.handoff.items.map((item) => item.id)).catch(() => undefined);
+      cancelOnServer(task.handoff.key);
+      forgetItems(task);
+    },
+    [cancelOnServer, forgetItems],
+  );
+
+  /** Files waiting for the server to file them, by task id, and how often asked. */
+  const finishing = useRef(new Map<string, number>());
+  const finishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finishSoon = useRef<(taskId: string, delayMs?: number) => void>(() => {});
+
+  const runFinish = useCallback(async () => {
+    finishTimer.current = null;
+    const due = [...finishing.current.keys()].slice(0, HANDOFF_MAX_FILES);
+    const list = due
+      .map((id) => tasksRef.current.find((task) => task.id === id))
+      .filter((task): task is UploadTask & { handoff: NonNullable<UploadTask['handoff']> } =>
+        Boolean(task?.handoff),
+      );
+    for (const id of due) {
+      if (!list.some((task) => task.id === id)) finishing.current.delete(id);
+    }
+    if (list.length === 0) return;
+
+    let results: Awaited<ReturnType<typeof storageApi.finishHandoffs>>['results'];
+    try {
+      ({ results } = await withConfirmRetry(() =>
+        storageApi.finishHandoffs(list.map((task) => task.handoff.key)),
+      ));
+    } catch {
+      // The server files them itself within minutes; asked again meanwhile.
+      for (const task of list) finishSoon.current(task.id, 15_000);
+      return;
+    }
+    if (!mounted.current) return;
+
+    for (const result of results) {
+      const task = list.find((each) => each.handoff.key === result.key);
+      if (!task) continue;
+      const asked = finishing.current.get(task.id) ?? 0;
+      finishing.current.delete(task.id);
+      if (result.state === 'filed') {
+        discardCopy(task.uri);
+        forgetItems(task);
+        patch(task.id, {
+          status: 'done',
+          progress: 1,
+          handoff: undefined,
+          multipart: undefined,
+          retryAt: undefined,
+          networkFailures: 0,
+          error: undefined,
+        });
+        refreshAlbumSoon(task.albumId);
+      } else if (result.state === 'waiting') {
+        // Every byte is in but the store has not caught up: soon, then less
+        // often. The server's own job files it regardless.
+        finishing.current.set(task.id, asked + 1);
+        finishSoon.current(task.id, Math.min(5_000 * 2 ** asked, 60_000));
+      } else if (result.state === 'refused') {
+        forgetItems(task);
+        patch(task.id, { status: 'failed', handoff: undefined, key: undefined, error: result.reason });
+      } else {
+        // Gone, or never recorded: handed over afresh.
+        forgetItems(task);
+        patch(task.id, { status: 'queued', progress: 0, handoff: undefined, key: undefined });
+      }
+    }
+  }, [forgetItems, patch, refreshAlbumSoon]);
+
+  finishSoon.current = (taskId: string, delayMs = 400) => {
+    if (!finishing.current.has(taskId)) finishing.current.set(taskId, 0);
+    if (finishTimer.current) return;
+    finishTimer.current = setTimeout(() => {
+      void runFinish().finally(() => {
+        // More may have arrived, or still be waiting their turn.
+        if (finishing.current.size > 0 && !finishTimer.current && mounted.current) {
+          finishSoon.current([...finishing.current.keys()][0], 1_000);
+        }
+      });
+    }, delayMs);
+  };
+  useEffect(
+    () => () => {
+      if (finishTimer.current) clearTimeout(finishTimer.current);
+    },
+    [],
+  );
+
+  /**
+   * Settles every handed-over file in `list` whose items have all reported:
+   * all sent is filed with the server; one failed lets the rest of the file
+   * go and either hands it over afresh (no answer, a dead URL, a server
+   * fault, the app swiped away) or marks it failed.
+   */
+  const settleHandoffs = useCallback(
+    (list: readonly UploadTask[]) => {
+      for (const task of list) {
+        if (!task.handoff || (task.status !== 'queued' && task.status !== 'uploading')) continue;
+        const standing = handoffStanding(
+          task.handoff.items.map((item) => item.id),
+          nativeDone.current,
+        );
+        if (standing.state === 'sending') continue;
+        if (standing.state === 'sent') {
+          finishSoon.current(task.id);
+          continue;
+        }
+        dropHandoff(task);
+        const failed = standing.result;
+        if (isWorthAnotherHandoff(failed)) {
+          const failures = (task.networkFailures ?? 0) + 1;
+          patch(task.id, {
+            status: 'queued',
+            progress: 0,
+            handoff: undefined,
+            key: undefined,
+            error: WAITING_FOR_CONNECTION,
+            networkFailures: failures,
+            retryAt: Date.now() + connectivityRetryDelayMs(failures),
+          });
+        } else {
+          patch(task.id, {
+            status: 'failed',
+            handoff: undefined,
+            key: undefined,
+            error: 'Upload failed. Please try again.',
+          });
+        }
+      }
+    },
+    [dropHandoff, patch],
+  );
+
+  /** Collects what finished from the module, then settles what it can. */
+  const drain = useCallback(async () => {
+    if (!nativeUploads) return;
+    const results = await nativeUploads.takeResults().catch(() => []);
+    // Only items of a file still with the system: a removed or re-sent
+    // file's items report "cancelled", and there is nothing to do about it.
+    const current = new Set(
+      tasksRef.current.flatMap((task) => task.handoff?.items.map((item) => item.id) ?? []),
+    );
+    for (const result of results) {
+      if (current.has(result.id)) nativeDone.current.set(result.id, result);
+    }
+    if (mounted.current) settleHandoffs(tasksRef.current);
+  }, [settleHandoffs]);
+
+  /**
+   * On launch: what ended while the app was gone is collected; a file the
+   * system still holds stays with it; a file the system lost (the app was
+   * swiped away, or reinstalled) is asked of the server by its key, and
+   * handed over afresh only if the server has nothing.
+   */
+  const reconcileHandoffs = useCallback(
+    async (list: UploadTask[]) => {
+      if (!nativeUploads) return;
+      const [results, active] = await Promise.all([
+        nativeUploads.takeResults().catch(() => []),
+        nativeUploads.active().catch(() => null),
+      ]);
+      for (const result of results) nativeDone.current.set(result.id, result);
+      if (!mounted.current) return;
+      settleHandoffs(list);
+      if (!active) return;
+
+      const held = new Set(active);
+      const lost = list.filter((task) => {
+        if (!task.handoff || task.status !== 'queued') return false;
+        if (handoffStanding(task.handoff.items.map((item) => item.id), nativeDone.current).state !== 'sending') {
+          return false;
+        }
+        return task.handoff.items.some(
+          (item) => !held.has(item.id) && !nativeDone.current.has(item.id),
+        );
+      });
+      if (lost.length === 0) return;
+
+      let results2: Awaited<ReturnType<typeof storageApi.finishHandoffs>>['results'] = [];
+      try {
+        ({ results: results2 } = await storageApi.finishHandoffs(
+          lost.slice(0, HANDOFF_MAX_FILES).map((task) => task.handoff?.key ?? ''),
+        ));
+      } catch {
+        // Asked again on the next launch; meanwhile they wait as they are.
+        return;
+      }
+      for (const task of lost) {
+        const result = results2.find((each) => each.key === task.handoff?.key);
+        if (result?.state === 'filed') {
+          discardCopy(task.uri);
+          forgetItems(task);
+          patch(task.id, { status: 'done', progress: 1, handoff: undefined });
+        } else if (result) {
+          dropHandoff(task);
+          patch(task.id, { status: 'queued', progress: 0, handoff: undefined, key: undefined });
+        }
+      }
+      if (mounted.current) setTasks((prev) => [...prev]);
+    },
+    [dropHandoff, forgetItems, patch, settleHandoffs],
+  );
+  reconcileRef.current = reconcileHandoffs;
+
+  /**
+   * Asks the server for every URL these files need and hands them to the
+   * system. All for one album, up to HANDOFF_MAX_FILES (nextHandoffBatch).
+   */
+  const handOver = useCallback(
+    async (batch: UploadTask[]) => {
+      if (!nativeUploads) return;
+      // A picker can report a size of 0; the server signs the real one.
+      const sized = await Promise.all(
+        batch.map(async (task) => {
+          if (task.sizeBytes > 0) return task;
+          const info = await FileSystem.getInfoAsync(task.uri).catch(() => null);
+          return { ...task, sizeBytes: info?.exists ? (info.size ?? 0) : 0 };
+        }),
+      );
+      for (const task of sized.filter((each) => each.sizeBytes <= 0)) {
+        patch(task.id, {
+          status: 'failed',
+          error: 'That file is empty, or no longer on this device.',
+        });
+      }
+      const going = sized.filter((task) => task.sizeBytes > 0);
+      if (going.length === 0) return;
+
+      let tickets: HandoffTicket[];
+      try {
+        ({ handoffs: tickets } = await withUploadRetry(() =>
+          storageApi.createHandoffs(
+            going[0].albumId,
+            going.map((task) => ({
+              contentType: task.mimeType,
+              contentLength: task.sizeBytes,
+              originalName: task.name,
+            })),
+          ),
+        ));
+      } catch (error) {
+        if (!mounted.current) return;
+        if (isConnectivityFailure(error, false)) {
+          for (const task of going) {
+            const failures = (task.networkFailures ?? 0) + 1;
+            patch(task.id, {
+              sizeBytes: task.sizeBytes,
+              error: WAITING_FOR_CONNECTION,
+              networkFailures: failures,
+              retryAt: Date.now() + connectivityRetryDelayMs(failures),
+            });
+          }
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Upload failed';
+        for (const task of going) patch(task.id, { status: 'failed', error: message });
+        return;
+      }
+
+      const entries = going.map((task, at) => ({
+        task,
+        ticket: tickets[at],
+        items: itemsForTicket(task.id, task.uri, tickets[at]),
+      }));
+      // Recorded before the system has them: an app that ends now leaves the
+      // keys for the next launch to ask about.
+      for (const { task, ticket, items } of entries) {
+        releaseMultipart(task.multipart);
+        patch(task.id, {
+          sizeBytes: task.sizeBytes,
+          key: ticket.key,
+          multipart: undefined,
+          retryAt: undefined,
+          error: undefined,
+          handoff: {
+            key: ticket.key,
+            expiresAt: ticket.expiresAt,
+            items: items.map((item) => ({ id: item.id, length: item.length })),
+          },
+        });
+      }
+      try {
+        await nativeUploads.enqueue(entries.flatMap((entry) => entry.items));
+      } catch {
+        void storageApi.cancelHandoffs(entries.map((entry) => entry.ticket.key)).catch(() => undefined);
+        for (const { task } of entries) {
+          patch(task.id, {
+            status: 'failed',
+            handoff: undefined,
+            key: undefined,
+            error: 'Could not hand this file to the phone to send.',
+          });
+        }
+        return;
+      }
+      // Removed while this was on its way: let those go again.
+      const present = new Set(tasksRef.current.map((task) => task.id));
+      for (const entry of entries) {
+        if (present.has(entry.task.id)) continue;
+        void nativeUploads.cancel(entry.items.map((item) => item.id)).catch(() => undefined);
+        cancelOnServer(entry.ticket.key);
+        discardCopy(entry.task.uri);
+      }
+      // Anything that ended at once (a file that could not be read).
+      void drain();
+    },
+    [cancelOnServer, drain, patch],
+  );
+
+  // Hears the module: progress moves the bars, a finished item is collected.
+  useEffect(() => {
+    if (!NATIVE || !nativeUploads) return;
+    let drainTimer: ReturnType<typeof setTimeout> | null = null;
+    const progress = nativeUploads.addListener('progress', ({ id, sent }) => {
+      nativeSent.current.set(id, sent);
+      const taskId = taskIdOf(id);
+      const task = tasksRef.current.find((each) => each.id === taskId);
+      if (!task?.handoff || !mounted.current) return;
+      if (task.status === 'queued' && !markedUploading.current.has(taskId)) {
+        markedUploading.current.add(taskId);
+        patch(taskId, { status: 'uploading', error: undefined });
+      }
+      const fraction = fractionSent(task.handoff.items, task.sizeBytes, nativeSent.current, nativeDone.current);
+      const percent = Math.round(fraction * 100);
+      if (percent === lastPatchedPercent.current.get(taskId)) return;
+      lastPatchedPercent.current.set(taskId, percent);
+      reportProgress(taskId, fraction);
+    });
+    const finished = nativeUploads.addListener('finished', () => {
+      if (drainTimer) return;
+      drainTimer = setTimeout(() => {
+        drainTimer = null;
+        void drain();
+      }, 250);
+    });
+    // Back in front: what finished meanwhile is collected now.
+    const resumed = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void drain();
+    });
+    return () => {
+      progress.remove();
+      finished.remove();
+      resumed.remove();
+      if (drainTimer) clearTimeout(drainTimer);
+    };
+  }, [drain, patch, reportProgress]);
+
   const enqueue = useCallback((items: NewUpload[]) => {
     if (items.length === 0) return;
     setTasks((prev) => [
@@ -676,6 +1119,14 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   );
 
   const remove = useCallback((id: string) => {
+    const handed = tasksRef.current.find((each) => each.id === id && each.handoff);
+    if (handed) {
+      // With the system: it stops sending, and the server lets go of it.
+      dropHandoff(handed);
+      discardCopy(handed.uri);
+      setTasks((prev) => prev.filter((task) => task.id !== id));
+      return;
+    }
     const controller = controllers.current.get(id);
     if (controller) {
       // The upload releases its own parts, and the picker's copy, once it
@@ -688,7 +1139,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       discardCopy(task?.uri);
     }
     setTasks((prev) => prev.filter((task) => task.id !== id));
-  }, []);
+  }, [dropHandoff]);
 
   const clearFinished = useCallback(
     () => setTasks((prev) => prev.filter((task) => task.status !== 'done')),
@@ -839,6 +1290,35 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       wakeTimer.current = null;
     }
 
+    // With the native module: hand the waiting files to the system, a batch
+    // at a time, and nothing else. The system sends them; see handOver.
+    if (NATIVE) {
+      if (!online || handing.current) return;
+      const now = Date.now();
+      const waiting = tasks.filter(
+        (task) => task.status === 'queued' && !task.handoff && !inFlight.current.has(task.id),
+      );
+      const ready = waiting.filter((task) => !task.retryAt || task.retryAt <= now);
+      const batch = nextHandoffBatch(ready, HANDOFF_MAX_FILES);
+      if (batch.length === 0) {
+        const wakeAt = Math.min(...waiting.map((task) => task.retryAt ?? Infinity));
+        if (Number.isFinite(wakeAt)) {
+          wakeTimer.current = setTimeout(() => {
+            wakeTimer.current = null;
+            if (mounted.current) setTasks((prev) => [...prev]);
+          }, Math.max(0, wakeAt - now));
+        }
+        return;
+      }
+      handing.current = true;
+      void handOver(batch).finally(() => {
+        handing.current = false;
+        // The next batch, if there is one.
+        if (mounted.current) setTasks((prev) => [...prev]);
+      });
+      return;
+    }
+
     // Offline, nothing starts; the NetInfo listener re-runs this on return.
     // A file still waiting out its delay is passed over, and the runner is
     // woken when the earliest delay ends.
@@ -871,7 +1351,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // there until something else changed `tasks`. `online` likewise: coming
     // back online is what starts a queue that was held. `owner` and `userId`
     // because the runner only works the signed-in account's own queue.
-  }, [tasks, run, hydrated, online, owner, userId]);
+  }, [tasks, run, handOver, hydrated, online, owner, userId]);
 
   const pending = tasks.filter((task) => task.status !== 'done');
   const active = pending.some(
@@ -906,6 +1386,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!active) return;
     if (appState.current === 'active') return;
+    // Android's upload service keeps its own notification up to date.
+    if (NATIVE && Platform.OS === 'android') return;
 
     const percent = Math.round(overall * 100);
     if (Math.abs(percent - lastNotifiedPercent.current) < NOTIFY_EVERY_PERCENT) {

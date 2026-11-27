@@ -22,6 +22,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  ListPartsCommand,
   PutObjectCommand,
   S3Client,
   UploadPartCommand,
@@ -51,12 +52,14 @@ import {
   DISPLAY_URL_TTL_SECONDS,
   DOWNLOAD_URL_TTL_SECONDS,
   EXTENSION_BY_CONTENT_TYPE,
+  HANDOFF_URL_TTL_SECONDS,
   IMMUTABLE_CACHE_CONTROL,
   MAX_AVATAR_BYTES,
   MAX_COVER_BYTES,
   MAX_UPLOAD_BYTES,
   MULTIPART_MAX_BYTES,
   MULTIPART_MAX_PARTS,
+  MULTIPART_MIN_BYTES,
   MULTIPART_PART_BYTES,
   PROFILE_PHOTO_CONTENT_TYPES,
   signingWindowFor,
@@ -91,6 +94,38 @@ export interface PartTicket {
   requiredHeaders: Record<string, string>;
   expiresAt: string;
 }
+
+/** One file of a handoff request (docs/BACKGROUND_UPLOADS.md). */
+export interface HandoffFile {
+  contentType: string;
+  contentLength: number;
+  originalName?: string;
+  lastModified?: number;
+}
+
+/**
+ * Everything needed to send one file with no further call to the API: a
+ * single PUT, or every part of a multipart upload, each URL good for a day.
+ */
+export interface HandoffTicket {
+  key: string;
+  contentType: string;
+  size: number;
+  expiresAt: string;
+  single?: { uploadUrl: string; requiredHeaders: Record<string, string> };
+  multipart?: {
+    uploadId: string;
+    partSize: number;
+    partCount: number;
+    parts: { partNumber: number; uploadUrl: string; requiredHeaders: Record<string, string> }[];
+  };
+}
+
+/** Where a handed-over file has got to, as far as B2 can tell. */
+export type HandoffState =
+  | { state: 'filed'; size: number; contentType?: string }
+  | { state: 'waiting' }
+  | { state: 'gone' };
 
 // Lives beside the zip streamer, which needs it and must not import this file
 // back; re-exported so it resolves where it always has.
@@ -683,18 +718,36 @@ export class StorageService {
       throw new ServiceUnavailableException('Could not reach storage');
     }
 
+    await this.holdAssembled(userId, input.key, size, input.albumId);
+    return { key: input.key, size };
+  }
+
+  /**
+   * Holds an assembled upload to the ceiling and the storage it is billed to,
+   * by its real size, and deletes it when it fails either.
+   *
+   * The size declared at the start is pinned nowhere B2 can see, so this is
+   * the only real check on a file sent in parts: after `completeMultipart`,
+   * and after the background-upload job assembles one (finishHandoff).
+   */
+  private async holdAssembled(
+    userId: string,
+    key: string,
+    size: number,
+    albumId?: string,
+  ): Promise<void> {
     try {
       if (size > MULTIPART_MAX_BYTES) {
         throw new BadRequestException('That file is too large to upload.');
       }
       let billedTo = userId;
-      if (input.albumId) {
-        const access = await this.quota.accessForAlbum(userId, input.albumId);
+      if (albumId) {
+        const access = await this.quota.accessForAlbum(userId, albumId);
         if (!accessAllows(access, 'upload')) {
           throw new ForbiddenException('You cannot add media to that album');
         }
         if (access !== 'owner') {
-          billedTo = (await this.quota.albumOwner(input.albumId)) ?? userId;
+          billedTo = (await this.quota.albumOwner(albumId)) ?? userId;
         }
       }
       await this.quota.assertCanStore(
@@ -705,14 +758,12 @@ export class StorageService {
     } catch (err) {
       // Through deleteFromBuckets, so a store that refuses DeleteObjects
       // still has the object removed one at a time. It never throws.
-      const gone = await this.deleteFromBuckets([input.key], 'completeMultipart refusal');
-      if (!gone.has(input.key)) {
+      const gone = await this.deleteFromBuckets([key], 'completeMultipart refusal');
+      if (!gone.has(key)) {
         this.logger.error('Could not remove a refused multipart upload');
       }
       throw err;
     }
-
-    return { key: input.key, size };
   }
 
   /**
@@ -741,6 +792,278 @@ export class StorageService {
       if (status === 404) return;
       this.logger.error(`AbortMultipartUpload failed for ${input.key}: ${String(err)}`);
       throw new ServiceUnavailableException('Could not reach storage');
+    }
+  }
+
+  /**
+   * Mints a background-upload batch (docs/BACKGROUND_UPLOADS.md): for each
+   * file a key and every URL it needs, each good for a day, so the phone can
+   * hand the whole batch to iOS or Android and never call back.
+   *
+   * Refused as a whole, before anything is signed or started: a type the
+   * library does not take, a file over the multipart ceiling, an album the
+   * caller may not add to, or a batch that does not fit in the storage it is
+   * billed to. The storage check is on the sum: fifty files that each fit can
+   * still overflow together, and the phone hands them over together.
+   *
+   * Records nothing. UploadHandoffService keeps the rows; on a failure part
+   * way through, the multipart uploads already opened here are released.
+   */
+  async createHandoffs(
+    userId: string,
+    albumId: string,
+    files: HandoffFile[],
+  ): Promise<HandoffTicket[]> {
+    const client = this.requireClient();
+    if (files.length === 0) return [];
+    for (const file of files) {
+      if (!(ALLOWED_CONTENT_TYPES as readonly string[]).includes(file.contentType)) {
+        throw new BadRequestException(`Unsupported content type: ${file.contentType}`);
+      }
+      if (
+        !Number.isInteger(file.contentLength) ||
+        file.contentLength <= 0 ||
+        file.contentLength > MULTIPART_MAX_BYTES
+      ) {
+        throw new BadRequestException('That file is too large to upload.');
+      }
+    }
+    const total = files.reduce((sum, file) => sum + file.contentLength, 0);
+    // The album and the batch's bytes, once. Types and sizes were checked file
+    // by file above, so the ceiling given is the batch's own size.
+    await this.authoriseUpload(
+      userId,
+      { contentType: files[0].contentType, scope: 'albums', contentLength: total, albumId },
+      total,
+    );
+
+    const bucket = this.config.bucketForScope('albums');
+    const expiresAt = new Date(Date.now() + HANDOFF_URL_TTL_SECONDS * 1000).toISOString();
+    const sign = { expiresIn: HANDOFF_URL_TTL_SECONDS };
+    const tickets: HandoffTicket[] = [];
+    try {
+      for (const file of files) {
+        const key = this.buildKey(userId, 'albums', file.contentType);
+        const base = { key, contentType: file.contentType, size: file.contentLength, expiresAt };
+        if (file.contentLength < MULTIPART_MIN_BYTES) {
+          const uploadUrl = await getSignedUrl(
+            client,
+            new PutObjectCommand({
+              Bucket: bucket,
+              Key: key,
+              ContentType: file.contentType,
+              ContentLength: file.contentLength,
+            }),
+            sign,
+          );
+          tickets.push({
+            ...base,
+            single: {
+              uploadUrl,
+              requiredHeaders: {
+                'Content-Type': file.contentType,
+                'Content-Length': String(file.contentLength),
+              },
+            },
+          });
+          continue;
+        }
+
+        let uploadId: string | undefined;
+        try {
+          const created = await client.send(
+            new CreateMultipartUploadCommand({
+              Bucket: bucket,
+              Key: key,
+              ContentType: file.contentType,
+            }),
+          );
+          uploadId = created.UploadId;
+        } catch (err) {
+          this.logger.error(`CreateMultipartUpload failed for ${key}: ${String(err)}`);
+        }
+        if (!uploadId) throw new ServiceUnavailableException('Could not reach storage');
+
+        const partCount = Math.ceil(file.contentLength / MULTIPART_PART_BYTES);
+        const parts: NonNullable<HandoffTicket['multipart']>['parts'] = [];
+        for (let partNumber = 1; partNumber <= partCount; partNumber++) {
+          const length = Math.min(
+            MULTIPART_PART_BYTES,
+            file.contentLength - (partNumber - 1) * MULTIPART_PART_BYTES,
+          );
+          const uploadUrl = await getSignedUrl(
+            client,
+            new UploadPartCommand({
+              Bucket: bucket,
+              Key: key,
+              UploadId: uploadId,
+              PartNumber: partNumber,
+              ContentLength: length,
+            }),
+            sign,
+          );
+          parts.push({ partNumber, uploadUrl, requiredHeaders: { 'Content-Length': String(length) } });
+        }
+        tickets.push({
+          ...base,
+          multipart: { uploadId, partSize: MULTIPART_PART_BYTES, partCount, parts },
+        });
+      }
+    } catch (err) {
+      // Nothing of a refused batch is handed over, so nothing of it is kept.
+      await Promise.all(
+        tickets
+          .filter((ticket) => ticket.multipart)
+          .map((ticket) =>
+            this.discardHandoff({ key: ticket.key, uploadId: ticket.multipart?.uploadId ?? null }),
+          ),
+      );
+      throw err;
+    }
+    return tickets;
+  }
+
+  /**
+   * Finishes a handed-over file if it has landed, as the phone's `confirm`
+   * would: a single PUT is filed in its album; a file sent in parts is first
+   * assembled from B2's own list of its parts, then held to the same checks as
+   * `completeMultipart`, then filed.
+   *
+   * 'waiting' while bytes are still to come; 'gone' once there is nothing left
+   * to finish (the parts were released). Throws a 4xx when the file is
+   * refused (over the ceiling, out of storage, no longer allowed in the
+   * album), and has then already deleted it if it was assembled here.
+   *
+   * Safe to repeat, and to race with the phone: filing is idempotent on the
+   * key, and an upload completed elsewhere is found by its object.
+   */
+  async finishHandoff(handoff: {
+    key: string;
+    userId: string;
+    albumId: string | null;
+    originalName: string | null;
+    lastModified: number | null;
+    uploadId: string | null;
+    partCount: number | null;
+  }): Promise<HandoffState> {
+    const file = async (): Promise<HandoffState | null> => {
+      const stat = await this.statObject(
+        handoff.userId,
+        handoff.key,
+        handoff.albumId ?? undefined,
+        handoff.originalName ?? undefined,
+        handoff.lastModified ?? undefined,
+      );
+      return stat.exists
+        ? { state: 'filed', size: stat.size, contentType: stat.contentType }
+        : null;
+    };
+
+    if (!handoff.uploadId) return (await file()) ?? { state: 'waiting' };
+
+    const client = this.requireClient();
+    const bucket = this.config.bucketForKey(handoff.key);
+    let parts: { PartNumber?: number; ETag?: string }[];
+    try {
+      parts = await this.listAllParts(client, bucket, handoff.key, handoff.uploadId);
+    } catch (err) {
+      if (httpStatusOf(err) === 404) {
+        // No such upload: completed already, by this job or by a phone that
+        // finished it itself, or released. The object says which.
+        return (await file()) ?? { state: 'gone' };
+      }
+      this.logger.error(`ListParts failed for ${handoff.key}: ${String(err)}`);
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
+
+    const sorted = parts
+      .filter((part) => part.PartNumber && part.ETag)
+      .sort((a, b) => (a.PartNumber ?? 0) - (b.PartNumber ?? 0));
+    const complete =
+      handoff.partCount !== null &&
+      sorted.length === handoff.partCount &&
+      sorted.every((part, at) => part.PartNumber === at + 1);
+    if (!complete) return { state: 'waiting' };
+
+    try {
+      await client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: bucket,
+          Key: handoff.key,
+          UploadId: handoff.uploadId,
+          MultipartUpload: {
+            Parts: sorted.map((part) => ({ PartNumber: part.PartNumber, ETag: part.ETag })),
+          },
+        }),
+      );
+    } catch (err) {
+      const status = httpStatusOf(err);
+      if (status === 404) return (await file()) ?? { state: 'gone' };
+      this.logger.error(`CompleteMultipartUpload failed for ${handoff.key}: ${String(err)}`);
+      if (status && status >= 400 && status < 500) {
+        await this.discardHandoff(handoff);
+        throw new BadRequestException('The upload could not be assembled.');
+      }
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
+
+    let size: number;
+    try {
+      const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: handoff.key }));
+      size = head.ContentLength ?? 0;
+    } catch (err) {
+      this.logger.error(`HEAD failed after assembling ${handoff.key}: ${String(err)}`);
+      throw new ServiceUnavailableException('Could not reach storage');
+    }
+    await this.holdAssembled(handoff.userId, handoff.key, size, handoff.albumId ?? undefined);
+    return (await file()) ?? { state: 'waiting' };
+  }
+
+  /**
+   * Lets go of a handed-over file that will not be finished: its parts, if it
+   * was sent in parts, and its object, if any of it landed. Never throws; what
+   * it cannot remove the bucket's lifecycle rule removes later.
+   */
+  async discardHandoff(handoff: { key: string; uploadId: string | null }): Promise<void> {
+    if (handoff.uploadId) {
+      try {
+        await this.requireClient().send(
+          new AbortMultipartUploadCommand({
+            Bucket: this.config.bucketForKey(handoff.key),
+            Key: handoff.key,
+            UploadId: handoff.uploadId,
+          }),
+        );
+      } catch (err) {
+        if (httpStatusOf(err) !== 404) {
+          this.logger.error(`AbortMultipartUpload failed for ${handoff.key}: ${String(err)}`);
+        }
+      }
+    }
+    await this.deleteFromBuckets([handoff.key], 'handoff discarded');
+  }
+
+  /** Every part B2 holds for an upload, across pages. */
+  private async listAllParts(
+    client: S3Client,
+    bucket: string,
+    key: string,
+    uploadId: string,
+  ): Promise<{ PartNumber?: number; ETag?: string }[]> {
+    const parts: { PartNumber?: number; ETag?: string }[] = [];
+    let marker: string | undefined;
+    for (;;) {
+      const page = await client.send(
+        new ListPartsCommand({
+          Bucket: bucket,
+          Key: key,
+          UploadId: uploadId,
+          PartNumberMarker: marker,
+        }),
+      );
+      parts.push(...(page.Parts ?? []));
+      if (!page.IsTruncated || !page.NextPartNumberMarker) return parts;
+      marker = String(page.NextPartNumberMarker);
     }
   }
 
@@ -1715,6 +2038,11 @@ export class StorageService {
       throw new ServiceUnavailableException('Could not reach storage');
     }
   }
+}
+
+/** The HTTP status of a failed S3 call, when it got as far as one. */
+function httpStatusOf(err: unknown): number | undefined {
+  return (err as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
 }
 
 function storedDisplayName(originalName: string | null, key: string): string {
