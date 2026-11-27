@@ -1,4 +1,5 @@
-import { Alert, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { memo, useCallback, useMemo } from 'react';
+import { Alert, FlatList, Pressable, Text, View, useWindowDimensions, type ListRenderItem } from 'react-native';
 import { CheckIcon, RotateCwIcon, XIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { BottomSheet } from '@/components/BottomSheet';
@@ -11,6 +12,9 @@ for (const Icon of [CheckIcon, RotateCwIcon, XIcon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 }
 
+/** What is going first, then what failed, then what is waiting, then what is done. */
+const ORDER = { uploading: 0, failed: 1, queued: 2, done: 3 } as const;
+
 /**
  * Every file that is on its way up, and what it is doing.
  *
@@ -21,20 +25,35 @@ for (const Icon of [CheckIcon, RotateCwIcon, XIcon]) {
  * Anything not finished can be removed — a file already sending is stopped —
  * and a failure can be tried again, with its reason in full: it is usually
  * something the person can fix (no space left, a file that has gone).
+ *
+ * A list, not a scroll view: a batch of 294 drew 294 rows at once, each with
+ * its photograph, and drew them all again for every step of every bar. Only
+ * the rows on screen exist now, and a row redraws only when its own file
+ * moves.
  */
 export function UploadsSheet() {
   const visible = useUploadsSheetOpen();
   const { height } = useWindowDimensions();
   const { tasks, active, overall, retry, remove, clearFinished } = useUploadQueue();
 
-  const done = tasks.filter((task) => task.status === 'done').length;
-  const failed = tasks.filter((task) => task.status === 'failed');
-  const running = tasks.filter((task) => task.status === 'queued' || task.status === 'uploading');
-  const totalBytes = tasks.reduce((sum, task) => sum + task.sizeBytes, 0);
-  const sentBytes = tasks.reduce(
-    (sum, task) => sum + task.sizeBytes * (task.status === 'done' ? 1 : task.progress),
-    0,
-  );
+  const summary = useMemo(() => {
+    let done = 0;
+    let totalBytes = 0;
+    let sentBytes = 0;
+    const failed: UploadTask[] = [];
+    const running: UploadTask[] = [];
+    for (const task of tasks) {
+      totalBytes += task.sizeBytes;
+      sentBytes += task.sizeBytes * (task.status === 'done' ? 1 : task.progress);
+      if (task.status === 'done') done += 1;
+      else if (task.status === 'failed') failed.push(task);
+      else running.push(task);
+    }
+    // Stable, so files of one kind keep the order they were picked in.
+    const sorted = [...tasks].sort((a, b) => ORDER[a.status] - ORDER[b.status]);
+    return { done, totalBytes, sentBytes, failed, running, sorted };
+  }, [tasks]);
+  const { done, totalBytes, sentBytes, failed, running, sorted } = summary;
 
   const title = active
     ? `Uploading ${Math.min(done + 1, tasks.length)} of ${tasks.length}`
@@ -44,9 +63,10 @@ export function UploadsSheet() {
         ? `${done} uploaded`
         : 'Nothing uploading';
 
-  // What is going first, then what failed, then what is waiting, then what is done.
-  const order = { uploading: 0, failed: 1, queued: 2, done: 3 } as const;
-  const sorted = [...tasks].sort((a, b) => order[a.status] - order[b.status]);
+  const renderItem = useCallback<ListRenderItem<UploadTask>>(
+    ({ item, index }) => <Row task={item} first={index === 0} onRetry={retry} onRemove={remove} />,
+    [retry, remove],
+  );
 
   return (
     <BottomSheet visible={visible} onClose={uploadsSheet.close}>
@@ -105,32 +125,35 @@ export function UploadsSheet() {
         )}
       </View>
 
-      <ScrollView
+      <FlatList
+        data={sorted}
+        keyExtractor={keyOf}
+        renderItem={renderItem}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={5}
         style={{ maxHeight: Math.round(height * 0.5) }}
         alwaysBounceVertical={false}
         contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 6, paddingBottom: 12 }}
-      >
-        {tasks.length === 0 ? (
+        ListEmptyComponent={
           <Text className="text-muted-foreground text-[14px] leading-5 py-6">
             Files you add to an album show here while they upload.
           </Text>
-        ) : (
-          sorted.map((task, at) => (
-            <Row
-              key={task.id}
-              task={task}
-              first={at === 0}
-              onRetry={() => retry(task.id)}
-              onRemove={() => remove(task.id)}
-            />
-          ))
-        )}
-      </ScrollView>
+        }
+      />
     </BottomSheet>
   );
 }
 
-function Row({
+function keyOf(task: UploadTask): string {
+  return task.id;
+}
+
+/**
+ * One file. Redrawn only when its own task changes: the queue keeps the same
+ * object for every file that did not move, and the handlers never change.
+ */
+const Row = memo(function Row({
   task,
   first,
   onRetry,
@@ -138,8 +161,8 @@ function Row({
 }: {
   task: UploadTask;
   first: boolean;
-  onRetry: () => void;
-  onRemove: () => void;
+  onRetry: (id: string) => void;
+  onRemove: (id: string) => void;
 }) {
   const failed = task.status === 'failed';
   const going = task.status === 'uploading';
@@ -183,7 +206,7 @@ function Row({
           ) : null}
           {failed ? (
             <Pressable
-              onPress={onRetry}
+              onPress={() => onRetry(task.id)}
               accessibilityRole="button"
               accessibilityLabel={`Try ${task.name} again`}
               className="h-9 px-3 rounded-full bg-muted flex-row items-center gap-1.5 active:opacity-70"
@@ -193,7 +216,7 @@ function Row({
             </Pressable>
           ) : null}
           <Pressable
-            onPress={onRemove}
+            onPress={() => onRemove(task.id)}
             accessibilityRole="button"
             accessibilityLabel={going ? `Stop uploading ${task.name}` : `Remove ${task.name} from uploads`}
             hitSlop={6}
@@ -205,4 +228,4 @@ function Row({
       )}
     </View>
   );
-}
+});

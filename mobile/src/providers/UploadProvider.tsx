@@ -20,9 +20,11 @@ import { useAuth, usageQueryKey } from '@/src/hooks';
 import { MAX_RESUME_AGE_MS, type MultipartSession } from '@/src/lib/multipart-resume';
 import {
   connectivityRetryDelayMs,
+  FOREGROUND_CONCURRENCY,
   isConnectivityFailure,
+  isDisposableCopy,
   isOnlineForUploads,
-  nextRunnable,
+  planStarts,
 } from '@/src/lib/upload-queue';
 import {
   clearUploadProgress,
@@ -121,14 +123,35 @@ const UploadContext = createContext<UploadContextValue>(FALLBACK);
 type UploadActions = Pick<UploadContextValue, 'enqueue' | 'retry' | 'remove' | 'clearFinished'>;
 const UploadActionsContext = createContext<UploadActions>(FALLBACK);
 
-/** How often, at most, an album is read again while files are landing in it. */
-const ALBUM_REFRESH_EVERY_MS = 2500;
+/**
+ * How often, at most, an album is read again while files are landing in it.
+ *
+ * Every read fetches each page of the album that is loaded and redraws its
+ * grid, and the album also asks again every five seconds by itself while a
+ * new file is still being processed (useAlbumFiles), which during a batch is
+ * always. At 2.5 s the two together kept a growing album redrawing for the
+ * whole of the upload. The tiles of what is still uploading are drawn above
+ * the grid meanwhile, so nothing goes missing in the wait.
+ */
+const ALBUM_REFRESH_EVERY_MS = 6000;
+
+/**
+ * How often, at most, progress redraws anything.
+ *
+ * The provider sits above every screen, and the native uploader reports
+ * every few kilobytes. It was one redraw per whole percent per file, which
+ * for a 4 MB photograph on a good line is a hundred redraws in two seconds,
+ * each through every view of the queue. Four a second is all a bar needs,
+ * however many files are moving; the web app uses five.
+ */
+const PROGRESS_FLUSH_MS = 250;
 
 /**
  * How many files are sent at once after the app has left the screen.
  *
- * In front, one at a time: side by side they share one uplink and every bar
- * crawls. Behind, there is no bar to watch and no JavaScript to start the
+ * In front, a few at a time (FOREGROUND_CONCURRENCY): more than that and they
+ * split one uplink so finely that every bar crawls. Behind, there is no bar
+ * to watch and no JavaScript to start the
  * next file when one ends, so whatever is going to be sent has to be started
  * before iOS suspends the app. The system queues them itself, a few
  * connections at a time. A ticket is good for fifteen minutes, which is what
@@ -177,6 +200,33 @@ const WAITING_FOR_CONNECTION = 'Waiting for a connection';
 function releaseMultipart(session: MultipartSession | undefined): void {
   if (!session?.key || !session.uploadId) return;
   void storageApi.abortMultipart(session).catch(() => undefined);
+}
+
+/**
+ * Deletes the picker's copy of a file that is uploaded, or that will not be.
+ *
+ * The pickers hand over a copy in the app's cache, not the original, and
+ * nothing deleted those copies: every batch stayed on the phone a second
+ * time, 3.7 GB for 3.7 GB, until there was no room left for a film's parts.
+ * Only copies in the cache (isDisposableCopy): never a file the person owns.
+ */
+function discardCopy(uri: string | undefined): void {
+  if (!uri || !isDisposableCopy(uri, FileSystem.cacheDirectory)) return;
+  void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+}
+
+/**
+ * The same task for the saved queue: everything but progress, which a
+ * relaunch never uses (it starts from the key or the parts).
+ */
+function samePersisted(a: UploadTask, b: UploadTask | undefined): boolean {
+  if (a === b) return true;
+  if (!b) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof UploadTask)[]);
+  for (const key of keys) {
+    if (key !== 'progress' && a[key] !== b[key]) return false;
+  }
+  return true;
 }
 
 /**
@@ -250,14 +300,23 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * The last whole percent written for the running task.
-   *
-   * The native uploader reports bytes far more often than a bar can show. This
-   * provider sits above the navigator, so every patch re-renders the app; at
-   * one render per callback a large file would spend the upload janking. One
-   * per percent is all the bar can draw anyway.
+   * The last whole percent seen for each running task, so a callback that
+   * changes nothing visible costs nothing.
    */
   const lastPatchedPercent = useRef(new Map<string, number>());
+
+  /**
+   * Progress waiting to be drawn, by task id, and the timer that draws it:
+   * every running file's at once, at most every PROGRESS_FLUSH_MS.
+   */
+  const pendingProgress = useRef(new Map<string, number>());
+  const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (progressTimer.current) clearTimeout(progressTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
@@ -413,6 +472,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           // is nothing local that knows. This is also what attaches it to its
           // album, which is the step the dead process never reached.
           const stat = await storageApi.confirm(task.key, task.albumId, task.name);
+          if (stat.exists) discardCopy(task.uri);
           settled.push(
             stat.exists
               ? { ...task, status: 'done', progress: 1, multipart: undefined }
@@ -443,6 +503,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           if (task.status !== 'queued') return task;
           const info = await FileSystem.getInfoAsync(task.uri).catch(() => null);
           if (info?.exists) return task;
+          // Sent in one piece and ticketed: it may well have arrived, and its
+          // copy been deleted for that reason, with only the word "done" lost
+          // to the app ending. The runner asks the server before anything
+          // else, and fails it as gone only if the server has nothing.
+          if (task.key && !task.multipart) return task;
           // Nothing left to send the rest from, so its parts are let go.
           releaseMultipart(task.multipart);
           return {
@@ -475,15 +540,28 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   // its key or its parts, never from a percentage, and writing the whole queue
   // for every percent of every file was a hundred serialisations and disk
   // writes a file, all on the thread that answers taps.
-  const lastSaved = useRef<{ owner: string; json: string } | null>(null);
+  //
+  // Nor is it worth turning the queue into text to find that out. That is
+  // what this did: the whole queue, 294 files of it, made into a string on
+  // every progress redraw only to be compared with the last one and thrown
+  // away. The tasks are compared field by field instead, which costs next to
+  // nothing, and text is made only when something a relaunch needs changed.
+  const lastSaved = useRef<{ owner: string; tasks: UploadTask[] } | null>(null);
   useEffect(() => {
     if (!hydrated || !owner) return;
-    const worth = tasks
-      .filter((task) => task.status !== 'done')
-      .map((task) => (task.progress === 0 ? task : { ...task, progress: 0 }));
-    const json = JSON.stringify(worth);
-    if (lastSaved.current?.owner === owner && lastSaved.current.json === json) return;
-    lastSaved.current = { owner, json };
+    const worth = tasks.filter((task) => task.status !== 'done');
+    const prev = lastSaved.current;
+    if (
+      prev?.owner === owner &&
+      prev.tasks.length === worth.length &&
+      worth.every((task, at) => samePersisted(task, prev.tasks[at]))
+    ) {
+      return;
+    }
+    lastSaved.current = { owner, tasks: worth };
+    const json = JSON.stringify(
+      worth.map((task) => (task.progress === 0 ? task : { ...task, progress: 0 })),
+    );
     void AsyncStorage.setItem(uploadQueueKey(owner), json).catch(() => {});
   }, [tasks, hydrated, owner]);
 
@@ -535,6 +613,35 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  /** Draws all the progress gathered since the last time, in one update. */
+  const flushProgress = useCallback(() => {
+    progressTimer.current = null;
+    const pending = pendingProgress.current;
+    if (pending.size === 0) return;
+    const updates = new Map(pending);
+    pending.clear();
+    setTasks((prev) =>
+      prev.map((task) => {
+        const progress = updates.get(task.id);
+        // A file that finished, failed or was retried meanwhile keeps what
+        // that wrote: a late callback must not pull a done file back to 97%.
+        return progress === undefined || task.status !== 'uploading' || progress === task.progress
+          ? task
+          : { ...task, progress };
+      }),
+    );
+  }, []);
+
+  const reportProgress = useCallback(
+    (id: string, fraction: number) => {
+      pendingProgress.current.set(id, fraction);
+      if (!progressTimer.current) {
+        progressTimer.current = setTimeout(flushProgress, PROGRESS_FLUSH_MS);
+      }
+    },
+    [flushProgress],
+  );
+
   const enqueue = useCallback((items: NewUpload[]) => {
     if (items.length === 0) return;
     setTasks((prev) => [
@@ -571,11 +678,14 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const remove = useCallback((id: string) => {
     const controller = controllers.current.get(id);
     if (controller) {
-      // The upload releases its own parts once it sees the cancellation.
+      // The upload releases its own parts, and the picker's copy, once it
+      // sees the cancellation.
       controller.abort();
     } else {
+      const task = tasksRef.current.find((each) => each.id === id);
       // Kept for a resume that is now not coming.
-      releaseMultipart(tasksRef.current.find((task) => task.id === id)?.multipart);
+      releaseMultipart(task?.multipart);
+      discardCopy(task?.uri);
     }
     setTasks((prev) => prev.filter((task) => task.id !== id));
   }, []);
@@ -594,6 +704,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
       void (async () => {
         lastPatchedPercent.current.delete(next.id);
+        pendingProgress.current.delete(next.id);
         patch(next.id, { status: 'uploading', progress: 0, error: undefined });
         try {
           // A key from an earlier attempt means bytes may already be in the
@@ -609,6 +720,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
               { signal: controller.signal },
             );
             if (stat.exists) {
+              discardCopy(next.uri);
               if (mounted.current) {
                 patch(next.id, {
                   status: 'done',
@@ -640,7 +752,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
               const percent = Math.round(fraction * 100);
               if (percent === lastPatchedPercent.current.get(next.id)) return;
               lastPatchedPercent.current.set(next.id, percent);
-              patch(next.id, { progress: fraction });
+              reportProgress(next.id, fraction);
             },
             signal: controller.signal,
             // A large file carries on from the part an earlier attempt reached.
@@ -649,6 +761,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
             // by `mounted`: it is what a relaunch resumes from.
             onSession: (multipart) => patch(next.id, { multipart }),
           });
+          // In the album now; the copy on the phone has done its job.
+          discardCopy(next.uri);
           if (mounted.current) {
             patch(next.id, {
               status: 'done',
@@ -664,7 +778,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           refreshAlbumSoon(next.albumId);
         } catch (error) {
           const cancelled = controller.signal.aborted;
-          // Removed while running: the row is already gone.
+          // Removed while running: the row is already gone, and so is any
+          // reason to keep the copy.
+          if (cancelled) discardCopy(next.uri);
           if (!mounted.current || cancelled) return;
 
           // Nothing answered. Queued again rather than failed: the file did
@@ -696,6 +812,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           controllers.current.delete(next.id);
           inFlight.current.delete(next.id);
           lastPatchedPercent.current.delete(next.id);
+          pendingProgress.current.delete(next.id);
           // Nudges the runner to look for the next one. Without it the queue
           // stops after the first file, because nothing else changes `tasks`
           // once the last patch has landed.
@@ -703,19 +820,20 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [patch, refreshAlbumSoon],
+    [patch, refreshAlbumSoon, reportProgress],
   );
 
-  // The runner. One at a time while the app is in front: several large videos
-  // at once compete for the same uplink and make every bar crawl, which reads
-  // as broken rather than busy. Off screen on iOS, a handful at once (see
-  // BACKGROUND_BURST).
+  // The runner. A few files at once while the app is in front
+  // (FOREGROUND_CONCURRENCY), so one file's round trips, or one transfer
+  // that has stopped moving, no longer holds up every file behind it. A file
+  // sent in parts goes alone, since it runs four parts of its own. Off screen
+  // on iOS, a handful of one-piece files at once (see BACKGROUND_BURST).
+  // planStarts (upload-queue.ts) is the rule, with its tests.
   useEffect(() => {
     // Not before the previous launch has been settled, or a file already in
     // the bucket gets sent again. And only for the account signed in now.
     if (!hydrated || !owner || owner !== userId) return;
 
-    const limit = burst.current ? BACKGROUND_BURST : 1;
     if (wakeTimer.current) {
       clearTimeout(wakeTimer.current);
       wakeTimer.current = null;
@@ -725,23 +843,20 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // A file still waiting out its delay is passed over, and the runner is
     // woken when the earliest delay ends.
     const now = Date.now();
-    let candidates = tasks.filter((task) => !inFlight.current.has(task.id));
-    while (inFlight.current.size < limit) {
-      const { task: next, wakeAt } = nextRunnable(candidates, now, online);
-      if (!next) {
-        if (wakeAt !== undefined && inFlight.current.size === 0) {
-          wakeTimer.current = setTimeout(() => {
-            wakeTimer.current = null;
-            if (mounted.current) setTasks((prev) => [...prev]);
-          }, Math.max(0, wakeAt - now));
-        }
-        break;
-      }
-      candidates = candidates.filter((task) => task.id !== next.id);
-      // Beside another file, only one that is sent in one piece: a file in
-      // parts needs this thread between its parts, and off screen has none.
-      if (inFlight.current.size > 0 && next.sizeBytes >= MULTIPART_MIN_BYTES) continue;
-      run(next);
+    const { start, wakeAt } = planStarts(tasks, {
+      inFlight: inFlight.current,
+      limit: burst.current ? BACKGROUND_BURST : FOREGROUND_CONCURRENCY,
+      offScreen: burst.current,
+      now,
+      online,
+      isLarge: (task) => task.sizeBytes >= MULTIPART_MIN_BYTES,
+    });
+    for (const task of start) run(task);
+    if (wakeAt !== undefined) {
+      wakeTimer.current = setTimeout(() => {
+        wakeTimer.current = null;
+        if (mounted.current) setTasks((prev) => [...prev]);
+      }, Math.max(0, wakeAt - now));
     }
 
     // No cleanup. This effect re-runs constantly — every progress patch writes
@@ -850,22 +965,16 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     [enqueue, retry, remove, clearFinished],
   );
 
+  // The same object until the queue moves, so a redraw of this provider for
+  // anything else (the network, the account) does not redraw every view of it.
+  const queue = useMemo(
+    () => ({ tasks, active, overall, remaining, ...actions }),
+    [tasks, active, overall, remaining, actions],
+  );
+
   return (
     <UploadActionsContext.Provider value={actions}>
-      <UploadContext.Provider
-        value={{
-          tasks,
-          active,
-          overall,
-          remaining,
-          enqueue,
-          retry,
-          remove,
-          clearFinished,
-        }}
-      >
-        {children}
-      </UploadContext.Provider>
+      <UploadContext.Provider value={queue}>{children}</UploadContext.Provider>
     </UploadActionsContext.Provider>
   );
 }
