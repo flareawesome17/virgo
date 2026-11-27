@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
@@ -15,6 +16,7 @@ import {
 } from 'class-validator';
 import {
   ALLOWED_CONTENT_TYPES,
+  HANDOFF_MAX_FILES,
   MAX_UPLOAD_BYTES,
   MULTIPART_MAX_BYTES,
   MULTIPART_MAX_PARTS,
@@ -290,4 +292,56 @@ export class ListFilesDto {
   // not fail validation; paged album listings clamp this to 100 internally.
   @Max(500)
   limit?: number;
+}
+
+/** One file of a background-upload batch (docs/BACKGROUND_UPLOADS.md). */
+export class HandoffFileDto {
+  @IsIn(ALLOWED_CONTENT_TYPES as unknown as string[], {
+    message: 'Unsupported content type',
+  })
+  contentType!: string;
+
+  /** Signed into every URL, so no more than this can be sent. */
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MULTIPART_MAX_BYTES)
+  contentLength!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  originalName?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(UPLOAD_LAST_MODIFIED_MAX)
+  lastModified?: number;
+}
+
+export class CreateHandoffsDto {
+  /** Always an album: a background upload is only ever into one. */
+  @IsString()
+  @MaxLength(64)
+  albumId!: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(HANDOFF_MAX_FILES)
+  @ValidateNested({ each: true })
+  @Type(() => HandoffFileDto)
+  files!: HandoffFileDto[];
+}
+
+/** Handed-over files by key, for finishing or cancelling them. */
+export class HandoffKeysDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(HANDOFF_MAX_FILES)
+  @ArrayUnique()
+  @IsString({ each: true })
+  @MaxLength(512, { each: true })
+  keys!: string[];
 }

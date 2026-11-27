@@ -19,6 +19,7 @@ import {
   stallWatch,
   UPLOAD_STALL_MS,
 } from '@/src/lib/upload-queue';
+import type { HandoffTicket } from '@/src/lib/handoff-plan';
 import { api } from '../client';
 import { API_BASE_URL } from '../config';
 import { withConfirmRetry, withUploadRetry } from '../confirm-retry';
@@ -33,6 +34,17 @@ import { UPLOAD_CHECK_TIMEOUT_MS, type UploadCheckFile } from '../upload-dedup';
 
 /** How long a confirm may take; see storageApi.confirm. */
 const CONFIRM_TIMEOUT_MS = 120_000;
+
+/** Files per handoff request. Mirrors HANDOFF_MAX_FILES in the API. */
+export const HANDOFF_MAX_FILES = 50;
+
+/** What the server says about one handed-over file (POST /storage/handoffs/finish). */
+export type HandoffFinish =
+  | { key: string; state: 'filed'; size: number }
+  | { key: string; state: 'waiting' }
+  | { key: string; state: 'gone' }
+  | { key: string; state: 'refused'; reason: string }
+  | { key: string; state: 'unknown' };
 
 /**
  * How long a delete may take to answer. Deleting goes object by object on the
@@ -616,6 +628,32 @@ export const storageApi = {
     await api.post('/storage/multipart/abort', {
       body: { key: ref.key, uploadId: ref.uploadId },
     });
+  },
+
+  /**
+   * Background uploads (docs/BACKGROUND_UPLOADS.md): every URL each of these
+   * files needs, good for a day, recorded so the server finishes them with
+   * the app closed. Up to HANDOFF_MAX_FILES, all for one album.
+   */
+  createHandoffs(
+    albumId: string,
+    files: { contentType: string; contentLength: number; originalName?: string }[],
+  ): Promise<{ handoffs: HandoffTicket[] }> {
+    return api.post('/storage/handoffs', { body: { albumId, files } });
+  },
+
+  /** Files handed-over files the phone saw land, so they show at once. */
+  finishHandoffs(keys: string[]): Promise<{ results: HandoffFinish[] }> {
+    return api.post('/storage/handoffs/finish', {
+      body: { keys },
+      // Assembling a film's parts happens in this call.
+      timeoutMs: CONFIRM_TIMEOUT_MS,
+    });
+  },
+
+  /** Lets go of handed-over files that were removed. Best effort. */
+  async cancelHandoffs(keys: string[]): Promise<void> {
+    await api.post('/storage/handoffs/cancel', { body: { keys } });
   },
 
   /**

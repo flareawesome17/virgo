@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["VirgoUploadsModule"],
+    "appDelegateSubscribers": ["VirgoUploadsAppDelegate"]
+  },
+  "android": {
+    "modules": ["expo.modules.virgouploads.VirgoUploadsModule"]
+  }
+}

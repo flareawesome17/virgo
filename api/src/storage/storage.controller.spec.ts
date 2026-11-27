@@ -5,6 +5,7 @@ import { StorageConfig } from './storage.config';
 import { StorageController } from './storage.controller';
 import type { StorageService } from './storage.service';
 import type { ThumbnailsService } from './thumbnails.service';
+import type { UploadHandoffService } from './upload-handoff.service';
 
 // The controller also streams zips, and archiver ships as ESM, which this jest
 // setup does not transform. Nothing here zips anything.
@@ -64,12 +65,14 @@ function controllerOver({
   const config = new StorageConfig({
     get: (key: string, fallback?: string) => values[key] ?? fallback,
   } as unknown as ConfigService);
+  const handoffs = { markFiled: jest.fn(async () => undefined) };
   const controller = new StorageController(
     storage as unknown as StorageService,
     thumbs as unknown as ThumbnailsService,
     config,
+    handoffs as unknown as UploadHandoffService,
   );
-  return { controller, storage, thumbs };
+  return { controller, storage, thumbs, handoffs };
 }
 
 beforeEach(() => {
