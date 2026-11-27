@@ -97,18 +97,20 @@ async function chooseMedia(): Promise<Picked[] | null> {
     preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
   });
   if (result.canceled) return null;
-  const picked: Picked[] = [];
-  for (const asset of result.assets) {
-    // Real size from disk, not a label.
-    const info = await FileSystem.getInfoAsync(asset.uri);
-    picked.push({
-      uri: asset.uri,
-      name: asset.fileName ?? asset.uri.split('/').pop() ?? 'file',
-      mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType, name: asset.fileName }),
-      sizeBytes: info.exists ? (info.size ?? 0) : 0,
-    });
-  }
-  return picked;
+  // Real size from disk, not a label. All at once: one after another, a pick
+  // of 294 waited on 294 round trips to the file system before anything
+  // showed. Promise.all keeps the order they were picked in.
+  return Promise.all(
+    result.assets.map(async (asset): Promise<Picked> => {
+      const info = await FileSystem.getInfoAsync(asset.uri).catch(() => null);
+      return {
+        uri: asset.uri,
+        name: asset.fileName ?? asset.uri.split('/').pop() ?? 'file',
+        mimeType: contentTypeForAsset({ uri: asset.uri, mimeType: asset.mimeType, name: asset.fileName }),
+        sizeBytes: info?.exists ? (info.size ?? 0) : 0,
+      };
+    }),
+  );
 }
 
 /**

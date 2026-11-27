@@ -1,6 +1,7 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system/legacy';
 import { requireOptionalNativeModule } from 'expo';
+import { AppState } from 'react-native';
 import {
   CopyCancelled,
   copyRange,
@@ -12,6 +13,12 @@ import {
   partRetryDelayMs,
   resumable,
 } from '@/src/lib/multipart-resume';
+import {
+  partDeadlineMs,
+  STALL_TICK_MS,
+  stallWatch,
+  UPLOAD_STALL_MS,
+} from '@/src/lib/upload-queue';
 import { api } from '../client';
 import { API_BASE_URL } from '../config';
 import { withConfirmRetry, withUploadRetry } from '../confirm-retry';
@@ -803,12 +810,14 @@ export const storageApi = {
         return { ticket, response };
       }
 
+      const watch = stallWatch(UPLOAD_STALL_MS);
       const task = FileSystem.createUploadTask(
         ticket.uploadUrl,
         fileUri,
         uploadOptions,
         (data) => {
           const total = data.totalBytesExpectedToSend || contentLength;
+          watch.touch(total > 0 && data.totalBytesSent >= total);
           if (total > 0) {
             options.onProgress?.(Math.min(data.totalBytesSent / total, 1));
           }
@@ -818,16 +827,19 @@ export const storageApi = {
         void task.cancelAsync().catch(() => undefined);
       };
       options.signal?.addEventListener('abort', cancel);
+      const guard = guardStall(watch, cancel);
       try {
         // A cancelled task resolves with nothing, which is handled below.
         const response = options.signal?.aborted
           ? null
           : await task.uploadAsync().catch((error: unknown) => {
-              if (options.signal?.aborted) return null;
+              if (options.signal?.aborted || guard.stalled) return null;
               return unreachableStorage(error);
             });
+        if (guard.stalled && !options.signal?.aborted) throw stalledUpload();
         return { ticket, response };
       } finally {
+        guard.stop();
         options.signal?.removeEventListener('abort', cancel);
       }
     };
@@ -881,6 +893,40 @@ export const storageApi = {
  */
 function unreachableStorage(_error: unknown): never {
   throw new ApiError(0, 'Could not reach storage. Check your connection.');
+}
+
+/**
+ * A transfer given up for sending nothing (stallWatch in upload-queue.ts).
+ * Status 0, like no answer at all: the queue holds it a moment and sends it
+ * again, asking first whether the bytes arrived after all, and meanwhile the
+ * files behind it go.
+ */
+function stalledUpload(): ApiError {
+  return new ApiError(0, 'The upload stopped moving. It will try again shortly.');
+}
+
+/**
+ * Ticks `watch` while a native upload runs, and cancels the upload the
+ * moment the watch calls it stalled. `stalled` says, afterwards, whether
+ * that is why it ended.
+ */
+function guardStall(
+  watch: ReturnType<typeof stallWatch>,
+  cancel: () => void,
+): { stop: () => void; readonly stalled: boolean } {
+  let fired = false;
+  const timer = setInterval(() => {
+    if (!watch.tick(AppState.currentState === 'active')) return;
+    fired = true;
+    clearInterval(timer);
+    cancel();
+  }, STALL_TICK_MS);
+  return {
+    stop: () => clearInterval(timer),
+    get stalled() {
+      return fired;
+    },
+  };
 }
 
 /** Waits, waking early when `signal` aborts. Never rejects. */
@@ -1104,17 +1150,25 @@ async function putPartFromDevice(
       void task.cancelAsync().catch(() => undefined);
     };
     signal?.addEventListener('abort', cancel);
+    // With no progress to watch, a part gets a deadline from its size instead:
+    // one stuck in the background session would otherwise wait for a week,
+    // and the film with it.
+    const guard = guardStall(stallWatch(partDeadlineMs(part.end - part.start)), cancel);
 
     let response: Awaited<ReturnType<typeof task.uploadAsync>>;
     try {
       response = signal?.aborted ? null : await task.uploadAsync();
     } catch {
       if (signal?.aborted) throw new ApiError(0, 'Upload was cancelled.');
+      if (guard.stalled) throw stalledUpload();
       throw new ApiError(0, 'Could not reach storage. Check your connection.');
     } finally {
+      guard.stop();
       signal?.removeEventListener('abort', cancel);
     }
 
+    // Status 0 either way, so the shared uploader sends the part again.
+    if (guard.stalled && !signal?.aborted) throw stalledUpload();
     if (!response || signal?.aborted) throw new ApiError(0, 'Upload was cancelled.');
     if (response.status < 200 || response.status >= 300) {
       throw new ApiError(response.status, 'Upload failed. Please try again.');
