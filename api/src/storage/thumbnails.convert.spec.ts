@@ -15,17 +15,34 @@ import { ThumbnailsService, thumbKeyFor } from './thumbnails.service';
  * The HEIC's header is faked as in thumbnails.heic.spec.ts, since the sharp
  * here cannot read HEVC; the converter is faked too, and its own spec covers
  * what it does with the bytes.
+ *
+ * The fake answers as libheif does for a real iPhone photo: with its default
+ * safety limits it refuses the tile grid's 54 item references, so the header
+ * is only read when those limits are lifted. That refusal is what kept every
+ * HEIC in production from converting after 117.
  */
 
 const HEIC = Buffer.from('fake heic container');
+/** A HEIC whose header cannot be read at all. */
+const BROKEN = Buffer.from('broken heic container');
+const LIMIT =
+  'Input buffer has corrupt header: heif: Invalid input: Security limit exceeded: ' +
+  'Number of references in iref box (54) exceeds the security limits of 16 references. (2.1000)';
 
 jest.mock('sharp', () => {
   const real = jest.requireActual<typeof import('sharp')>('sharp');
-  const wrapped = (input?: unknown, options?: unknown) => {
-    if (Buffer.isBuffer(input) && input.toString('latin1') === 'fake heic container') {
+  const wrapped = (input?: unknown, options?: { unlimited?: boolean }) => {
+    const text = Buffer.isBuffer(input) ? input.toString('latin1') : '';
+    if (text === 'fake heic container') {
       return {
-        metadata: async () => ({ format: 'heif', compression: 'hevc', width: 400, height: 300 }),
+        metadata: async () => {
+          if (!options?.unlimited) throw new Error(LIMIT);
+          return { format: 'heif', compression: 'hevc', width: 400, height: 300 };
+        },
       };
+    }
+    if (text === 'broken heic container') {
+      return { metadata: async () => { throw new Error('Input buffer contains unsupported image format'); } };
     }
     return (real as unknown as (i?: unknown, o?: unknown) => unknown)(input, options);
   };
@@ -59,9 +76,9 @@ function picture(width: number, height: number, as: 'jpeg' | 'png'): Promise<Buf
   return as === 'jpeg' ? made.jpeg({ quality: 95 }).toBuffer() : made.png().toBuffer();
 }
 
-function harness(heic: Partial<HeicConverter>) {
+function harness(heic: Partial<HeicConverter>, stored: Buffer = HEIC) {
   const putDerived = jest.fn().mockResolvedValue(undefined);
-  const readStream = jest.fn(async () => Readable.from([HEIC]));
+  const readStream = jest.fn(async () => Readable.from([stored]));
   const query = jest.fn().mockResolvedValue([]);
   const queryOne = jest.fn().mockResolvedValue(null);
   const converter = {
@@ -107,6 +124,29 @@ describe('ThumbnailsService.generate and a HEIC it converts', () => {
     expect(thumb.format).toBe('webp');
     const [, , width, height] = h.recorded();
     expect([width, height]).toEqual([400, 300]);
+  });
+
+  it("reads an iPhone photo's header past libheif's default limit on item references", async () => {
+    const jpeg = await picture(400, 300, 'jpeg');
+    const h = harness({ convert: jest.fn().mockResolvedValue({ jpeg, width: 400, height: 300 }) });
+
+    await h.service.generate(KEY, 'image/heic', 2_000_000);
+    // Read with the default limits, the fake refuses the header as libheif
+    // refused every iPhone photo, and nothing would have been claimed.
+    expect(h.converter.claim).toHaveBeenCalledWith(KEY);
+    expect(h.converter.convert).toHaveBeenCalled();
+    expect(h.converter.fail).not.toHaveBeenCalled();
+  });
+
+  it('leaves a HEIC whose header cannot be read to the usual failure, unclaimed', async () => {
+    mockStill = await picture(400, 300, 'png');
+    const h = harness({}, BROKEN);
+
+    // No previews can come of it either way; it is recorded as failed, as it
+    // was before conversion existed, rather than thrown out of the confirm.
+    await expect(h.service.generate(KEY, 'image/heic', 2_000_000)).resolves.toBeNull();
+    expect(h.converter.claim).not.toHaveBeenCalled();
+    expect(h.converter.convert).not.toHaveBeenCalled();
   });
 
   it('falls back to the still ffmpeg decodes when another process holds the file', async () => {
@@ -170,6 +210,12 @@ describe('ThumbnailsService.convertStored', () => {
     const h = harness({ convert: jest.fn().mockResolvedValue({ jpeg, width: 400, height: 300 }) });
     await h.service.convertStored({ ...stored, thumbKey: thumbKeyFor(KEY) }, 120_000);
     expect(h.putDerived).not.toHaveBeenCalled();
+  });
+
+  it('throws for a HEIC whose header cannot be read, for the sweep to count', async () => {
+    const h = harness({}, BROKEN);
+    await expect(h.service.convertStored(stored, 120_000)).rejects.toThrow('unsupported image format');
+    expect(h.converter.convert).not.toHaveBeenCalled();
   });
 
   it('throws for a conversion that failed, for the sweep to count', async () => {
