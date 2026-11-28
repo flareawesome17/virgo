@@ -176,3 +176,25 @@ describe('a link to part of the album', () => {
     expect(html).toContain('<p class="eyebrow">Private delivery</p>');
   });
 });
+
+describe('saving a photo by holding it', () => {
+  // The page shows display copies; a browser's own "Save image" keeps those.
+  it('turns a hold or a right-click into the original download on a client link', () => {
+    const html = renderClientGallery(view, 'token-value', 'nonce-value');
+    expect(html).toContain('-webkit-touch-callout:none');
+    expect(html).toContain("document.addEventListener('contextmenu'");
+    expect(html).toContain('a.href = fileDownload(file)');
+    expect(html).toContain('Downloading the original');
+  });
+
+  it('leaves the browser its own menu on a portfolio link, which offers no original', () => {
+    const html = renderClientGallery({ ...view, downloads: false }, 'token-value', 'nonce-value');
+    expect(html).not.toContain('-webkit-touch-callout:none');
+    expect(html).toContain('if (initial.downloads) {');
+  });
+
+  it('tells a client in an in-app browser where the original can be saved', () => {
+    expect(renderClientGallery(view, 'token-value', 'nonce-value', true)).toContain('const inApp = true;');
+    expect(renderClientGallery(view, 'token-value', 'nonce-value')).toContain('const inApp = false;');
+  });
+});
