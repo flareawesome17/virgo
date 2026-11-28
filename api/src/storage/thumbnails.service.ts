@@ -10,6 +10,7 @@ import { blurDataUrl } from './blur';
 import { takenAtFromExif, takenAtFromHead } from './capture-time';
 import { gifFirstFrame, gifShape } from './gif';
 import { HeicConverter } from './heic/heic-converter.service';
+import { isHeifType } from './heic/jpeg-metadata';
 import {
   DISPLAY_WIDTHS,
   MediaLinkService,
@@ -281,6 +282,25 @@ const CONVERT_TIMEOUT_MS = 60_000;
 /** A HEIF whose pictures are HEVC: an iPhone's photo, which sharp here cannot open. */
 function isHevcHeif(meta: Metadata): boolean {
   return meta.format === 'heif' && meta.compression === 'hevc';
+}
+
+/**
+ * A HEIC's header (size, colour profile, EXIF) as sharp reads it, without
+ * the safety limits libheif applies by default.
+ *
+ * Those limits refused every iPhone photo: an iPhone stores a photo as a grid
+ * of 512 px tiles, and the item references that join them number 48 for a
+ * 12 MP photo and 54 for a 48 MP one, against libheif's default limit of 16
+ * ("Number of references in iref box (54) exceeds the security limits of 16
+ * references"). So no HEIC got as far as the decoder, in production or here.
+ *
+ * Lifting them is safe for this one read. Only the header is parsed here,
+ * from a file the sweep has already capped at 40 MB; the pixels are decoded
+ * by libheif in a worker of its own, after the size the header gives has been
+ * checked against MAX_CONVERT_PIXELS, and under a timeout.
+ */
+function readHeicHeader(source: Buffer): Promise<Metadata> {
+  return sharp(source, { failOn: 'none', unlimited: true }).metadata();
 }
 
 /** A stored HEIC the sweep has claimed for conversion, as its row has it. */
@@ -619,8 +639,10 @@ export class ThumbnailsService implements OnModuleInit {
     if (!this.heic.wants(key, contentType)) return unchanged;
 
     const source = options.source ?? (await this.readAll(key));
-    const header = await sharp(source, { failOn: 'none' }).metadata();
-    if (!isHevcHeif(header)) return { ...unchanged, source };
+    // A header that cannot be read is left to the sweep, which records why;
+    // the upload's previews are still made below, as they were before.
+    const header = await readHeicHeader(source).catch(() => null);
+    if (!header || !isHevcHeif(header)) return { ...unchanged, source };
 
     const claimed = await this.heic.claim(key).catch(() => null);
     if (!claimed) return { ...unchanged, source };
@@ -644,7 +666,7 @@ export class ThumbnailsService implements OnModuleInit {
    */
   async convertStored(file: StoredHeic, timeoutMs: number): Promise<boolean> {
     const source = await this.readAll(file.key);
-    const header = await sharp(source, { failOn: 'none' }).metadata();
+    const header = await readHeicHeader(source);
     if (!isHevcHeif(header)) {
       throw new Error(`it is ${header.format ?? 'unreadable'}${header.compression ? `/${header.compression}` : ''}, not an HEVC HEIF`);
     }
@@ -777,7 +799,11 @@ export class ThumbnailsService implements OnModuleInit {
   }> {
     const source = given ?? (await this.readAll(key));
     const decodable = contentType === 'image/gif' ? gifToDecode(source, true) : source;
-    const metadata = await sharp(decodable, { failOn: 'none' }).metadata();
+    // A HEIC's header past libheif's default limits, or no iPhone photo gets
+    // as far as ffmpeg either: see readHeicHeader.
+    const metadata = isHeifType(contentType)
+      ? await readHeicHeader(decodable)
+      : await sharp(decodable, { failOn: 'none' }).metadata();
     const pixels = await this.pixelsFor(key, decodable, metadata, stillDecodeTimeoutMs);
     const decoded =
       pixels === decodable ? metadata : await sharp(pixels, { failOn: 'none' }).metadata();
