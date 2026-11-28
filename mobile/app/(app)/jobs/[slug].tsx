@@ -1,7 +1,7 @@
 import {
   View, Text, Pressable, Alert, Share,
   ActivityIndicator, } from 'react-native';
-import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
+import { KeyboardFrame, KeyboardScroll, useFooterInset } from '@/components/KeyboardForm';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -87,6 +87,7 @@ function postReportFailure(err: unknown): string {
 /** One job, and the form to apply to it. */
 export default function JobDetailScreen() {
   const insets = useSafeAreaInsets();
+  const footerInset = useFooterInset();
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const job = useJob(slug);
   const apply = useApplyToJob();
@@ -527,7 +528,7 @@ export default function JobDetailScreen() {
         {canApply && (
           <View
             className="bg-background border-t border-border/50 px-5 pt-3"
-            style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+            style={{ paddingBottom: Math.max(footerInset, 12) }}
           >
             <Pressable
               className="rounded-2xl min-h-[50px] flex-row items-center justify-center gap-2 bg-action"

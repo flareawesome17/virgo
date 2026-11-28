@@ -1,5 +1,5 @@
 import { View, Text, ScrollView, Pressable, Switch, ActivityIndicator, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -191,6 +191,7 @@ function WhatReachesYou() {
 }
 
 export default function NotificationSettingsScreen() {
+  const insets = useSafeAreaInsets();
   const [enabled, setEnabled] = useState(true);
   const [ready, setReady] = useState(false);
 
@@ -215,7 +216,7 @@ export default function NotificationSettingsScreen() {
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 48 }}
+        contentContainerStyle={{ paddingBottom: Math.max(48, insets.bottom + 32) }}
       >
         <View className="px-5 pt-4 pb-2 flex-row items-center gap-3">
           <Pressable accessibilityRole="button" accessibilityLabel="Back"

@@ -5,7 +5,6 @@ import {
   Modal,
   Pressable,
   RefreshControl,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -34,6 +33,7 @@ import {
   useRedeemReferral,
   useReferralCode,
 } from '@/src/hooks';
+import { KeyboardFrame, KeyboardScroll, useKeyboardReveal } from '@/components/KeyboardForm';
 import { LoadFailed } from '@/components/LoadFailed';
 import { ScreenHeader } from '@/components/ScreenHeader';
 
@@ -213,6 +213,7 @@ function ClaimedModal({
  */
 function RedeemCard() {
   const [code, setCode] = useState('');
+  const reveal = useKeyboardReveal();
   const [done, setDone] = useState(false);
   const redeem = useRedeemReferral();
 
@@ -258,6 +259,7 @@ function RedeemCard() {
             <TextInput
               value={code}
               onChangeText={(v) => setCode(v.toUpperCase())}
+              onFocus={reveal.onFocus}
               placeholder="ABC1234"
               placeholderTextColor="#A89489"
               autoCapitalize="characters"
@@ -373,7 +375,10 @@ export default function RewardsScreen() {
       ) : loadFailed ? (
         <LoadFailed what="your rewards" onRetry={() => void refetch()} />
       ) : (
-        <ScrollView
+        // The code box is near the end of the page: the frame scrolls it clear
+        // of the keyboard, which a plain ScrollView left on Android.
+        <KeyboardFrame>
+        <KeyboardScroll
           contentContainerClassName="p-5 pb-16"
           // One tap on Redeem with the keyboard up, not one to close it first.
           keyboardShouldPersistTaps="handled"
@@ -407,7 +412,8 @@ export default function RewardsScreen() {
 
           <RedeemCard />
           <ReferralCard />
-        </ScrollView>
+        </KeyboardScroll>
+        </KeyboardFrame>
       )}
 
       <ClaimedModal result={claimed} onClose={() => setClaimed(null)} />

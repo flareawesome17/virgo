@@ -37,6 +37,9 @@ export function useKeyboardUp(): boolean {
 /** Anything on screen that can say where it is. */
 type Measurable = {
   measureInWindow: (callback: (x: number, y: number, width: number, height: number) => void) => void;
+  measure?: (
+    callback: (x: number, y: number, width: number, height: number, pageX: number, pageY: number) => void,
+  ) => void;
 };
 
 /** Room left between a revealed field and the keyboard's top edge. */
@@ -44,6 +47,51 @@ const REVEAL_GAP = 24;
 
 function measurable(node: unknown): Measurable | null {
   return node && typeof (node as Measurable).measureInWindow === 'function' ? (node as Measurable) : null;
+}
+
+/**
+ * How far below the top of the screen measureInWindow counts from: on
+ * Android, the status bar; elsewhere, nothing.
+ *
+ * Android says where the keyboard's top edge is on the screen, counted from
+ * the very top. measureInWindow counts from the bottom of the status bar
+ * instead (React Native takes the visible display frame's top off it). Compared
+ * as they came, every form put the keyboard a status bar lower than it is: the
+ * Save button rose that much too little, and the field being typed in stayed
+ * partly under the keyboard. `measure` counts from the top of the screen, so
+ * on any view the two differ by exactly that.
+ */
+function windowOffset(node: Measurable | null, done: (offset: number) => void) {
+  if (Platform.OS !== 'android' || typeof node?.measure !== 'function') {
+    done(0);
+    return;
+  }
+  node.measure((_x, _y, _width, _height, _pageX, pageY) => {
+    node.measureInWindow((_wx, windowY) => {
+      const offset = pageY - windowY;
+      done(Number.isFinite(offset) && offset > 0 ? offset : 0);
+    });
+  });
+}
+
+/**
+ * Where a view starts, in the keyboard's terms: what a KeyboardAvoidingView
+ * inside it needs as keyboardVerticalOffset when the view does not start at
+ * the top of the window (the upload strip or the email banner pushes it down).
+ *
+ * measureInWindow, except on Android, where it counts from below the status
+ * bar while the keyboard is placed from the top of the screen. There `measure`
+ * is used: its pageY counts from the top. With measureInWindow, the chat's
+ * composer sat a status bar under the keyboard's edge while an upload ran.
+ */
+export function measureScreenTop(node: unknown, done: (top: number) => void) {
+  const target = measurable(node);
+  if (!target) return;
+  if (Platform.OS === 'android' && typeof target.measure === 'function') {
+    target.measure((_x, _y, _width, _height, _pageX, pageY) => done(Math.max(0, Math.round(pageY))));
+    return;
+  }
+  target.measureInWindow((_x, y) => done(Math.max(0, Math.round(y))));
 }
 
 /** The field being typed in: the host input on iOS and Android, the DOM node on the web. */
@@ -163,12 +211,24 @@ export function useKeyboardAwareScroll(options?: {
       if (watch) clearInterval(watch);
       watch = null;
     };
+    /** Which showing of the keyboard a measurement belongs to, so a late one is dropped. */
+    let showing = 0;
     const shown = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', (event) => {
       if (activeRef.current && !activeRef.current()) return;
       const { height, screenY } = event.endCoordinates;
-      keyboardTop.current = screenY > 0 ? screenY : Dimensions.get('window').height - height;
-      if (lifts) measureLift(event);
-      else setRoom(height);
+      const thisShowing = ++showing;
+      // Into measureInWindow's terms, where every field and frame is measured.
+      const node =
+        measurable(frameRef.current) ??
+        measurable(viewportRef.current) ??
+        measurable(scrollRef.current) ??
+        focusedInput();
+      windowOffset(node, (offset) => {
+        if (thisShowing !== showing) return;
+        keyboardTop.current = screenY > 0 ? screenY - offset : Dimensions.get('window').height - height;
+        if (lifts) measureLift(event);
+      });
+      if (!lifts) setRoom(height);
       // Once the room is laid out, so the scroll can reach it; on iOS, once
       // the keyboard has finished rising.
       setTimeout(reveal, ios ? Math.max(event.duration ?? 0, 120) + 20 : 140);
@@ -185,6 +245,7 @@ export function useKeyboardAwareScroll(options?: {
       }
     });
     const hidden = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', (event) => {
+      showing++;
       stopWatching();
       keyboardTop.current = null;
       setRoom(0);

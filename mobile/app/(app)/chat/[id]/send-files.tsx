@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { DatabaseIcon, PlusIcon, XIcon } from 'lucide-react-native';
@@ -23,7 +22,7 @@ import {
 } from '@/src/lib/chat-files';
 import { queueChatFiles } from '@/src/lib/chat-uploads';
 import { InsetFrame } from '@/components/InsetFrame';
-import { KeyboardFrame, KeyboardScroll, useKeyboardReveal } from '@/components/KeyboardForm';
+import { KeyboardFrame, KeyboardScroll, useFooterInset, useKeyboardReveal } from '@/components/KeyboardForm';
 import { goBackOr } from '@/components/ScreenHeader';
 import { useChatToast } from '@/components/chat/ChatToast';
 import { quoteLine, STORAGE_FULL_WORDS, tell } from '@/components/chat/files/files-words';
@@ -74,7 +73,7 @@ export default function SendFilesScreen() {
 
 function SendFiles({ conversationId, picked }: { conversationId: string; picked: PickedForChat }) {
   const queryClient = useQueryClient();
-  const insets = useSafeAreaInsets();
+  const footerInset = useFooterInset();
   const { width } = useWindowDimensions();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -367,7 +366,7 @@ function SendFiles({ conversationId, picked }: { conversationId: string; picked:
           {toast.element}
         </View>
 
-        <View className="px-4 pt-3 bg-background" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+        <View className="px-4 pt-3 bg-background" style={{ paddingBottom: Math.max(footerInset, 12) }}>
           <Pressable
             onPress={() => void send()}
             disabled={sending || preparing || wontFit}

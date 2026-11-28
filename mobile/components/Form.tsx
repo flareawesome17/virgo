@@ -8,12 +8,11 @@ import {
   View,
   type TextInputProps,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronRightIcon, type LucideIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { useTheme } from '@/src/hooks';
 import { PALETTES } from '@/theme';
-import { useKeyboardReveal } from '@/components/KeyboardForm';
+import { useFooterInset, useKeyboardReveal } from '@/components/KeyboardForm';
 
 cssInterop(ChevronRightIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
@@ -339,12 +338,12 @@ export function FormFooter({
   /** Above the button: what is still missing, or what happens next. */
   note?: string;
 }) {
-  const insets = useSafeAreaInsets();
+  const bottomInset = useFooterInset();
   const off = disabled || busy;
   return (
     <View
       className="px-5 pt-3 bg-background border-t border-border/50 gap-2"
-      style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+      style={{ paddingBottom: Math.max(bottomInset, 12) }}
     >
       {note ? <Text className="text-muted-foreground text-[13px] leading-[18px] text-center">{note}</Text> : null}
       <Pressable

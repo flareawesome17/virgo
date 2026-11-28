@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardFrame, KeyboardScroll, useFooterInset } from '@/components/KeyboardForm';
 import { ArrowLeftIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import { InsetFrame } from '@/components/InsetFrame';
@@ -131,9 +130,9 @@ export function AuthFooter({
   note?: string | null;
   children: ReactNode;
 }) {
-  const insets = useSafeAreaInsets();
+  const bottomInset = useFooterInset();
   return (
-    <View className="px-5 pt-3 bg-background gap-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+    <View className="px-5 pt-3 bg-background gap-3" style={{ paddingBottom: Math.max(bottomInset, 12) }}>
       {note ? <Text className="text-muted-foreground text-[13px] leading-[18px] text-center">{note}</Text> : null}
       {children}
     </View>

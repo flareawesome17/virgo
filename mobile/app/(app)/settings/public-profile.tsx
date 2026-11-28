@@ -1,6 +1,6 @@
 import {
-  View, Text, ScrollView, Pressable, TextInput, Switch,
-  ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform, Share,
+  View, Text, Pressable, TextInput, Switch,
+  ActivityIndicator, Alert, Share,
 } from 'react-native';
 import { RemoteImage } from '@/components/RemoteImage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +24,7 @@ import {
   ImagePlusIcon, LayersIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon, Share2Icon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { KeyboardFrame, KeyboardScroll, useKeyboardReveal } from '@/components/KeyboardForm';
 import { LoadFailed } from '@/components/LoadFailed';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { SITE, profileActionMessage } from '@/src/lib/profile-media';
@@ -85,7 +86,10 @@ export default function PublicProfileScreen() {
         <Text className="text-foreground text-lg font-bold">Public profile</Text>
       </View>
 
-      <ScrollView
+      {/* The address box is last on the page: the frame scrolls it clear of
+          the keyboard, which a plain ScrollView left on Android. */}
+      <KeyboardFrame>
+      <KeyboardScroll
         className="flex-1"
         contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, gap: 20 }}
         keyboardShouldPersistTaps="handled"
@@ -166,7 +170,8 @@ export default function PublicProfileScreen() {
             posted to the feed, which is one act rather than two — there is
             nothing to set up, and nothing that can be in one place and not
             the other. */}
-      </ScrollView>
+      </KeyboardScroll>
+      </KeyboardFrame>
 
     </SafeAreaView>
   );
@@ -181,6 +186,7 @@ function HandleCard({
 }) {
   const [value, setValue] = useState(current ?? '');
   const [debounced, setDebounced] = useState('');
+  const reveal = useKeyboardReveal();
   const setHandle = useSetHandle();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -224,6 +230,7 @@ function HandleCard({
             autoCapitalize="none"
             autoCorrect={false}
             maxLength={30}
+            onFocus={reveal.onFocus}
             className="text-foreground text-sm flex-1"
           />
         </View>
