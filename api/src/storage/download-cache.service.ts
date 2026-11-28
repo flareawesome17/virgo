@@ -62,6 +62,28 @@ export class DownloadCacheService {
     return join(this.dir, h.slice(0, 2), h);
   }
 
+  /**
+   * Drops the cached copy of an object whose bytes have changed under the
+   * same key — a HEIC replaced by its JPEG. Without this the old bytes would
+   * keep being served, under the new size. Never throws.
+   */
+  async forget(key: string): Promise<void> {
+    await rm(this.pathFor(key), { force: true }).catch(() => undefined);
+  }
+
+  /**
+   * The cached size of an object, or null when none is cached. For checking a
+   * copy against the size the row now records.
+   */
+  async cachedSize(key: string): Promise<number | null> {
+    try {
+      const info = await stat(this.pathFor(key));
+      return info.isFile() ? info.size : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** The cached file if complete, touched so eviction sees the read. */
   async lookup(key: string): Promise<{ path: string; size: number } | null> {
     if (!this.enabled) return null;

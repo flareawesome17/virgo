@@ -9,6 +9,7 @@ import { DatabaseService } from '../database/database.service';
 import { blurDataUrl } from './blur';
 import { takenAtFromExif, takenAtFromHead } from './capture-time';
 import { gifFirstFrame, gifShape } from './gif';
+import { HeicConverter } from './heic/heic-converter.service';
 import {
   DISPLAY_WIDTHS,
   MediaLinkService,
@@ -263,6 +264,32 @@ export interface GenerateOptions {
    * it costs somebody their upload.
    */
   stillDecodeTimeoutMs?: number;
+  /**
+   * The original's bytes, when the caller has them already: the JPEG a HEIC
+   * was just replaced by. Read from the bucket when omitted.
+   */
+  source?: Buffer;
+}
+
+/**
+ * How long libheif may take over one HEIC being converted on the confirm
+ * path. Nobody waits on it — the confirm has already answered — but it holds
+ * a confirm slot, so it is bounded like a decode there.
+ */
+const CONVERT_TIMEOUT_MS = 60_000;
+
+/** A HEIF whose pictures are HEVC: an iPhone's photo, which sharp here cannot open. */
+function isHevcHeif(meta: Metadata): boolean {
+  return meta.format === 'heif' && meta.compression === 'hevc';
+}
+
+/** A stored HEIC the sweep has claimed for conversion, as its row has it. */
+export interface StoredHeic {
+  key: string;
+  contentType: string;
+  thumbKey: string | null;
+  displayWidths: readonly number[] | null;
+  blurDataUrl: string | null;
 }
 
 /**
@@ -372,6 +399,7 @@ export class ThumbnailsService implements OnModuleInit {
     private readonly storage: StorageService,
     private readonly db: DatabaseService,
     private readonly mediaLink: MediaLinkService,
+    private readonly heic: HeicConverter,
   ) {}
 
   /** Collects what a process killed mid-decode left in the temp folder. */
@@ -483,10 +511,19 @@ export class ThumbnailsService implements OnModuleInit {
     }
 
     try {
+      // A HEIC becomes a JPEG first, when it can, and everything below is
+      // made from that JPEG: the whole photograph, upright, decoded without
+      // ffmpeg. One that cannot be converted now is made from as before.
+      const prepared = await this.convertFirst(key, contentType, sizeBytes, options);
+      if (prepared.gone) return null;
+      contentType = prepared.contentType;
+      sizeBytes = prepared.sizeBytes;
+
       const { source, metadata, pixels, decoded, width, height } = await this.decode(
         key,
         contentType,
         options.stillDecodeTimeoutMs,
+        prepared.source,
       );
       // From the original, since a decoded still carries no EXIF. sharp
       // reports it for most formats; a TIFF keeps it in its own directories
@@ -557,6 +594,78 @@ export class ThumbnailsService implements OnModuleInit {
       );
       return null;
     }
+  }
+
+  /**
+   * For a HEIC on its way through `generate`: replaces it with its JPEG
+   * (HeicConverter) and hands back the JPEG to make the previews from.
+   *
+   * Anything else comes back as it was, and so does a HEIC that cannot be
+   * converted right now — another process holds it, it has been tried too
+   * often, or this try failed and was recorded for the sweep to retry. Never
+   * throws for a conversion: the upload has been confirmed either way, and
+   * its previews are still owed.
+   *
+   * `gone` is a row deleted while the JPEG was written, which has nothing
+   * left to make previews for.
+   */
+  private async convertFirst(
+    key: string,
+    contentType: string,
+    sizeBytes: number,
+    options: GenerateOptions,
+  ): Promise<{ source?: Buffer; contentType: string; sizeBytes: number; gone?: boolean }> {
+    const unchanged = { source: options.source, contentType, sizeBytes };
+    if (!this.heic.wants(key, contentType)) return unchanged;
+
+    const source = options.source ?? (await this.readAll(key));
+    const header = await sharp(source, { failOn: 'none' }).metadata();
+    if (!isHevcHeif(header)) return { ...unchanged, source };
+
+    const claimed = await this.heic.claim(key).catch(() => null);
+    if (!claimed) return { ...unchanged, source };
+    try {
+      const converted = await this.heic.convert(key, source, header, CONVERT_TIMEOUT_MS);
+      if (!converted) return { ...unchanged, source, gone: true };
+      return { source: converted.jpeg, contentType: 'image/jpeg', sizeBytes: converted.jpeg.length };
+    } catch (err) {
+      await this.heic.fail(key, claimed.attempts, err instanceof Error ? err.message : String(err));
+      return { ...unchanged, source };
+    }
+  }
+
+  /**
+   * Converts a stored HEIC the sweep has claimed, and makes whatever previews
+   * it is missing from the JPEG while it is in hand. For HeicSweepService.
+   *
+   * Throws when it cannot be converted, for the sweep to count against the
+   * file; the file is then the HEIC it was. Returns false when the row was
+   * deleted while this worked.
+   */
+  async convertStored(file: StoredHeic, timeoutMs: number): Promise<boolean> {
+    const source = await this.readAll(file.key);
+    const header = await sharp(source, { failOn: 'none' }).metadata();
+    if (!isHevcHeif(header)) {
+      throw new Error(`it is ${header.format ?? 'unreadable'}${header.compression ? `/${header.compression}` : ''}, not an HEVC HEIF`);
+    }
+    const converted = await this.heic.convert(file.key, source, header, timeoutMs);
+    if (!converted) return false;
+
+    // Previews it already has were made from the same pixels and are kept;
+    // what it lacks — the ones an iPhone tile grid used to fail to make — is
+    // made now from the JPEG, without reading it back out of the bucket.
+    await this.generate(
+      file.key,
+      'image/jpeg',
+      converted.jpeg.length,
+      {
+        thumbKey: file.thumbKey,
+        displayWidths: file.displayWidths,
+        blurDataUrl: file.blurDataUrl,
+      },
+      { source: converted.jpeg },
+    );
+    return true;
   }
 
   /**
@@ -657,6 +766,7 @@ export class ThumbnailsService implements OnModuleInit {
     key: string,
     contentType: string,
     stillDecodeTimeoutMs?: number,
+    given?: Buffer,
   ): Promise<{
     source: Buffer;
     metadata: Metadata;
@@ -665,7 +775,7 @@ export class ThumbnailsService implements OnModuleInit {
     width: number | undefined;
     height: number | undefined;
   }> {
-    const source = await this.readAll(key);
+    const source = given ?? (await this.readAll(key));
     const decodable = contentType === 'image/gif' ? gifToDecode(source, true) : source;
     const metadata = await sharp(decodable, { failOn: 'none' }).metadata();
     const pixels = await this.pixelsFor(key, decodable, metadata, stillDecodeTimeoutMs);

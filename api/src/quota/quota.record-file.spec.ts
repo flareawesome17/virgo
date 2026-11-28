@@ -52,10 +52,41 @@ describe('QuotaService.recordFile', () => {
     expect(sql).toMatch(/original_name, processing_status, next_processing_at, etag, source_modified_at\)/);
     // A confirm sent again without them (an older app retrying) keeps what
     // the first one recorded.
-    expect(sql).toContain('etag = coalesce(excluded.etag, user_files.etag)');
+    expect(sql).toContain('else coalesce(excluded.etag, user_files.etag) end');
     expect(sql).toContain(
       'source_modified_at = coalesce(excluded.source_modified_at, user_files.source_modified_at)',
     );
+  });
+
+  it('leaves a HEIC already stored as a JPEG as the conversion wrote it', async () => {
+    const query = jest.fn(async () => [{ inserted: false }]);
+    const quota = new QuotaService({ query } as unknown as DatabaseService);
+
+    await quota.recordFile('user-1', {
+      key: 'users/user-1/albums/2026/11/b.heic',
+      sizeBytes: 2_100_000,
+      contentType: 'image/heic',
+      albumId: 'album-1',
+      originalName: 'IMG_0002.HEIC',
+    });
+
+    // A phone confirming the upload again sends the HEIC's name, and its HEAD
+    // may have been made a moment before the JPEG replaced it.
+    const [sql] = query.mock.calls.at(-1) as unknown as [string, unknown[]];
+    for (const column of [
+      'size_bytes',
+      'content_type',
+      'original_name',
+      'etag',
+      'processing_status',
+      'next_processing_at',
+    ]) {
+      expect(sql).toMatch(
+        new RegExp(
+          `${column} = case\\s+when user_files\\.converted_at is not null\\s+then user_files\\.${column}`,
+        ),
+      );
+    }
   });
 
   it('records neither when they are not known', async () => {

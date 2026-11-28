@@ -15,11 +15,15 @@ import { SupportFilesService } from './support-files.service';
 import { ReceiptFilesService } from './receipt-files.service';
 import { ChatFilesService } from './chat-files.service';
 import { UploadHandoffService } from './upload-handoff.service';
+import { HeicConverter } from './heic/heic-converter.service';
+import { HeicSweepService } from './heic/heic-sweep.service';
 
 @Module({
   controllers: [StorageController],
   providers: [
     UploadHandoffService,
+    HeicConverter,
+    HeicSweepService,
     StorageConfig,
     StorageService,
     DownloadCacheService,

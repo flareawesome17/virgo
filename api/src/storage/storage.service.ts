@@ -1358,6 +1358,59 @@ export class StorageService {
   }
 
   /**
+   * Writes new bytes over a stored original, under the same key: a HEIC
+   * replaced by its JPEG (src/storage/heic/).
+   *
+   * Refuses when the object is no longer the one the caller read — another
+   * size than `expectedSize` — since what is about to be written was made
+   * from those bytes. Returns the version it replaced, when the bucket keeps
+   * versions (B2 does), so that it can be deleted later rather than kept and
+   * billed for ever, and the new object's ETag for the row.
+   */
+  async replaceOriginal(
+    key: string,
+    body: Buffer,
+    contentType: string,
+    expectedSize: number,
+  ): Promise<{ previousVersionId: string | null; etag: string | null }> {
+    const client = this.requireClient();
+    this.assertSafeKey(key);
+    const Bucket = this.config.bucketForKey(key);
+    const head = await client.send(new HeadObjectCommand({ Bucket, Key: key }));
+    if ((head.ContentLength ?? -1) !== expectedSize) {
+      throw new Error(
+        `the stored file is ${head.ContentLength ?? 'of no'} bytes, not the ${expectedSize} that were converted`,
+      );
+    }
+    const put = await client.send(
+      new PutObjectCommand({ Bucket, Key: key, Body: body, ContentType: contentType }),
+    );
+    return { previousVersionId: head.VersionId ?? null, etag: normaliseEtag(put.ETag) };
+  }
+
+  /**
+   * Deletes one stored version of an object for good: the HEIC a JPEG
+   * replaced, once its week is up. A version already gone counts as deleted.
+   */
+  async deleteVersion(key: string, versionId: string): Promise<boolean> {
+    const client = this.requireClient();
+    this.assertSafeKey(key);
+    try {
+      await client.send(
+        new DeleteObjectCommand({
+          Bucket: this.config.bucketForKey(key),
+          Key: key,
+          VersionId: versionId,
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (httpStatusOf(err) === 404) return true;
+      throw err;
+    }
+  }
+
+  /**
    * putDerived for something too big to hold in memory: a film, streamed from
    * the file ffmpeg wrote. The length is sent up front, which a stream body
    * needs for the upload to be signed at all.

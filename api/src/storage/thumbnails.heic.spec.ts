@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import type sharpFn from 'sharp';
 import type { DatabaseService } from '../database/database.service';
 import type { MediaLinkService } from './media-link.service';
+import type { HeicConverter } from './heic/heic-converter.service';
 import type { StorageService } from './storage.service';
 import { ThumbnailsService, thumbKeyFor } from './thumbnails.service';
 
@@ -93,6 +94,7 @@ function harness(source: Buffer = HEIC) {
     } as unknown as StorageService,
     { query, queryOne } as unknown as DatabaseService,
     { isConfigured: false, write: jest.fn() } as unknown as MediaLinkService,
+    { wants: () => false } as unknown as HeicConverter,
   );
   const lastSql = () => (query.mock.calls.at(-1) as [string, unknown[]])[0];
   const lastParams = () => (query.mock.calls.at(-1) as [string, unknown[]])[1];
