@@ -389,7 +389,9 @@ ${PAGE_STYLE}
   @media(min-width:1300px){.grid{columns:5}}
   @media(max-width:520px){.picks{gap:8px;padding-left:12px}.picks .dl-label{display:none}.picks .sent{display:none}}
   .inapp{background:#fff4e5;color:#5c3b00;border-bottom:1px solid #f0c987;padding:10px 16px;font:14px/1.4 system-ui,sans-serif;text-align:center}
-</style></head><body>
+  .toast{position:fixed;z-index:70;left:50%;bottom:24px;max-width:calc(100vw - 32px);padding:11px 18px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(20,18,16,.94);color:#fff;font:500 13px/1.35 ui-sans-serif,system-ui,sans-serif;text-align:center;opacity:0;transform:translate(-50%,8px);transition:opacity .2s,transform .2s;pointer-events:none}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+${view.downloads ? '  .open img,.stage img{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-user-drag:none}\n' : ''}</style></head><body>
 ${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE}</div>` : ''}
 <div class="shell">
   <header class="hero"><div class="hero-in">
@@ -408,6 +410,7 @@ ${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE
   <button id="more" class="more" type="button" hidden>Load more</button>
 </div>
 <p id="live" class="sr" aria-live="polite"></p>
+<div id="toast" class="toast" aria-hidden="true"></div>
 <div id="picks" class="picks" role="region" aria-label="Your picks"><span class="count"><b id="pickCount">0</b><span>picked</span></span><a id="pickZip" href="/s/${esc(token)}/picks/zip">${DOWNLOAD_ICON.replace('<svg', '<svg width="16"')}<span class="dl-label">&nbsp;Download</span></a><button id="send" class="send" type="button">Send to photographer</button><span id="sent" class="sent"></span></div>
 <div id="viewer" class="overlay" role="dialog" aria-modal="true" aria-label="Photo viewer"><div class="vbar"><button id="viewerClose" class="round" aria-label="Close">&#10005;</button><div class="vtitle"><strong id="viewerName"></strong><small id="viewerCount"></small></div><button id="zoomOut" class="round" aria-label="Zoom out">&#8722;</button><button id="zoomIn" class="round" aria-label="Zoom in">+</button><button id="viewerPick" class="round" aria-pressed="false" aria-label="Pick this photo" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.6-7-9.4A3.9 3.9 0 0 1 12 8a3.9 3.9 0 0 1 7 2.6C19 15.4 12 20 12 20z"/></svg></button><a id="viewerDownload" class="round" aria-label="Download">${DOWNLOAD_ICON}</a></div><div id="photoStage" class="stage"><button id="photoPrev" class="round nav prev" aria-label="Previous">&#8592;</button><img id="viewerImage" alt=""><button id="photoNext" class="round nav next" aria-label="Next">&#8594;</button></div></div>
 <div id="videoViewer" class="overlay" role="dialog" aria-modal="true" aria-label="Video player"><div class="vbar"><button id="videoClose" class="round" aria-label="Close">&#10005;</button><div class="vtitle"><strong id="videoName"></strong><small id="videoMeta"></small></div><a id="videoDownload" class="round" aria-label="Download">${DOWNLOAD_ICON}</a></div><div class="stage"><video id="video" class="video" controls playsinline></video></div></div>
@@ -426,6 +429,9 @@ ${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE
   const picks = { enabled: !!initial.picks.enabled, count: initial.picks.count || 0, sentAt: initial.picks.sentAt, keys: new Set() };
   initial.files.forEach((file) => { if (file.picked) picks.keys.add(file.id); });
   let photoList = [], photoIndex = 0, scale = 1, offsetX = 0, offsetY = 0, drag = null, audioList = [], audioIndex = -1;
+  const inApp = ${inAppBrowser ? 'true' : 'false'};
+  /** Which file each tile's picture is, for saving the original when it is held. */
+  const fileOf = new WeakMap();
 
   // A permanent address that signs at click time, so a tab left open overnight
   // still downloads. downloadUrl only decides whether the button shows at all.
@@ -560,6 +566,7 @@ ${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE
     img.src = icon ? filmIcon : (film ? file.posterUrl : file.thumbUrl || file.url) || '';
     if (icon) img.className = 'film-icon';
     img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
+    fileOf.set(img, file);
     // An icon tile keeps the film's shape within 9:16 and 16:9, so a panorama
     // does not shrink the icon to a speck.
     if (file.width && file.height) img.style.aspectRatio = icon ? String(Math.min(16 / 9, Math.max(9 / 16, file.width / file.height))) : file.width + '/' + file.height; else if (film) img.style.aspectRatio = '16/9';
@@ -697,6 +704,70 @@ ${inAppBrowser && view.downloads ? `<div class="inapp" role="note">${IN_APP_NOTE
   el('photoStage').addEventListener('pointerdown', (event) => { if (scale <= 1) return; drag = { x: event.clientX, y: event.clientY, ox: offsetX, oy: offsetY }; el('photoStage').setPointerCapture(event.pointerId); el('photoStage').classList.add('drag'); });
   el('photoStage').addEventListener('pointermove', (event) => { if (!drag) return; offsetX = drag.ox + event.clientX - drag.x; offsetY = drag.oy + event.clientY - drag.y; applyPhoto(); });
   el('photoStage').addEventListener('pointerup', () => { drag = null; el('photoStage').classList.remove('drag'); });
+
+  // ── Holding a photo saves the original ─────────────────────────────────
+  // The grid and the viewer show light copies: a thumbnail, or a display copy
+  // at most 3072 px wide, chosen for the screen. Held on a phone ("Save image",
+  // "Download image") or right-clicked on a computer, a picture is saved as the
+  // copy on screen, so a client who saved that way took home a small picture
+  // instead of the photograph. On a link that offers downloads, those gestures
+  // fetch the original through the Download route instead. A portfolio link
+  // offers no original, so it keeps the browser's own menu.
+  if (initial.downloads) {
+    const toast = el('toast');
+    let toastTimer = 0, savedAt = 0, press = null;
+    const tell = (text) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('show'), 3200); say(text); };
+    const heldFile = (target) => {
+      const img = target && target.closest ? target.closest('img') : null;
+      if (!img) return null;
+      if (img.id === 'viewerImage') return el('viewer').classList.contains('open') ? photoList[photoIndex] || null : null;
+      return fileOf.get(img) || null;
+    };
+    const saveOriginal = (file) => {
+      // One hold on Android is both a long press and a context menu.
+      if (Date.now() - savedAt < 1500) return;
+      savedAt = Date.now();
+      if (!file.downloadUrl) return;
+      // Messenger and the like save nothing but the copy on screen.
+      if (inApp) { tell('To save the full-quality original, open this page in Safari or Chrome.'); return; }
+      const a = document.createElement('a'); a.href = fileDownload(file); a.hidden = true;
+      document.body.append(a); a.click(); a.remove();
+      tell('Downloading the original · ' + file.originalName);
+    };
+    document.addEventListener('contextmenu', (event) => {
+      const file = heldFile(event.target); if (!file) return;
+      event.preventDefault();
+      if (press) press.fired = true;
+      saveOriginal(file);
+    });
+    document.addEventListener('dragstart', (event) => { if (heldFile(event.target)) event.preventDefault(); });
+    // iOS raises no context menu once the callout is off, so the hold is timed.
+    document.addEventListener('touchstart', (event) => {
+      if (press) clearTimeout(press.timer);
+      press = null;
+      if (event.touches.length !== 1) return;
+      const file = heldFile(event.target);
+      // Holding still on a zoomed photo is looking closely, not saving.
+      if (!file || (event.target.id === 'viewerImage' && scale > 1)) return;
+      const touch = event.touches[0];
+      const held = { x: touch.clientX, y: touch.clientY, fired: false, timer: 0 };
+      held.timer = setTimeout(() => { held.fired = true; saveOriginal(file); }, 550);
+      press = held;
+    }, { passive: true });
+    document.addEventListener('touchmove', (event) => {
+      if (!press) return;
+      const touch = event.touches[0];
+      if (event.touches.length !== 1 || Math.hypot(touch.clientX - press.x, touch.clientY - press.y) > 10) { clearTimeout(press.timer); press = null; }
+    }, { passive: true });
+    document.addEventListener('touchend', (event) => {
+      if (!press) return;
+      clearTimeout(press.timer);
+      // A hold that saved does not also open the photo it was on.
+      if (press.fired && event.cancelable) event.preventDefault();
+      press = null;
+    }, { passive: false });
+    document.addEventListener('touchcancel', () => { if (press) clearTimeout(press.timer); press = null; });
+  }
 
   function openVideo(file) {
     const video = el('video'); video.replaceChildren();
