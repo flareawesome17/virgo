@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import type { HeicConverter } from './heic/heic-converter.service';
 import type { ConfigService } from '@nestjs/config';
 import sharp from 'sharp';
 import type { DatabaseService } from '../database/database.service';
@@ -174,6 +175,7 @@ function harness(
       removeFor,
       removeDisplayCopies,
     } as unknown as MediaLinkService,
+    { wants: () => false } as unknown as HeicConverter,
   );
   /** The statement that records the outcome, and its parameters. */
   const recorded = () => {

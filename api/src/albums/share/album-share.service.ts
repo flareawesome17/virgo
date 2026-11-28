@@ -223,13 +223,19 @@ import { safeFileStem } from '../../storage/download-names';
  * place on a page. Numbering per page named the first photograph of every
  * page "- 001", so two downloads from one gallery overwrote each other and
  * neither matched the name the same file had inside the zip.
+ *
+ * The extension is the key's, except for a HEIC stored as a JPEG
+ * (src/storage/heic/): its key still ends in .heic, and a JPEG saved under
+ * that name is one no phone would open.
  */
 export function deliveryName(
   albumName: string,
   index: number,
   key: string,
+  contentType?: string | null,
 ): string {
-  const ext = /\.([a-z0-9]{1,5})$/i.exec(key)?.[1]?.toLowerCase() ?? 'bin';
+  let ext = /\.([a-z0-9]{1,5})$/i.exec(key)?.[1]?.toLowerCase() ?? 'bin';
+  if (contentType === 'image/jpeg' && (ext === 'heic' || ext === 'heif' || ext === 'hif')) ext = 'jpg';
   return `${safeFileStem(albumName)} - ${String(index + 1).padStart(3, '0')}.${ext}`;
 }
 
@@ -972,7 +978,7 @@ export class AlbumShareService {
     // way to make a cross-origin link actually save instead of opening — and
     // that is part of what is signed, so it cannot be bolted on afterwards.
     const names = shown.map((f) =>
-      deliveryName(link.name, Number(f.position) - 1, f.key),
+      deliveryName(link.name, Number(f.position) - 1, f.key, f.content_type),
     );
     const [urls, thumbUrls, posterUrls, downloadUrls] = await Promise.all([
       this.storage.mediaUrls(
@@ -1161,16 +1167,21 @@ export class AlbumShareService {
       throw new ForbiddenException('Picking is only available on a client link');
     }
     const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
-    const files = await this.db.query<{ key: string; position: string; size_bytes: string | null }>(
+    const files = await this.db.query<{
+      key: string;
+      position: string;
+      size_bytes: string | null;
+      content_type: string | null;
+    }>(
       `with scoped as (
-         select key, album_id, size_bytes, section_id,
+         select key, album_id, size_bytes, content_type, section_id,
                 row_number() over (order by ${SORT_AT_SQL}, key) as position,
                 ${SORT_AT_SQL} as sort_ts
            from user_files
           where user_id = $1 and album_id = $2
             and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
        )
-       select s.key, s.position, s.size_bytes::text as size_bytes
+       select s.key, s.position, s.size_bytes::text as size_bytes, s.content_type
          from scoped s
          join album_picks p on p.album_id = s.album_id and p.file_key = s.key
         where true${this.partSql(link, 's', params)}
@@ -1182,7 +1193,7 @@ export class AlbumShareService {
       ownerId: link.user_id,
       files: files.map((f) => ({
         key: f.key,
-        name: deliveryName(link.name, Number(f.position) - 1, f.key),
+        name: deliveryName(link.name, Number(f.position) - 1, f.key, f.content_type),
         size: Number(f.size_bytes ?? 0) || 0,
       })),
     };
@@ -1236,22 +1247,27 @@ export class AlbumShareService {
     // Numbered exactly as the page and the zip number them, so the file saves
     // under the same name everywhere.
     const params: unknown[] = [link.user_id, link.album_id, link.media_kinds, fileId];
-    const row = await this.db.queryOne<{ key: string; position: string; size_bytes: string | null }>(
+    const row = await this.db.queryOne<{
+      key: string;
+      position: string;
+      size_bytes: string | null;
+      content_type: string | null;
+    }>(
       `with scoped as (
-         select id, key, size_bytes, section_id,
+         select id, key, size_bytes, content_type, section_id,
                 row_number() over (order by ${SORT_AT_SQL}, key) as position
            from user_files
           where user_id = $1 and album_id = $2
             and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
        )
-       select key, position, size_bytes::text as size_bytes from scoped
+       select key, position, size_bytes::text as size_bytes, content_type from scoped
         where id::text = $4${this.partSql(link, 'scoped', params)}`,
       params,
     );
     if (!row) throw new NotFoundException('That file is not in this delivery');
     return {
       key: row.key,
-      name: deliveryName(link.name, Number(row.position) - 1, row.key),
+      name: deliveryName(link.name, Number(row.position) - 1, row.key, row.content_type),
       ownerId: link.user_id,
       sizeBytes: Number(row.size_bytes ?? 0) || 0,
     };
@@ -1285,9 +1301,14 @@ export class AlbumShareService {
     // Numbered across the album, then cut to what the link shows, so each file
     // is named in the zip as it is on the page and in every other link.
     const params: unknown[] = [link.user_id, link.album_id, link.media_kinds];
-    const files = await this.db.query<{ key: string; position: string; size_bytes: string | null }>(
+    const files = await this.db.query<{
+      key: string;
+      position: string;
+      size_bytes: string | null;
+      content_type: string | null;
+    }>(
       `with scoped as (
-         select key, size_bytes, section_id,
+         select key, size_bytes, content_type, section_id,
                 row_number() over (order by ${SORT_AT_SQL}, key) as position,
                 ${SORT_AT_SQL} as sort_ts
            from user_files
@@ -1295,7 +1316,7 @@ export class AlbumShareService {
             and album_id = $2
             and split_part(coalesce(content_type, ''), '/', 1) = any($3::text[])
        )
-       select key, position, size_bytes::text as size_bytes
+       select key, position, size_bytes::text as size_bytes, content_type
          from scoped
         where true${this.partSql(link, 'scoped', params)}
         order by sort_ts, key`,
@@ -1307,7 +1328,7 @@ export class AlbumShareService {
       ownerId: link.user_id,
       files: files.map((f) => ({
         key: f.key,
-        name: deliveryName(link.name, Number(f.position) - 1, f.key),
+        name: deliveryName(link.name, Number(f.position) - 1, f.key, f.content_type),
         size: Number(f.size_bytes ?? 0) || 0,
       })),
     };

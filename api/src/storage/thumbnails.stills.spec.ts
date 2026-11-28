@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import type { DatabaseService } from '../database/database.service';
 import type { MediaLinkService } from './media-link.service';
+import type { HeicConverter } from './heic/heic-converter.service';
 import type { StorageService } from './storage.service';
 import { removeStaleStills, ThumbnailsService } from './thumbnails.service';
 
@@ -41,6 +42,7 @@ function service(): ThumbnailsService {
     {} as unknown as StorageService,
     {} as unknown as DatabaseService,
     {} as unknown as MediaLinkService,
+    { wants: () => false } as unknown as HeicConverter,
   );
 }
 

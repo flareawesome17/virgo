@@ -458,6 +458,11 @@ export class QuotaService {
    *
    * True when the row is new, so a confirmation sent twice for the same file
    * is counted once by anything that counts arrivals.
+   *
+   * A HEIC already stored as its JPEG (`converted_at`, src/storage/heic/)
+   * keeps the type, size, name and ETag the conversion wrote. A phone that
+   * confirms the same upload again sends the HEIC's name, and its HEAD may
+   * have read the object a moment before it was replaced.
    */
   async recordFile(
     userId: string,
@@ -492,18 +497,25 @@ export class QuotaService {
        values ($1, $2, $3, $4, $5, $6, $7, $8,
                case when $8 = 'pending' then now() else null end, $9, $10)
        on conflict (key) do update
-         set size_bytes = excluded.size_bytes,
-             content_type = excluded.content_type,
+         set size_bytes = case when user_files.converted_at is not null
+               then user_files.size_bytes else excluded.size_bytes end,
+             content_type = case when user_files.converted_at is not null
+               then user_files.content_type else excluded.content_type end,
              album_id = coalesce(excluded.album_id, user_files.album_id),
-             original_name = coalesce(excluded.original_name, user_files.original_name),
-             etag = coalesce(excluded.etag, user_files.etag),
+             original_name = case when user_files.converted_at is not null
+               then user_files.original_name
+               else coalesce(excluded.original_name, user_files.original_name) end,
+             etag = case when user_files.converted_at is not null
+               then user_files.etag else coalesce(excluded.etag, user_files.etag) end,
              source_modified_at = coalesce(excluded.source_modified_at, user_files.source_modified_at),
              processing_status = case
+               when user_files.converted_at is not null then user_files.processing_status
                when user_files.content_type is distinct from excluded.content_type
                  then excluded.processing_status
                else user_files.processing_status
              end,
              next_processing_at = case
+               when user_files.converted_at is not null then user_files.next_processing_at
                when user_files.content_type is distinct from excluded.content_type
                  and excluded.processing_status = 'pending' then now()
                else user_files.next_processing_at
@@ -551,13 +563,25 @@ export class QuotaService {
   ): Promise<{ idx: number; source_modified_ms: string | null }[]> {
     if (files.length === 0) return [];
     return this.db.query<{ idx: number; source_modified_ms: string | null }>(
+      // Twice over: as the file is stored, and — for a HEIC now stored as a
+      // JPEG — as it was uploaded, which is the name and size a re-sent batch
+      // still has. Each half uses its own index (098, 117).
       `select w.idx,
               (extract(epoch from f.source_modified_at) * 1000)::bigint as source_modified_ms
          from unnest($2::int[], $3::text[], $4::bigint[]) as w(idx, name, size)
          join user_files f
            on f.album_id = $1
           and f.size_bytes = w.size
-          and lower(f.original_name) = lower(w.name)`,
+          and lower(f.original_name) = lower(w.name)
+       union all
+       select w.idx,
+              (extract(epoch from f.source_modified_at) * 1000)::bigint as source_modified_ms
+         from unnest($2::int[], $3::text[], $4::bigint[]) as w(idx, name, size)
+         join user_files f
+           on f.album_id = $1
+          and f.source_name is not null
+          and f.source_size_bytes = w.size
+          and lower(f.source_name) = lower(w.name)`,
       [
         albumId,
         files.map((file) => file.index),
