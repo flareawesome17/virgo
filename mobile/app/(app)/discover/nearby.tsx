@@ -27,6 +27,7 @@ import {
   ChevronRightIcon,
 } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
+import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
 import { LocationField } from '@/components/LocationField';
 import { canonicalLocation, isKnownLocation } from '@/src/lib/ph-locations';
 import { isEventUpcoming } from '@/src/lib/calendar';
@@ -488,7 +489,10 @@ export default function NearbyScreen() {
 
   return (
     <SafeAreaView edges={['top']} className="flex-1 bg-background">
-      <ScrollView
+      {/* The place box and its suggestions scroll clear of the keyboard. In a
+          plain ScrollView, Android's keyboard covered the suggestions. */}
+      <KeyboardFrame>
+      <KeyboardScroll
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 60 }}
@@ -851,7 +855,8 @@ export default function NearbyScreen() {
             )}
           </>
         )}
-      </ScrollView>
+      </KeyboardScroll>
+      </KeyboardFrame>
 
       {/* One menu for every row. A block refreshes the discover queries, and
           the server leaves the person out of the next answer. */}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
+import { useKeyboardReveal } from '@/components/KeyboardForm';
 import { ChevronLeftIcon, ChevronRightIcon, MinusIcon, PlusIcon } from 'lucide-react-native';
 import { cssInterop } from 'nativewind';
 import {
@@ -141,6 +142,7 @@ function DaysField({ days, onChange }: { days: number; onChange: (days: number) 
   const preset = (RETENTION_DAY_PRESETS as readonly number[]).includes(days);
   const [typing, setTyping] = useState(!preset);
   const [text, setText] = useState(String(days));
+  const reveal = useKeyboardReveal();
   const problem =
     !Number.isInteger(days) || days < 1
       ? 'At least 1 day.'
@@ -190,6 +192,7 @@ function DaysField({ days, onChange }: { days: number; onChange: (days: number) 
                 onChange(digits === '' ? 0 : Number(digits));
               }}
               keyboardType="number-pad"
+              onFocus={reveal.onFocus}
               inputAccessoryViewID={KEYBOARD_DONE}
               accessibilityLabel="Days after each upload"
               className={`flex-1 h-11 rounded-xl border px-3 text-center text-foreground text-[17px] font-semibold ${problem ? 'border-destructive' : 'border-border'}`}

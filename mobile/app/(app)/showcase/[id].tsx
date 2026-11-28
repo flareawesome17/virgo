@@ -25,6 +25,7 @@ import { ShowcaseViewer } from '@/components/ShowcaseViewer';
 import { DetailFallback } from '@/components/DetailFallback';
 import { useAuth, useShowcase } from '@/src/hooks';
 import { makerOf, showcaseStatus } from '@/src/api';
+import { measureScreenTop } from '@/src/lib/keyboard';
 
 for (const Icon of [ArrowLeftIcon, EllipsisIcon, Maximize2Icon]) {
   cssInterop(Icon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
@@ -110,6 +111,10 @@ export default function ShowcaseScreen() {
   const [viewing, setViewing] = useState<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const { width } = useWindowDimensions();
+  // Where this screen starts, so the comment box clears the keyboard when a
+  // banner pushes the screen down. As the chat does.
+  const rootRef = useRef<View>(null);
+  const [screenTop, setScreenTop] = useState(0);
 
   /*
    * Whether the card's film is on screen, so one scrolled past stops. A film
@@ -159,7 +164,12 @@ export default function ShowcaseScreen() {
   }
 
   return (
-    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+    <SafeAreaView
+      ref={rootRef}
+      edges={['top']}
+      className="flex-1 bg-background"
+      onLayout={() => measureScreenTop(rootRef.current, setScreenTop)}
+    >
       <View className="min-h-[52px] flex-row items-center gap-1 px-2 py-1">
         <Pressable
           // Home, when a link opened this on a cold start and there is nothing
@@ -193,11 +203,12 @@ export default function ShowcaseScreen() {
         </Pressable>
       </View>
 
-      {/* Padding on iOS, where nothing else moves the comment box out from
-          under the keyboard; Android resizes the window itself. */}
+      {/* Moves the comment box out from under the keyboard. Android does
+          not resize the window for it: the app draws edge to edge. */}
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={screenTop}
       >
         <ScrollView
           ref={scrollRef}

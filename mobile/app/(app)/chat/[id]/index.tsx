@@ -105,6 +105,7 @@ import {
   type UploadJob,
 } from '@/src/lib/chat-uploads';
 import { stopVoice } from '@/src/lib/voice-player';
+import { measureScreenTop } from '@/src/lib/keyboard';
 import { takeChatPhoto } from '@/components/chat/files/camera';
 import { PendingFilesBubble } from '@/components/chat/files/FilesMessage';
 import { alertStorageFull, alertTurnedOff, quoteLine, tell } from '@/components/chat/files/files-words';
@@ -1357,7 +1358,7 @@ export default function ConversationScreen() {
       edges={['top']}
       className="flex-1 bg-background"
       onLayout={() =>
-        rootRef.current?.measureInWindow((_x, y) => setScreenTop(Math.max(0, Math.round(y))))
+        measureScreenTop(rootRef.current, setScreenTop)
       }
     >
       <KeyboardAvoidingView

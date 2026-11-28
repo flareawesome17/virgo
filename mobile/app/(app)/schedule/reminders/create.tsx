@@ -1,6 +1,5 @@
 import { View, Text, Pressable, TextInput, Alert, Platform, Linking } from 'react-native';
-import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardFrame, KeyboardScroll, useFooterInset } from '@/components/KeyboardForm';
 import { InsetFrame } from '@/components/InsetFrame';
 import { DetailFallback } from '@/components/DetailFallback';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -81,7 +80,7 @@ async function explainExactAlarms(): Promise<void> {
 }
 
 export default function CreateReminderScreen() {
-  const insets = useSafeAreaInsets();
+  const footerInset = useFooterInset();
   /*
    * New, for an event (?eventId=) or on its own; or editing one (?edit=).
    *
@@ -329,7 +328,7 @@ export default function CreateReminderScreen() {
       </KeyboardScroll>
 
       {/* Actions */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pt-3 bg-background flex-row gap-3" style={{ paddingBottom: insets.bottom + 16 }}>
+      <View className="absolute bottom-0 left-0 right-0 px-5 pt-3 bg-background flex-row gap-3" style={{ paddingBottom: footerInset + 16 }}>
         <Pressable
           onPress={() => router.back()}
           className="flex-1 rounded-2xl py-3.5 items-center bg-card active:scale-[0.97]"

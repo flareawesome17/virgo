@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { ArrowLeftIcon, MusicIcon, UploadIcon } from 'lucide-react-native';
@@ -37,6 +37,7 @@ export default function AudioScreen() {
   }>();
   const { albumId } = params;
   const { isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   const [refreshing, setRefreshing] = useState(false);
   const { data: album, refetch: refetchAlbum } = useAlbum(albumId);
@@ -117,7 +118,7 @@ export default function AudioScreen() {
       <FlatList
         data={files}
         keyExtractor={(item) => item.key}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: Math.max(40, insets.bottom + 32) }}
         renderItem={({ item, index }) => (
           <RecordingRow
             file={item}

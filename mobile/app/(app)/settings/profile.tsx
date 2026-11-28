@@ -1,10 +1,10 @@
 import {
   View, Text, Pressable, TextInput, Alert, Switch, useWindowDimensions,
 } from 'react-native';
-import { KeyboardFrame, KeyboardScroll } from '@/components/KeyboardForm';
+import { KeyboardFrame, KeyboardScroll, useFooterInset } from '@/components/KeyboardForm';
 import { KEYBOARD_DONE } from '@/components/KeyboardDoneBar';
 import { RemoteImage } from '@/components/RemoteImage';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useDiscardGuard } from '@/src/lib/discard-guard';
 import { useEffect, useState } from 'react';
@@ -41,7 +41,7 @@ cssInterop(Building2Icon, { className: { target: 'style', nativeStyleToProp: { c
 cssInterop(AtSignIcon, { className: { target: 'style', nativeStyleToProp: { color: true } } });
 
 export default function ProfileSettingsScreen() {
-  const insets = useSafeAreaInsets();
+  const footerInset = useFooterInset();
   const { width } = useWindowDimensions();
   const { isDark } = useTheme();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
@@ -579,7 +579,7 @@ export default function ProfileSettingsScreen() {
       </KeyboardScroll>
 
       {/* Save FAB */}
-      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: insets.bottom + 16 }}>
+      <View className="absolute bottom-0 left-0 right-0 px-5 pt-4 bg-background" style={{ paddingBottom: footerInset + 16 }}>
         <Pressable
           onPress={handleSave}
           // Roles are required and a part-filled address is rejected, so both

@@ -7,6 +7,7 @@ import { formatBytes } from '@/src/api';
 import { useAlbum, useAlbums, useAuth, useTheme, useUsage } from '@/src/hooks';
 import { FormCard, FormHint, FormNotice, FormRow, FormSection } from '@/components/Form';
 import { FormHeader } from '@/components/FormHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InsetFrame } from '@/components/InsetFrame';
 import { LoadFailed } from '@/components/LoadFailed';
 import { ChoiceSheet } from '@/components/WorkspaceBits';
@@ -40,6 +41,7 @@ function canUploadTo(access: string | null | undefined): boolean {
  */
 export default function UploadScreen() {
   const { isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const palette = isDark ? PALETTES.dark : PALETTES.light;
   // `kind` carries the intent of whatever opened this screen. Tapping "Upload
   // audio" inside an album's Audio list used to land here with "Photos &
@@ -99,7 +101,7 @@ export default function UploadScreen() {
   return (
     <InsetFrame edges={['top']}>
       <FormHeader title="Upload" subtitle={album ? `To ${album.name}` : undefined} />
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40, gap: 24 }}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: Math.max(40, insets.bottom + 32), gap: 24 }}>
         {refused && (
           <FormNotice
             title={`You can’t add to ${album?.name ?? 'this album'}.`}

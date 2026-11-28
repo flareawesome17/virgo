@@ -7,7 +7,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { RemoteImage } from '@/components/RemoteImage';
 import { VideoThumbnail } from '@/components/VideoThumbnail';
@@ -53,6 +53,7 @@ export default function VideosScreen() {
   }>();
   const { albumId } = params;
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   // Which film is playing belongs to the app now, not to this screen — that
   // is what lets it keep playing after you go back to the album.
   const { open: openFilm } = useVideoPlayback();
@@ -188,7 +189,7 @@ export default function VideosScreen() {
             stickySectionHeadersEnabled
             contentContainerStyle={{
               paddingTop: CHROME_HEIGHT,
-              paddingBottom: 40,
+              paddingBottom: Math.max(40, insets.bottom + 32),
             }}
             onEndReachedThreshold={0.6}
             onEndReached={() => {

@@ -1,7 +1,8 @@
 import { createContext, useContext, type ReactNode, type Ref } from 'react';
 import { ScrollView, View, type ScrollViewProps, type StyleProp, type ViewStyle } from 'react-native';
 import { NavigationContext } from '@react-navigation/native';
-import { useKeyboardAwareScroll } from '@/src/lib/keyboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardAwareScroll, useKeyboardUp } from '@/src/lib/keyboard';
 
 type Keyboard = ReturnType<typeof useKeyboardAwareScroll>;
 
@@ -19,6 +20,20 @@ export function useKeyboardReveal() {
     onFocus: keyboard?.onFocus,
     onGrow: keyboard?.onGrow,
   };
+}
+
+/**
+ * The bottom inset a footer pads for: the home indicator or the navigation
+ * bar, or nothing while the keyboard is up, because then the keyboard covers
+ * that strip. The chat composer already did this. The forms' footers kept the
+ * inset and sat that far above the keyboard: on an Android phone with
+ * three-button navigation, 48 points of empty band between the Save button and
+ * the keys, taken out of the little room the form had left.
+ */
+export function useFooterInset(): number {
+  const insets = useSafeAreaInsets();
+  const keyboardUp = useKeyboardUp();
+  return keyboardUp ? 0 : insets.bottom;
 }
 
 /**
